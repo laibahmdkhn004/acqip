@@ -1,0 +1,73 @@
+# =========================================
+# Python
+# =========================================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+downloads/
+parts/
+sdist/
+var/
+wheels/
+.installed.cfg
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Virtual environments
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# =========================================
+# Django
+# =========================================
+# Django stuff:
+*.log
+staticfiles/
+media/
+static/
+# If using collectstatic --> STATIC_ROOT directory
+static_root/
+
+# Django cache
+*.cache
+
+# Local sqlite databases
+db.sqlite3
+db.sqlite3-journal
+
+# Django debug toolbar panels
+debug_toolbar/
+
+# =========================================
+# IDE / Editor
+# =========================================
+# VS Code
+.vscode/
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iml
+
+# =========================================
+# OS
+# =========================================
+.DS_Store
+Thumbs.db
+
+# =========================================
+# Environment variables
+# =========================================
+.env
+.env.*
+*.local
+*.secret
