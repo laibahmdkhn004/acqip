@@ -1,8 +1,857 @@
-﻿{% extends "accounts/base.html" %}
-{% block title %}Admin Dashboard{% endblock %}
-{% block content %}
-<div class="bg-white p-6 rounded shadow">
-  <h1 class="text-2xl">Admin Dashboard</h1>
-  <p>Welcome, {{ user.username }}. You are an Admin.</p>
-</div>
-{% endblock %}
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Admin Dashboard - ACQIP (Revamped + CRUD)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      body {
+        font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial;
+      }
+      .avatar {
+        width: 38px;
+        height: 38px;
+        border-radius: 9999px;
+        object-fit: cover;
+        border: 2px solid rgba(0, 0, 0, 0.06);
+      }
+      .card-skeleton {
+        min-height: 120px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #9ca3af;
+      }
+    </style>
+  </head>
+  <body class="min-h-screen bg-gray-50 text-gray-800">
+    <!-- Header (purple) -->
+    <header class="bg-purple-700 text-white fixed w-full z-30 shadow">
+      <div
+        class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between"
+      >
+        <div class="flex items-center gap-3">
+          <button class="p-2 rounded-md hover:bg-white/10">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-6 w-6"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M4 6h16M4 12h16M4 18h16"
+              />
+            </svg>
+          </button>
+          <a href="/" class="flex items-center gap-3">
+            <img
+              src="{% static 'images/logo.png' %}"
+              alt="CUAST"
+              class="h-10 w-10 rounded-md object-cover"
+              onerror="this.style.display='none'"
+            />
+            <div class="hidden sm:block">
+              <div class="font-semibold">
+                Capital University of Science and Technology
+              </div>
+              <div class="text-xs text-white/80 -mt-1">
+                Admin Portal — ACQIP
+              </div>
+            </div>
+          </a>
+        </div>
+        <div class="flex items-center gap-3">
+          <input
+            type="search"
+            id="global-search"
+            placeholder="Search courses, users, forms..."
+            class="px-3 py-2 rounded-lg bg-white/10 placeholder-white/70 text-white outline-none w-64 hidden sm:block"
+          />
+          <div class="bg-white/7 px-2 py-1 rounded-lg flex items-center gap-2">
+            <img
+              src="https://ui-avatars.com/api/?name={{ user.username|default:'Admin' }}&background=ffffff&color=555555"
+              alt="avatar"
+              class="avatar"
+            />
+            <div class="hidden sm:block text-sm text-white/90">
+              <div class="font-medium">
+                {{ user.username|default:'Administrator' }}
+              </div>
+              <div class="text-xs text-white/70">Admin</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="pt-20 max-w-6xl mx-auto px-4">
+      <div class="grid grid-cols-1 lg:grid-cols-6 gap-6">
+        <!-- Sidebar -->
+        <aside
+          class="lg:col-span-1 bg-white rounded-xl shadow p-4 sticky top-28 hidden lg:block"
+        >
+          <nav class="space-y-1 text-sm">
+            <a
+              href="#dashboard"
+              class="flex items-center gap-3 p-2 rounded-md bg-purple-50 text-purple-700 font-medium"
+              >Dashboard</a
+            >
+            <a
+              href="#courses"
+              class="flex items-center gap-3 p-2 rounded-md hover:bg-gray-50"
+              >Courses</a
+            >
+            <a
+              href="#users"
+              class="flex items-center gap-3 p-2 rounded-md hover:bg-gray-50"
+              >Users</a
+            >
+            <a
+              href="#forms"
+              class="flex items-center gap-3 p-2 rounded-md hover:bg-gray-50"
+              >Forms</a
+            >
+            <a
+              href="#settings"
+              class="flex items-center gap-3 p-2 rounded-md hover:bg-gray-50"
+              >Settings</a
+            >
+          </nav>
+          <div class="mt-6 text-xs text-gray-500">© 2025 ACQIP</div>
+        </aside>
+
+        <!-- Main content -->
+        <main class="lg:col-span-5">
+          <section id="dashboard" class="mb-6">
+            <div class="flex items-center justify-between">
+              <div>
+                <h1 class="text-2xl font-semibold">Admin Dashboard</h1>
+                <p class="text-sm text-gray-600 mt-1">
+                  Manage courses, users and forms from a single place.
+                </p>
+              </div>
+              <div class="flex gap-2">
+                <button
+                  id="open-course-create"
+                  class="px-3 py-2 bg-purple-600 text-white rounded shadow-sm"
+                >
+                  Create course
+                </button>
+                <button
+                  id="open-user-create"
+                  class="px-3 py-2 bg-white border rounded shadow-sm"
+                >
+                  Create user
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <!-- Dynamic area: Courses / Users / Forms -->
+          <section id="content-area">
+            <!-- content loaded by JS -->
+            <div class="card-skeleton">Loading dashboard…</div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <!-- Modals (single modal used for create/edit for each resource) -->
+    <div
+      id="modal"
+      class="fixed inset-0 bg-black/40 hidden items-center justify-center z-40"
+    >
+      <div class="bg-white rounded-lg max-w-2xl w-full p-6 shadow-lg">
+        <div class="flex items-start justify-between">
+          <h3 id="modal-title" class="text-lg font-medium">Modal</h3>
+          <button id="close-modal" class="text-gray-500 hover:text-gray-700">
+            ✕
+          </button>
+        </div>
+        <div id="modal-body" class="mt-4"></div>
+      </div>
+    </div>
+
+    <footer class="fixed bottom-0 left-0 right-0 bg-white/90 shadow-inner">
+      <div
+        class="max-w-6xl mx-auto px-4 py-2 text-sm text-gray-600 text-center"
+      >
+        © 2025 ACQIP. Built with Django & Tailwind CSS
+      </div>
+    </footer>
+
+    <!-- Inline JS to drive CRUD actions -->
+    <script>
+      const API = {
+        courses: "{% url 'api_courses' %}",
+        courses_create: "{% url 'api_courses_create' %}",
+        courses_update: function (id) {
+          return `{% url 'api_course_update' 0 %}`.replace("0", id);
+        },
+        courses_delete: function (id) {
+          return `{% url 'api_course_delete' 0 %}`.replace("0", id);
+        },
+
+        users: "{% url 'api_users' %}",
+        users_create: "{% url 'api_users_create' %}",
+        users_update: function (id) {
+          return `{% url 'api_user_update' 0 %}`.replace("0", id);
+        },
+        users_delete: function (id) {
+          return `{% url 'api_user_delete' 0 %}`.replace("0", id);
+        },
+
+        forms: "{% url 'api_forms' %}",
+        forms_create: "{% url 'api_forms_create' %}",
+        forms_update: function (id) {
+          return `{% url 'api_form_update' 0 %}`.replace("0", id);
+        },
+        forms_delete: function (id) {
+          return `{% url 'api_form_delete' 0 %}`.replace("0", id);
+        },
+      };
+
+      const modal = document.getElementById("modal");
+      const modalTitle = document.getElementById("modal-title");
+      const modalBody = document.getElementById("modal-body");
+      const closeModal = document.getElementById("close-modal");
+      closeModal.onclick = () => modal.classList.add("hidden");
+
+      // Utility: fetch JSON with CSRF
+      function csrftoken() {
+        const cookie = document.cookie
+          .split(";")
+          .map((c) => c.trim())
+          .find((c) => c.startsWith("csrftoken="));
+        return cookie ? cookie.split("=")[1] : "";
+      }
+
+      async function fetchJSON(url, opts = {}) {
+        const options = {
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": csrftoken(),
+          },
+          ...opts,
+        };
+
+        const res = await fetch(url, options);
+        if (!res.ok) {
+          const errorText = await res.text();
+          throw new Error(errorText || `HTTP error! status: ${res.status}`);
+        }
+        return res.json();
+      }
+
+      // Render main dashboard content (lists)
+      async function renderDashboard() {
+        const container = document.getElementById("content-area");
+        container.innerHTML = `
+          <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div class="bg-white rounded-lg shadow p-4">
+              <div class="flex justify-between items-center">
+                <h3 class="font-medium">Courses</h3>
+                <a href="#" id="manage-courses" class="text-sm text-purple-600">Manage</a>
+              </div>
+              <div id="courses-list" class="mt-3"></div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow p-4">
+              <div class="flex justify-between items-center">
+                <h3 class="font-medium">Users</h3>
+                <a href="#" id="manage-users" class="text-sm text-purple-600">Manage</a>
+              </div>
+              <div id="users-list" class="mt-3"></div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow p-4 md:col-span-2">
+              <div class="flex justify-between items-center">
+                <h3 class="font-medium">Forms</h3>
+                <a href="#" id="manage-forms" class="text-sm text-purple-600">Manage</a>
+              </div>
+              <div id="forms-list" class="mt-3"></div>
+            </div>
+          </div>
+        `;
+
+        // wire up manage links
+        document.getElementById("manage-courses").onclick = (e) => {
+          e.preventDefault();
+          showCourses();
+        };
+        document.getElementById("manage-users").onclick = (e) => {
+          e.preventDefault();
+          showUsers();
+        };
+        document.getElementById("manage-forms").onclick = (e) => {
+          e.preventDefault();
+          showForms();
+        };
+
+        // quick previews
+        await loadCoursesPreview();
+        await loadUsersPreview();
+        await loadFormsPreview();
+      }
+
+      async function loadCoursesPreview() {
+        const el = document.getElementById("courses-list");
+        el.innerHTML = "Loading…";
+        try {
+          const data = await fetchJSON(API.courses);
+          if (data.length === 0)
+            el.innerHTML =
+              '<div class="text-sm text-gray-500">No courses yet</div>';
+          else {
+            el.innerHTML =
+              '<ul class="space-y-2">' +
+              data
+                .slice(0, 5)
+                .map(
+                  (c) =>
+                    `<li class="flex justify-between items-center"><div><div class="font-medium">${
+                      c.title
+                    }</div><div class="text-xs text-gray-500">${
+                      c.code || ""
+                    }</div></div></li>`
+                )
+                .join("") +
+              "</ul>";
+          }
+        } catch (err) {
+          console.error("Failed to load courses:", err);
+          el.innerHTML =
+            '<div class="text-sm text-red-500">Failed to load courses</div>';
+        }
+      }
+
+      async function loadUsersPreview() {
+        const el = document.getElementById("users-list");
+        el.innerHTML = "Loading…";
+        try {
+          const data = await fetchJSON(API.users);
+          if (!data.results || data.results.length === 0)
+            el.innerHTML = '<div class="text-sm text-gray-500">No users</div>';
+          else {
+            el.innerHTML =
+              '<ul class="space-y-2">' +
+              data.results
+                .slice(0, 5)
+                .map(
+                  (u) =>
+                    `<li class="flex items-center gap-3"><img src="https://ui-avatars.com/api/?name=${encodeURIComponent(
+                      u.username
+                    )}&background=ddd&color=555" class="h-8 w-8 rounded-full"/><div><div class="font-medium">${
+                      u.username
+                    }</div><div class="text-xs text-gray-500">${
+                      u.role || ""
+                    }</div></div></li>`
+                )
+                .join("") +
+              "</ul>";
+          }
+        } catch (err) {
+          console.error("Failed to load users:", err);
+          el.innerHTML =
+            '<div class="text-sm text-red-500">Failed to load users</div>';
+        }
+      }
+
+      async function loadFormsPreview() {
+        const el = document.getElementById("forms-list");
+        el.innerHTML = "Loading…";
+        try {
+          const data = await fetchJSON(API.forms);
+          if (data.length === 0)
+            el.innerHTML = '<div class="text-sm text-gray-500">No forms</div>';
+          else
+            el.innerHTML =
+              '<ul class="space-y-2">' +
+              data
+                .slice(0, 5)
+                .map(
+                  (f) =>
+                    `<li><div class="font-medium">${
+                      f.name
+                    }</div><div class="text-xs text-gray-500">${
+                      f.description || ""
+                    }</div></li>`
+                )
+                .join("") +
+              "</ul>";
+        } catch (err) {
+          console.error("Failed to load forms:", err);
+          el.innerHTML =
+            '<div class="text-sm text-red-500">Failed to load forms</div>';
+        }
+      }
+
+      // Management views
+      async function showCourses() {
+        modalTitle.textContent = "Courses";
+        modalBody.innerHTML = `<div id="courses-manage"></div>`;
+        modal.classList.remove("hidden");
+        const container = document.getElementById("courses-manage");
+        container.innerHTML = '<div class="py-6">Loading courses…</div>';
+        try {
+          const data = await fetchJSON(API.courses);
+          container.innerHTML = `
+            <div class="flex justify-between items-center mb-4"><h4 class="font-medium">All courses</h4><button id="create-course" class="px-3 py-2 bg-purple-600 text-white rounded">New course</button></div>
+            <div id="courses-table">${
+              data.length
+                ? '<table class="w-full text-left text-sm"><thead><tr><th>Title</th><th>Code</th><th>Actions</th></tr></thead><tbody>' +
+                  data
+                    .map(
+                      (c) =>
+                        `<tr class="border-t"><td class="py-2 font-medium">${
+                          c.title
+                        }</td><td>${c.code || ""}</td><td><button data-id="${
+                          c.id
+                        }" class="edit-course text-xs text-purple-600 mr-2">Edit</button> <button data-id="${
+                          c.id
+                        }" class="delete-course text-xs text-red-600">Delete</button></td></tr>`
+                    )
+                    .join("") +
+                  "</tbody></table>"
+                : '<div class="text-sm text-gray-500">No courses found</div>'
+            }</div>`;
+
+          document.getElementById("create-course").onclick =
+            openCourseCreateModal;
+          Array.from(document.getElementsByClassName("edit-course")).forEach(
+            (btn) =>
+              (btn.onclick = (e) => openCourseEditModal(e.target.dataset.id))
+          );
+          Array.from(document.getElementsByClassName("delete-course")).forEach(
+            (btn) => (btn.onclick = (e) => deleteCourse(e.target.dataset.id))
+          );
+        } catch (err) {
+          console.error("Failed to load courses:", err);
+          container.innerHTML =
+            '<div class="text-sm text-red-500">Failed to load courses</div>';
+        }
+      }
+
+      function openCourseCreateModal() {
+        modalTitle.textContent = "Create course";
+        modalBody.innerHTML = `
+          <form id="course-form" class="space-y-3">
+            <div><label class="block text-sm">Title *</label><input name="title" required class="w-full border px-3 py-2 rounded" /></div>
+            <div><label class="block text-sm">Code *</label><input name="code" required class="w-full border px-3 py-2 rounded" /></div>
+            <div><label class="block text-sm">Description</label><textarea name="description" class="w-full border px-3 py-2 rounded"></textarea></div>
+            <div class="flex gap-2 justify-end mt-3">
+              <button type="submit" class="px-3 py-2 bg-purple-600 text-white rounded">Create</button>
+              <button type="button" id="cancel-course" class="px-3 py-2 border rounded">Cancel</button>
+            </div>
+          </form>
+        `;
+        modal.classList.remove("hidden");
+        document.getElementById("cancel-course").onclick = () =>
+          modal.classList.add("hidden");
+        document.getElementById("course-form").onsubmit = async (e) => {
+          e.preventDefault();
+          const fd = new FormData(e.target);
+          const payload = Object.fromEntries(fd.entries());
+          try {
+            await fetchJSON(API.courses_create, {
+              method: "POST",
+              body: JSON.stringify(payload),
+            });
+            modal.classList.add("hidden");
+            renderDashboard();
+          } catch (err) {
+            alert("Failed to create course: " + err.message);
+          }
+        };
+      }
+
+      async function openCourseEditModal(id) {
+        modalTitle.textContent = "Edit course";
+        modalBody.innerHTML = "<div>Loading…</div>";
+        modal.classList.remove("hidden");
+        try {
+          const data = await fetchJSON(API.courses);
+          const course = data.find((c) => c.id == id);
+          if (!course) throw new Error("Course not found");
+
+          modalBody.innerHTML = `
+            <form id="course-edit-form" class="space-y-3">
+              <div><label class="block text-sm">Title *</label><input name="title" value="${
+                course.title || ""
+              }" required class="w-full border px-3 py-2 rounded" /></div>
+              <div><label class="block text-sm">Code *</label><input name="code" value="${
+                course.code || ""
+              }" required class="w-full border px-3 py-2 rounded" /></div>
+              <div><label class="block text-sm">Description</label><textarea name="description" class="w-full border px-3 py-2 rounded">${
+                course.description || ""
+              }</textarea></div>
+              <div class="flex gap-2 justify-end mt-3">
+                <button type="submit" class="px-3 py-2 bg-purple-600 text-white rounded">Save</button>
+                <button type="button" id="cancel-edit-course" class="px-3 py-2 border rounded">Cancel</button>
+              </div>
+            </form>
+          `;
+          document.getElementById("cancel-edit-course").onclick = () =>
+            modal.classList.add("hidden");
+          document.getElementById("course-edit-form").onsubmit = async (e) => {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            const payload = Object.fromEntries(fd.entries());
+            try {
+              await fetchJSON(API.courses_update(id), {
+                method: "PUT",
+                body: JSON.stringify(payload),
+              });
+              modal.classList.add("hidden");
+              renderDashboard();
+            } catch (err) {
+              alert("Failed to update: " + err.message);
+            }
+          };
+        } catch (err) {
+          console.error("Failed to load course:", err);
+          modalBody.innerHTML =
+            '<div class="text-sm text-red-500">Failed to load course</div>';
+        }
+      }
+
+      async function deleteCourse(id) {
+        if (!confirm("Are you sure you want to delete this course?")) return;
+        try {
+          await fetchJSON(API.courses_delete(id), {
+            method: "DELETE",
+          });
+          renderDashboard();
+        } catch (err) {
+          alert("Failed to delete: " + err.message);
+        }
+      }
+
+      // -- Users management --
+      async function showUsers() {
+        modalTitle.textContent = "Users";
+        modalBody.innerHTML = `<div id="users-manage">Loading…</div>`;
+        modal.classList.remove("hidden");
+        try {
+          const data = await fetchJSON(API.users);
+          const html = `
+            <div class="flex justify-between items-center mb-4"><h4 class="font-medium">All users</h4><button id="create-user" class="px-3 py-2 bg-green-600 text-white rounded">New user</button></div>
+            <div>${
+              data.results.length
+                ? '<table class="w-full text-left text-sm"><thead><tr><th>Username</th><th>Email</th><th>Role</th><th>Actions</th></tr></thead><tbody>' +
+                  data.results
+                    .map(
+                      (u) =>
+                        `<tr class="border-t"><td class="py-2 font-medium">${
+                          u.username
+                        }</td><td>${u.email || ""}</td><td>${
+                          u.role || ""
+                        }</td><td><button data-id="${
+                          u.id
+                        }" class="edit-user text-xs text-purple-600 mr-2">Edit</button> <button data-id="${
+                          u.id
+                        }" class="delete-user text-xs text-red-600">Delete</button></td></tr>`
+                    )
+                    .join("") +
+                  "</tbody></table>"
+                : '<div class="text-sm text-gray-500">No users</div>'
+            }</div>`;
+          document.getElementById("users-manage").innerHTML = html;
+          document.getElementById("create-user").onclick = openUserCreateModal;
+          Array.from(document.getElementsByClassName("edit-user")).forEach(
+            (btn) =>
+              (btn.onclick = (e) => openUserEditModal(e.target.dataset.id))
+          );
+          Array.from(document.getElementsByClassName("delete-user")).forEach(
+            (btn) => (btn.onclick = (e) => deleteUser(e.target.dataset.id))
+          );
+        } catch (err) {
+          console.error("Failed to load users:", err);
+          document.getElementById("users-manage").innerHTML =
+            '<div class="text-sm text-red-500">Failed to load users</div>';
+        }
+      }
+
+      function openUserCreateModal() {
+        modalTitle.textContent = "Create user";
+        modalBody.innerHTML = `
+        <form id="user-form" class="space-y-3">
+          <div><label class="block text-sm">Username *</label><input name="username" required class="w-full border px-3 py-2 rounded" /></div>
+          <div><label class="block text-sm">Email</label><input name="email" type="email" class="w-full border px-3 py-2 rounded" /></div>
+          <div><label class="block text-sm">Password *</label><input name="password" type="password" required class="w-full border px-3 py-2 rounded" /></div>
+          <div><label class="block text-sm">Role *</label>
+            <select name="role" required class="w-full border px-3 py-2 rounded">
+              <option value="">Select Role</option>
+              <option value="faculty">Faculty</option>
+              <option value="course_collaborator">Course Collaborator</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+          <div class="flex gap-2 justify-end mt-3">
+            <button class="px-3 py-2 bg-green-600 text-white rounded">Create</button>
+            <button type="button" id="cancel-user" class="px-3 py-2 border rounded">Cancel</button>
+          </div>
+        </form>
+      `;
+        modal.classList.remove("hidden");
+        document.getElementById("cancel-user").onclick = () =>
+          modal.classList.add("hidden");
+        document.getElementById("user-form").onsubmit = async (e) => {
+          e.preventDefault();
+          const payload = Object.fromEntries(new FormData(e.target).entries());
+          try {
+            await fetchJSON(API.users_create, {
+              method: "POST",
+              body: JSON.stringify(payload),
+            });
+            modal.classList.add("hidden");
+            renderDashboard();
+          } catch (err) {
+            alert("Create failed: " + err.message);
+          }
+        };
+      }
+
+      async function openUserEditModal(id) {
+        modalTitle.textContent = "Edit user";
+        modalBody.innerHTML = "Loading…";
+        modal.classList.remove("hidden");
+        try {
+          const data = await fetchJSON(API.users);
+          const user = data.results.find((u) => u.id == id);
+          if (!user) throw new Error("User not found");
+
+          modalBody.innerHTML = `
+        <form id="user-edit-form" class="space-y-3">
+          <div><label class="block text-sm">Username *</label><input name="username" value="${
+            user.username || ""
+          }" required class="w-full border px-3 py-2 rounded" /></div>
+          <div><label class="block text-sm">Email</label><input name="email" type="email" value="${
+            user.email || ""
+          }" class="w-full border px-3 py-2 rounded" /></div>
+          <div><label class="block text-sm">New Password (leave blank to keep current)</label><input name="password" type="password" class="w-full border px-3 py-2 rounded" /></div>
+          <div><label class="block text-sm">Role *</label>
+            <select name="role" required class="w-full border px-3 py-2 rounded">
+              <option value="faculty" ${
+                user.role === "faculty" ? "selected" : ""
+              }>Faculty</option>
+              <option value="course_collaborator" ${
+                user.role === "course_collaborator" ? "selected" : ""
+              }>Course Collaborator</option>
+              <option value="admin" ${
+                user.role === "admin" ? "selected" : ""
+              }>Admin</option>
+            </select>
+          </div>
+          <div class="flex gap-2 justify-end mt-3">
+            <button class="px-3 py-2 bg-purple-600 text-white rounded">Save</button>
+            <button type="button" id="cancel-user-edit" class="px-3 py-2 border rounded">Cancel</button>
+          </div>
+        </form>
+      `;
+          document.getElementById("cancel-user-edit").onclick = () =>
+            modal.classList.add("hidden");
+          document.getElementById("user-edit-form").onsubmit = async (e) => {
+            e.preventDefault();
+            const payload = Object.fromEntries(
+              new FormData(e.target).entries()
+            );
+            // Remove password if empty
+            if (!payload.password) {
+              delete payload.password;
+            }
+            try {
+              await fetchJSON(API.users_update(id), {
+                method: "PUT",
+                body: JSON.stringify(payload),
+              });
+              modal.classList.add("hidden");
+              renderDashboard();
+            } catch (err) {
+              alert("Update failed: " + err.message);
+            }
+          };
+        } catch (err) {
+          console.error("Failed to load user:", err);
+          modalBody.innerHTML =
+            '<div class="text-sm text-red-500">Failed to load user</div>';
+        }
+      }
+
+      async function deleteUser(id) {
+        if (!confirm("Are you sure you want to delete this user?")) return;
+        try {
+          await fetchJSON(API.users_delete(id), {
+            method: "DELETE",
+          });
+          renderDashboard();
+        } catch (err) {
+          alert("Delete failed: " + err.message);
+        }
+      }
+
+      // -- Forms management --
+      async function showForms() {
+        modalTitle.textContent = "Forms";
+        modalBody.innerHTML = `<div id="forms-manage">Loading…</div>`;
+        modal.classList.remove("hidden");
+        try {
+          const data = await fetchJSON(API.forms);
+          const html = `
+        <div class="flex justify-between items-center mb-4"><h4 class="font-medium">All forms</h4><button id="create-form" class="px-3 py-2 bg-indigo-600 text-white rounded">New form</button></div>
+        <div>${
+          data.length
+            ? '<ul class="space-y-2">' +
+              data
+                .map(
+                  (f) =>
+                    `<li class="flex justify-between items-center border-t py-2"><div><div class="font-medium">${
+                      f.name
+                    }</div><div class="text-xs text-gray-500">${
+                      f.description || ""
+                    }</div></div><div><button data-id="${
+                      f.id
+                    }" class="edit-form text-xs text-purple-600 mr-2">Edit</button> <button data-id="${
+                      f.id
+                    }" class="delete-form text-xs text-red-600">Delete</button></div></li>`
+                )
+                .join("") +
+              "</ul>"
+            : '<div class="text-sm text-gray-500">No forms</div>'
+        }</div>`;
+          document.getElementById("forms-manage").innerHTML = html;
+          document.getElementById("create-form").onclick = openFormCreate;
+          Array.from(document.getElementsByClassName("edit-form")).forEach(
+            (btn) => (btn.onclick = (e) => openFormEdit(e.target.dataset.id))
+          );
+          Array.from(document.getElementsByClassName("delete-form")).forEach(
+            (btn) => (btn.onclick = (e) => deleteForm(e.target.dataset.id))
+          );
+        } catch (err) {
+          console.error("Failed to load forms:", err);
+          document.getElementById("forms-manage").innerHTML =
+            '<div class="text-sm text-red-500">Failed to load forms</div>';
+        }
+      }
+
+      function openFormCreate() {
+        modalTitle.textContent = "Create form";
+        modalBody.innerHTML = `
+        <form id="form-create" class="space-y-3">
+          <div><label class="block text-sm">Form name *</label><input name="name" required class="w-full border px-3 py-2 rounded" /></div>
+          <div><label class="block text-sm">Description</label><textarea name="description" class="w-full border px-3 py-2 rounded"></textarea></div>
+          <div class="flex gap-2 justify-end mt-3">
+            <button class="px-3 py-2 bg-indigo-600 text-white rounded">Create</button>
+            <button type="button" id="cancel-form-create" class="px-3 py-2 border rounded">Cancel</button>
+          </div>
+        </form>
+      `;
+        modal.classList.remove("hidden");
+        document.getElementById("cancel-form-create").onclick = () =>
+          modal.classList.add("hidden");
+        document.getElementById("form-create").onsubmit = async (e) => {
+          e.preventDefault();
+          const payload = Object.fromEntries(new FormData(e.target).entries());
+          try {
+            await fetchJSON(API.forms_create, {
+              method: "POST",
+              body: JSON.stringify(payload),
+            });
+            modal.classList.add("hidden");
+            renderDashboard();
+          } catch (err) {
+            alert("Create failed: " + err.message);
+          }
+        };
+      }
+
+      async function openFormEdit(id) {
+        modalTitle.textContent = "Edit form";
+        modalBody.innerHTML = "Loading…";
+        modal.classList.remove("hidden");
+        try {
+          const data = await fetchJSON(API.forms);
+          const form = data.find((f) => f.id == id);
+          if (!form) throw new Error("Form not found");
+
+          modalBody.innerHTML = `
+        <form id="form-edit" class="space-y-3">
+          <div><label class="block text-sm">Form name *</label><input name="name" value="${
+            form.name || ""
+          }" required class="w-full border px-3 py-2 rounded" /></div>
+          <div><label class="block text-sm">Description</label><textarea name="description" class="w-full border px-3 py-2 rounded">${
+            form.description || ""
+          }</textarea></div>
+          <div class="flex gap-2 justify-end mt-3">
+            <button class="px-3 py-2 bg-indigo-600 text-white rounded">Save</button>
+            <button type="button" id="cancel-form-edit" class="px-3 py-2 border rounded">Cancel</button>
+          </div>
+        </form>
+      `;
+          document.getElementById("cancel-form-edit").onclick = () =>
+            modal.classList.add("hidden");
+          document.getElementById("form-edit").onsubmit = async (e) => {
+            e.preventDefault();
+            const payload = Object.fromEntries(
+              new FormData(e.target).entries()
+            );
+            try {
+              await fetchJSON(API.forms_update(id), {
+                method: "PUT",
+                body: JSON.stringify(payload),
+              });
+              modal.classList.add("hidden");
+              renderDashboard();
+            } catch (err) {
+              alert("Save failed: " + err.message);
+            }
+          };
+        } catch (err) {
+          console.error("Failed to load form:", err);
+          modalBody.innerHTML =
+            '<div class="text-sm text-red-500">Failed to load form</div>';
+        }
+      }
+
+      async function deleteForm(id) {
+        if (!confirm("Are you sure you want to delete this form?")) return;
+        try {
+          await fetchJSON(API.forms_delete(id), {
+            method: "DELETE",
+          });
+          renderDashboard();
+        } catch (err) {
+          alert("Delete failed: " + err.message);
+        }
+      }
+
+      // initial setup
+      document.getElementById("open-course-create").onclick =
+        openCourseCreateModal;
+      document.getElementById("open-user-create").onclick = openUserCreateModal;
+
+      // Initialize dashboard when page loads
+      window.addEventListener("DOMContentLoaded", () => {
+        renderDashboard();
+      });
+
+      // Close modal when clicking outside
+      modal.addEventListener("click", (e) => {
+        if (e.target === modal) {
+          modal.classList.add("hidden");
+        }
+      });
+    </script>
+  </body>
+</html>
