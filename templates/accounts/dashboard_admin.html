@@ -189,6 +189,26 @@
           </a>
           <a
             href="#"
+            data-page="departments"
+            class="nav-item flex items-center gap-3 p-2 rounded-md hover:bg-gray-50 text-gray-700"
+          >
+            <svg
+              class="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
+              ></path>
+            </svg>
+            Departments
+          </a>
+          <a
+            href="#"
             data-page="courses"
             class="nav-item flex items-center gap-3 p-2 rounded-md hover:bg-gray-50 text-gray-700"
           >
@@ -260,7 +280,8 @@
                 Admin Dashboard
               </h1>
               <p id="page-subtitle" class="text-sm text-gray-600 mt-1">
-                Manage courses, users and forms from a single place.
+                Manage departments, courses, users and forms from a single
+                place.
               </p>
             </div>
             <div id="action-buttons" class="flex gap-2">
@@ -289,6 +310,34 @@
                   id="quick-actions-dropdown"
                   class="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg py-2 hidden z-40 border border-gray-200"
                 >
+                  <button
+                    id="dropdown-create-department"
+                    class="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 flex items-center gap-3 transition-colors"
+                  >
+                    <div
+                      class="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center"
+                    >
+                      <svg
+                        class="w-4 h-4 text-blue-600"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
+                        ></path>
+                      </svg>
+                    </div>
+                    <div>
+                      <div class="font-medium">Create Department</div>
+                      <div class="text-xs text-gray-500">
+                        Add new department
+                      </div>
+                    </div>
+                  </button>
                   <button
                     id="dropdown-create-course"
                     class="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-purple-50 hover:text-purple-700 flex items-center gap-3 transition-colors"
@@ -380,7 +429,7 @@
           </div>
         </section>
 
-        <!-- Dynamic area: Courses / Users / Forms -->
+        <!-- Dynamic area: Dashboard / Departments / Courses / Users / Forms -->
         <section id="content-area">
           <!-- content loaded by JS -->
           <div class="card-skeleton">Loading dashboard…</div>
@@ -409,6 +458,30 @@
       </div>
     </div>
 
+    <!-- Faculty Assignment Modal - Larger for course selection -->
+    <div
+      id="faculty-assignment-modal"
+      class="fixed inset-0 bg-black/40 hidden items-center justify-center z-50 p-4"
+    >
+      <div class="bg-white rounded-xl max-w-2xl w-full p-6 shadow-2xl mx-auto">
+        <div class="flex items-start justify-between mb-4">
+          <h3
+            id="faculty-assignment-title"
+            class="text-xl font-semibold text-gray-900"
+          >
+            Assign Courses to Faculty
+          </h3>
+          <button
+            id="close-faculty-assignment-modal"
+            class="text-gray-500 hover:text-gray-700 text-xl p-1"
+          >
+            ✕
+          </button>
+        </div>
+        <div id="faculty-assignment-body" class="mt-2"></div>
+      </div>
+    </div>
+
     <footer class="bg-white/90 shadow-inner border-t">
       <div class="py-3 text-sm text-gray-600 text-center">
         © 2025 ACQIP. Built with Django & Tailwind CSS
@@ -417,7 +490,13 @@
 
     <!-- Inline JS to drive CRUD actions -->
     <script>
+      // Add to the API object
       const API = {
+        departments: "{% url 'api_departments' %}",
+        departments_create: "{% url 'api_departments_create' %}",
+        department_detail: function (id) {
+          return `{% url 'api_department_detail' 0 %}`.replace("0", id);
+        },
         courses: "{% url 'api_courses' %}",
         courses_create: "{% url 'api_courses_create' %}",
         courses_update: function (id) {
@@ -426,7 +505,6 @@
         courses_delete: function (id) {
           return `{% url 'api_course_delete' 0 %}`.replace("0", id);
         },
-
         users: "{% url 'api_users' %}",
         users_create: "{% url 'api_users_create' %}",
         users_update: function (id) {
@@ -435,7 +513,6 @@
         users_delete: function (id) {
           return `{% url 'api_user_delete' 0 %}`.replace("0", id);
         },
-
         forms: "{% url 'api_forms' %}",
         forms_create: "{% url 'api_forms_create' %}",
         forms_update: function (id) {
@@ -444,11 +521,18 @@
         forms_delete: function (id) {
           return `{% url 'api_form_delete' 0 %}`.replace("0", id);
         },
+        assign_courses: function (userId) {
+          return `{% url 'api_assign_courses_to_faculty' 0 %}`.replace(
+            "0",
+            userId
+          );
+        },
       };
 
       // Global variables
       let currentPage = "dashboard";
       let stats = {
+        departments: 0,
         courses: 0,
         users: 0,
         forms: 0,
@@ -458,11 +542,27 @@
       const modalTitle = document.getElementById("modal-title");
       const modalBody = document.getElementById("modal-body");
       const closeModal = document.getElementById("close-modal");
+
+      const facultyAssignmentModal = document.getElementById(
+        "faculty-assignment-modal"
+      );
+      const facultyAssignmentTitle = document.getElementById(
+        "faculty-assignment-title"
+      );
+      const facultyAssignmentBody = document.getElementById(
+        "faculty-assignment-body"
+      );
+      const closeFacultyAssignmentModal = document.getElementById(
+        "close-faculty-assignment-modal"
+      );
+
       const pageTitle = document.getElementById("page-title");
       const pageSubtitle = document.getElementById("page-subtitle");
       const actionButtons = document.getElementById("action-buttons");
 
       closeModal.onclick = () => modal.classList.add("hidden");
+      closeFacultyAssignmentModal.onclick = () =>
+        facultyAssignmentModal.classList.add("hidden");
 
       // Utility: fetch JSON with CSRF
       function csrftoken() {
@@ -567,7 +667,7 @@
           case "dashboard":
             pageTitle.textContent = "Admin Dashboard";
             pageSubtitle.textContent =
-              "Manage courses, users and forms from a single place.";
+              "Manage departments, courses, users and forms from a single place.";
             actionButtons.innerHTML = `
               <!-- Quick Actions Dropdown -->
               <div class="relative">
@@ -584,6 +684,20 @@
                   id="quick-actions-dropdown"
                   class="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg py-2 hidden z-40 border border-gray-200"
                 >
+                  <button
+                    id="dropdown-create-department"
+                    class="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 flex items-center gap-3 transition-colors"
+                  >
+                    <div class="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                      <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+                      </svg>
+                    </div>
+                    <div>
+                      <div class="font-medium">Create Department</div>
+                      <div class="text-xs text-gray-500">Add new department</div>
+                    </div>
+                  </button>
                   <button
                     id="dropdown-create-course"
                     class="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-purple-50 hover:text-purple-700 flex items-center gap-3 transition-colors"
@@ -632,11 +746,21 @@
             `;
             renderDashboard();
             break;
+          case "departments":
+            pageTitle.textContent = "Department Management";
+            pageSubtitle.textContent =
+              "Create and manage academic departments.";
+            actionButtons.innerHTML = `
+              <button id="open-department-create" class="px-4 py-2 bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors">Create Department</button>
+            `;
+            showDepartmentsPage();
+            break;
           case "courses":
             pageTitle.textContent = "Course Management";
-            pageSubtitle.textContent = "Create and manage courses.";
+            pageSubtitle.textContent =
+              "Create and manage courses with department assignments.";
             actionButtons.innerHTML = `
-              <button id="open-course-create" class="px-4 py-2 bg-purple-600 text-white rounded-lg shadow-sm hover:bg-purple-700 transition-colors">Create course</button>
+              <button id="open-course-create" class="px-4 py-2 bg-purple-600 text-white rounded-lg shadow-sm hover:bg-purple-700 transition-colors">Create Course</button>
             `;
             showCoursesPage();
             break;
@@ -644,7 +768,7 @@
             pageTitle.textContent = "User Management";
             pageSubtitle.textContent = "Manage system users and their roles.";
             actionButtons.innerHTML = `
-              <button id="open-user-create" class="px-4 py-2 bg-green-600 text-white rounded-lg shadow-sm hover:bg-green-700 transition-colors">Create user</button>
+              <button id="open-user-create" class="px-4 py-2 bg-green-600 text-white rounded-lg shadow-sm hover:bg-green-700 transition-colors">Create User</button>
             `;
             showUsersPage();
             break;
@@ -652,7 +776,7 @@
             pageTitle.textContent = "Form Management";
             pageSubtitle.textContent = "Create and manage forms.";
             actionButtons.innerHTML = `
-              <button id="create-form" class="px-4 py-2 bg-indigo-600 text-white rounded-lg shadow-sm hover:bg-indigo-700 transition-colors">Create form</button>
+              <button id="create-form" class="px-4 py-2 bg-indigo-600 text-white rounded-lg shadow-sm hover:bg-indigo-700 transition-colors">Create Form</button>
             `;
             showFormsPage();
             break;
@@ -660,6 +784,10 @@
 
         // Re-attach event listeners for action buttons
         setTimeout(() => {
+          if (document.getElementById("open-department-create")) {
+            document.getElementById("open-department-create").onclick =
+              openDepartmentCreateModal;
+          }
           if (document.getElementById("open-course-create")) {
             document.getElementById("open-course-create").onclick =
               openCourseCreateModal;
@@ -670,6 +798,10 @@
           }
           if (document.getElementById("create-form")) {
             document.getElementById("create-form").onclick = openFormCreate;
+          }
+          if (document.getElementById("dropdown-create-department")) {
+            document.getElementById("dropdown-create-department").onclick =
+              openDepartmentCreateModal;
           }
           if (document.getElementById("dropdown-create-course")) {
             document.getElementById("dropdown-create-course").onclick =
@@ -699,12 +831,15 @@
       // Load statistics
       async function loadStats() {
         try {
-          const [coursesData, usersData, formsData] = await Promise.all([
-            fetchJSON(API.courses),
-            fetchJSON(API.users),
-            fetchJSON(API.forms),
-          ]);
+          const [departmentsData, coursesData, usersData, formsData] =
+            await Promise.all([
+              fetchJSON(API.departments),
+              fetchJSON(API.courses),
+              fetchJSON(API.users),
+              fetchJSON(API.forms),
+            ]);
 
+          stats.departments = departmentsData.length;
           stats.courses = coursesData.length;
           stats.users = usersData.results ? usersData.results.length : 0;
           stats.forms = formsData.length;
@@ -719,7 +854,22 @@
 
         const container = document.getElementById("content-area");
         container.innerHTML = `
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <!-- Departments Card -->
+            <div class="bg-white rounded-xl shadow p-6 border-l-4 border-blue-500 hover:shadow-md transition-shadow">
+              <div class="flex items-center justify-between">
+                <div>
+                  <p class="text-sm font-medium text-gray-600">Total Departments</p>
+                  <p class="text-3xl font-bold text-gray-900">${stats.departments}</p>
+                </div>
+                <div class="p-3 bg-blue-100 rounded-lg">
+                  <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+                  </svg>
+                </div>
+              </div>
+            </div>
+
             <!-- Courses Card -->
             <div class="bg-white rounded-xl shadow p-6 border-l-4 border-purple-500 hover:shadow-md transition-shadow">
               <div class="flex items-center justify-between">
@@ -769,6 +919,14 @@
           <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
             <div class="bg-white rounded-lg shadow p-6 hover:shadow-md transition-shadow">
               <div class="flex justify-between items-center mb-4">
+                <h3 class="font-medium text-lg">Recent Departments</h3>
+                <a href="#" data-page="departments" class="text-sm text-blue-600 hover:text-blue-800 nav-quick-link">View All</a>
+              </div>
+              <div id="departments-list" class="mt-3"></div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow p-6 hover:shadow-md transition-shadow">
+              <div class="flex justify-between items-center mb-4">
                 <h3 class="font-medium text-lg">Recent Courses</h3>
                 <a href="#" data-page="courses" class="text-sm text-purple-600 hover:text-purple-800 nav-quick-link">View All</a>
               </div>
@@ -778,15 +936,15 @@
             <div class="bg-white rounded-lg shadow p-6 hover:shadow-md transition-shadow">
               <div class="flex justify-between items-center mb-4">
                 <h3 class="font-medium text-lg">Recent Users</h3>
-                <a href="#" data-page="users" class="text-sm text-purple-600 hover:text-purple-800 nav-quick-link">View All</a>
+                <a href="#" data-page="users" class="text-sm text-green-600 hover:text-green-800 nav-quick-link">View All</a>
               </div>
               <div id="users-list" class="mt-3"></div>
             </div>
 
-            <div class="bg-white rounded-lg shadow p-6 hover:shadow-md transition-shadow md:col-span-2">
+            <div class="bg-white rounded-lg shadow p-6 hover:shadow-md transition-shadow">
               <div class="flex justify-between items-center mb-4">
                 <h3 class="font-medium text-lg">Recent Forms</h3>
-                <a href="#" data-page="forms" class="text-sm text-purple-600 hover:text-purple-800 nav-quick-link">View All</a>
+                <a href="#" data-page="forms" class="text-sm text-indigo-600 hover:text-indigo-800 nav-quick-link">View All</a>
               </div>
               <div id="forms-list" class="mt-3"></div>
             </div>
@@ -808,9 +966,345 @@
         });
 
         // Load previews
+        await loadDepartmentsPreview();
         await loadCoursesPreview();
         await loadUsersPreview();
         await loadFormsPreview();
+      }
+
+      // Enhanced Department Table with View Courses functionality
+      async function loadDepartmentsTable() {
+        const container = document.getElementById(
+          "departments-table-container"
+        );
+        try {
+          const data = await fetchJSON(API.departments);
+          container.innerHTML = `
+            ${
+              data.length
+                ? `
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-4 py-3 font-medium text-gray-700">Name</th>
+                                <th class="px-4 py-3 font-medium text-gray-700">Code</th>
+                                <th class="px-4 py-3 font-medium text-gray-700">Description</th>
+                                <th class="px-4 py-3 font-medium text-gray-700">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-200">
+                            ${data
+                              .map(
+                                (dept) => `
+                                <tr class="hover:bg-gray-50">
+                                    <td class="px-4 py-3 font-medium">${
+                                      dept.name
+                                    }</td>
+                                    <td class="px-4 py-3 text-gray-600 font-mono">${
+                                      dept.code
+                                    }</td>
+                                    <td class="px-4 py-3 text-gray-600">${
+                                      dept.description || "No description"
+                                    }</td>
+                                    <td class="px-4 py-3">
+                                        <button data-id="${
+                                          dept.id
+                                        }" class="view-department-courses text-blue-600 hover:text-blue-800 text-sm font-medium mr-3">View Courses</button>
+                                    </td>
+                                </tr>
+                            `
+                              )
+                              .join("")}
+                        </tbody>
+                    </table>
+                </div>
+            `
+                : `
+                <div class="text-center py-8">
+                    <svg class="w-12 h-12 text-gray-400 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+                    </svg>
+                    <p class="text-gray-500 mt-2">No departments found</p>
+                    <button id="create-first-department" class="mt-3 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">Create your first department</button>
+                </div>
+            `
+            }
+          `;
+
+          // Attach event listeners
+          if (document.getElementById("create-first-department")) {
+            document.getElementById("create-first-department").onclick =
+              openDepartmentCreateModal;
+          }
+
+          // Add event listeners for view courses buttons
+          Array.from(
+            document.getElementsByClassName("view-department-courses")
+          ).forEach((btn) => {
+            btn.onclick = (e) =>
+              openDepartmentCoursesModal(e.target.dataset.id);
+          });
+        } catch (err) {
+          console.error("Failed to load departments:", err);
+          container.innerHTML = `
+            <div class="text-center py-8">
+                <div class="text-red-600 text-sm">Failed to load departments. Please try again.</div>
+            </div>
+          `;
+        }
+      }
+
+      // Department Courses Modal
+      async function openDepartmentCoursesModal(departmentId) {
+        modalTitle.textContent = "Department Courses & Faculty";
+        modalBody.innerHTML =
+          "<div class='text-center py-8'>Loading department details...</div>";
+        modal.classList.remove("hidden");
+
+        try {
+          const data = await fetchJSON(API.department_detail(departmentId));
+
+          modalBody.innerHTML = `
+            <div class="space-y-6">
+                <!-- Department Info -->
+                <div class="bg-gray-50 rounded-lg p-4">
+                    <h4 class="font-semibold text-lg text-gray-900">${
+                      data.department.name
+                    }</h4>
+                    <p class="text-gray-600">${data.department.code} - ${
+            data.department.description || "No description"
+          }</p>
+                    <div class="flex gap-4 mt-2 text-sm">
+                        <span class="bg-blue-100 text-blue-800 px-2 py-1 rounded">${
+                          data.total_courses
+                        } Courses</span>
+                        <span class="bg-green-100 text-green-800 px-2 py-1 rounded">${
+                          data.total_faculty
+                        } Faculty</span>
+                    </div>
+                </div>
+                
+                <!-- Courses List -->
+                <div>
+                    <h5 class="font-medium text-gray-900 mb-3">Courses in this Department</h5>
+                    ${
+                      data.courses.length
+                        ? `
+                            <div class="space-y-3 max-h-96 overflow-y-auto">
+                                ${data.courses
+                                  .map(
+                                    (course) => `
+                                    <div class="border border-gray-200 rounded-lg p-4">
+                                        <div class="flex justify-between items-start mb-2">
+                                            <div>
+                                                <h6 class="font-medium text-gray-900">${
+                                                  course.title
+                                                }</h6>
+                                                <p class="text-sm text-gray-500">${
+                                                  course.code
+                                                } • ${
+                                      course.credits
+                                    } credits</p>
+                                            </div>
+                                            <span class="bg-purple-100 text-purple-800 text-xs px-2 py-1 rounded">${
+                                              course.faculty.length
+                                            } faculty</span>
+                                        </div>
+                                        <p class="text-sm text-gray-600 mb-3">${
+                                          course.description || "No description"
+                                        }</p>
+                                        
+                                        <!-- Faculty Assigned -->
+                                        ${
+                                          course.faculty.length
+                                            ? `
+                                                <div class="mt-2">
+                                                    <p class="text-xs font-medium text-gray-700 mb-1">Assigned Faculty:</p>
+                                                    <div class="flex flex-wrap gap-1">
+                                                        ${course.faculty
+                                                          .map(
+                                                            (faculty) => `
+                                                            <span class="bg-green-100 text-green-800 text-xs px-2 py-1 rounded">
+                                                                ${faculty.username}
+                                                            </span>
+                                                        `
+                                                          )
+                                                          .join("")}
+                                                    </div>
+                                                </div>
+                                                `
+                                            : `
+                                                <div class="mt-2">
+                                                    <p class="text-xs text-gray-500 italic">No faculty assigned to this course</p>
+                                                </div>
+                                                `
+                                        }
+                                    </div>
+                                `
+                                  )
+                                  .join("")}
+                            </div>
+                            `
+                        : `
+                            <div class="text-center py-8 border border-gray-200 rounded-lg">
+                                <svg class="w-12 h-12 text-gray-400 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
+                                </svg>
+                                <p class="text-gray-500">No courses in this department yet</p>
+                                <button onclick="openCourseCreateModal()" class="mt-2 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700">
+                                    Create Course
+                                </button>
+                            </div>
+                            `
+                    }
+                </div>
+                
+                <div class="flex gap-3 justify-end mt-6 pt-4 border-t">
+                    <button type="button" id="close-department-details" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Close</button>
+                </div>
+            </div>
+          `;
+
+          document.getElementById("close-department-details").onclick = () =>
+            modal.classList.add("hidden");
+        } catch (err) {
+          console.error("Failed to load department details:", err);
+          modalBody.innerHTML = `
+            <div class="text-center py-8">
+                <div class="text-red-600 mb-2">Failed to load department details</div>
+                <p class="text-gray-500">Please try again later</p>
+                <button onclick="modal.classList.add('hidden')" class="mt-3 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                    Close
+                </button>
+            </div>
+          `;
+        }
+      }
+
+      // Update the preview function to show course counts
+      async function loadDepartmentsPreview() {
+        const el = document.getElementById("departments-list");
+        el.innerHTML = "Loading…";
+        try {
+          const data = await fetchJSON(API.departments);
+          if (data.length === 0)
+            el.innerHTML =
+              '<div class="text-sm text-gray-500">No departments yet</div>';
+          else {
+            // Get course counts for each department
+            const departmentsWithCounts = await Promise.all(
+              data.slice(0, 5).map(async (dept) => {
+                try {
+                  const deptData = await fetchJSON(
+                    API.department_detail(dept.id)
+                  );
+                  return { ...dept, course_count: deptData.total_courses };
+                } catch {
+                  return { ...dept, course_count: 0 };
+                }
+              })
+            );
+
+            el.innerHTML =
+              '<ul class="space-y-3">' +
+              departmentsWithCounts
+                .map(
+                  (d) => `<li class="flex justify-between items-center">
+                  <div>
+                    <div class="font-medium">${d.name}</div>
+                    <div class="text-xs text-gray-500 font-mono">${d.code}</div>
+                  </div>
+                  <span class="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full">${d.course_count} courses</span>
+                </li>`
+                )
+                .join("") +
+              "</ul>";
+          }
+        } catch (err) {
+          console.error("Failed to load departments:", err);
+          el.innerHTML =
+            '<div class="text-sm text-red-500">Failed to load departments</div>';
+        }
+      }
+
+      // DEPARTMENTS PAGE - Full department management
+      async function showDepartmentsPage() {
+        const container = document.getElementById("content-area");
+        container.innerHTML = `
+          <div class="bg-white rounded-lg shadow">
+            <div class="px-6 py-4 border-b">
+              <h3 class="text-lg font-medium">All Departments</h3>
+            </div>
+            <div class="p-6">
+              <div id="departments-manage-content">
+                <div class="flex justify-between items-center mb-6">
+                  <div>
+                    <h4 class="font-medium text-gray-900">Department List</h4>
+                    <p class="text-sm text-gray-600">Manage all academic departments</p>
+                  </div>
+                </div>
+                <div id="departments-table-container">
+                  <div class="text-center py-8">
+                    <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                    <p class="text-gray-500 mt-2">Loading departments...</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+
+        await loadDepartmentsTable();
+      }
+
+      // ========== DEPARTMENT FUNCTIONS ==========
+
+      function openDepartmentCreateModal() {
+        modalTitle.textContent = "Create Department";
+        modalBody.innerHTML = `
+          <form id="department-form" class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Department Name *</label>
+              <input name="name" required class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Department Code *</label>
+              <input name="code" required class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+              <textarea name="description" rows="3" class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"></textarea>
+            </div>
+            <div class="flex gap-3 justify-end mt-6 pt-4 border-t">
+              <button type="button" id="cancel-department" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
+              <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Create</button>
+            </div>
+          </form>
+        `;
+        modal.classList.remove("hidden");
+        document.getElementById("cancel-department").onclick = () =>
+          modal.classList.add("hidden");
+        document.getElementById("department-form").onsubmit = async (e) => {
+          e.preventDefault();
+          const fd = new FormData(e.target);
+          const payload = Object.fromEntries(fd.entries());
+          try {
+            await fetchJSON(API.departments_create, {
+              method: "POST",
+              body: JSON.stringify(payload),
+            });
+            modal.classList.add("hidden");
+            // Refresh the current page
+            if (currentPage === "departments") {
+              showDepartmentsPage();
+            } else {
+              renderDashboard();
+            }
+          } catch (err) {
+            alert("Failed to create department: " + err.message);
+          }
+        };
       }
 
       // COURSES PAGE - Full course management
@@ -846,10 +1340,20 @@
       async function loadCoursesTable() {
         const container = document.getElementById("courses-table-container");
         try {
-          const data = await fetchJSON(API.courses);
+          const [coursesData, departmentsData] = await Promise.all([
+            fetchJSON(API.courses),
+            fetchJSON(API.departments),
+          ]);
+
+          // Create department map for easy lookup
+          const departmentMap = {};
+          departmentsData.forEach((dept) => {
+            departmentMap[dept.id] = dept;
+          });
+
           container.innerHTML = `
             ${
-              data.length
+              coursesData.length
                 ? `
               <div class="overflow-x-auto">
                 <table class="w-full text-left text-sm">
@@ -857,21 +1361,29 @@
                     <tr>
                       <th class="px-4 py-3 font-medium text-gray-700">Title</th>
                       <th class="px-4 py-3 font-medium text-gray-700">Code</th>
-                      <th class="px-4 py-3 font-medium text-gray-700">Description</th>
+                      <th class="px-4 py-3 font-medium text-gray-700">Department</th>
+                      <th class="px-4 py-3 font-medium text-gray-700">Credits</th>
                       <th class="px-4 py-3 font-medium text-gray-700">Actions</th>
                     </tr>
                   </thead>
                   <tbody class="divide-y divide-gray-200">
-                    ${data
+                    ${coursesData
                       .map(
                         (course) => `
                       <tr class="hover:bg-gray-50">
                         <td class="px-4 py-3 font-medium">${course.title}</td>
-                        <td class="px-4 py-3 text-gray-600">${
-                          course.code || "N/A"
+                        <td class="px-4 py-3 text-gray-600 font-mono">${
+                          course.code
                         }</td>
+                        <td class="px-4 py-3">
+                          <span class="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full">
+                            ${
+                              departmentMap[course.department_id]?.code || "N/A"
+                            }
+                          </span>
+                        </td>
                         <td class="px-4 py-3 text-gray-600">${
-                          course.description || "No description"
+                          course.credits || 3
                         }</td>
                         <td class="px-4 py-3">
                           <button data-id="${
@@ -923,6 +1435,163 @@
               <div class="text-red-600 text-sm">Failed to load courses. Please try again.</div>
             </div>
           `;
+        }
+      }
+
+      // ========== COURSE FUNCTIONS (UPDATED WITH DEPARTMENT) ==========
+
+      async function openCourseCreateModal() {
+        // First load departments for the dropdown
+        const departments = await loadDepartmentsForCourseModal();
+
+        modalTitle.textContent = "Create Course";
+        modalBody.innerHTML = `
+          <form id="course-form" class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Title *</label>
+              <input name="title" required class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Code *</label>
+              <input name="code" required class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Department *</label>
+              <select name="department_id" required class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
+                <option value="">Select Department</option>
+                ${departments
+                  .map(
+                    (dept) =>
+                      `<option value="${dept.id}">${dept.code} - ${dept.name}</option>`
+                  )
+                  .join("")}
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Credits</label>
+              <input name="credits" type="number" value="3" min="1" max="6" class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+              <textarea name="description" rows="3" class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"></textarea>
+            </div>
+            <div class="flex gap-3 justify-end mt-6 pt-4 border-t">
+              <button type="button" id="cancel-course" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
+              <button type="submit" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">Create</button>
+            </div>
+          </form>
+        `;
+        modal.classList.remove("hidden");
+        document.getElementById("cancel-course").onclick = () =>
+          modal.classList.add("hidden");
+        document.getElementById("course-form").onsubmit = async (e) => {
+          e.preventDefault();
+          const fd = new FormData(e.target);
+          const payload = Object.fromEntries(fd.entries());
+          payload.credits = parseInt(payload.credits) || 3;
+          try {
+            await fetchJSON(API.courses_create, {
+              method: "POST",
+              body: JSON.stringify(payload),
+            });
+            modal.classList.add("hidden");
+            if (currentPage === "courses") {
+              showCoursesPage();
+            } else {
+              renderDashboard();
+            }
+          } catch (err) {
+            alert("Failed to create course: " + err.message);
+          }
+        };
+      }
+
+      async function openCourseEditModal(id) {
+        modalTitle.textContent = "Edit Course";
+        modalBody.innerHTML = "<div class='text-center py-4'>Loading…</div>";
+        modal.classList.remove("hidden");
+        try {
+          const [courseData, departments] = await Promise.all([
+            fetchJSON(API.courses),
+            loadDepartmentsForCourseModal(),
+          ]);
+
+          const course = courseData.find((c) => c.id == id);
+          if (!course) throw new Error("Course not found");
+
+          modalBody.innerHTML = `
+            <form id="course-edit-form" class="space-y-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Title *</label>
+                <input name="title" value="${
+                  course.title || ""
+                }" required class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500" />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Code *</label>
+                <input name="code" value="${
+                  course.code || ""
+                }" required class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500" />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Department *</label>
+                <select name="department_id" required class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
+                  <option value="">Select Department</option>
+                  ${departments
+                    .map(
+                      (dept) =>
+                        `<option value="${dept.id}" ${
+                          dept.id == course.department_id ? "selected" : ""
+                        }>${dept.code} - ${dept.name}</option>`
+                    )
+                    .join("")}
+                </select>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Credits</label>
+                <input name="credits" type="number" value="${
+                  course.credits || 3
+                }" min="1" max="6" class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500" />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <textarea name="description" rows="3" class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">${
+                  course.description || ""
+                }</textarea>
+              </div>
+              <div class="flex gap-3 justify-end mt-6 pt-4 border-t">
+                <button type="button" id="cancel-edit-course" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
+                <button type="submit" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">Save</button>
+              </div>
+            </form>
+          `;
+          document.getElementById("cancel-edit-course").onclick = () =>
+            modal.classList.add("hidden");
+          document.getElementById("course-edit-form").onsubmit = async (e) => {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            const payload = Object.fromEntries(fd.entries());
+            payload.credits = parseInt(payload.credits) || 3;
+            try {
+              await fetchJSON(API.courses_update(id), {
+                method: "PUT",
+                body: JSON.stringify(payload),
+              });
+              modal.classList.add("hidden");
+              // Refresh the current page
+              if (currentPage === "courses") {
+                showCoursesPage();
+              } else {
+                renderDashboard();
+              }
+            } catch (err) {
+              alert("Failed to update: " + err.message);
+            }
+          };
+        } catch (err) {
+          console.error("Failed to load course:", err);
+          modalBody.innerHTML =
+            '<div class="text-sm text-red-500 text-center py-4">Failed to load course</div>';
         }
       }
 
@@ -997,6 +1666,11 @@
                           </span>
                         </td>
                         <td class="px-4 py-3">
+                          ${
+                            user.role === "faculty"
+                              ? `<button data-id="${user.id}" data-username="${user.username}" class="assign-courses text-blue-600 hover:text-blue-800 text-sm font-medium mr-3">Assign Courses</button>`
+                              : ""
+                          }
                           <button data-id="${
                             user.id
                           }" class="edit-user text-purple-600 hover:text-purple-800 text-sm font-medium mr-3">Edit</button>
@@ -1039,6 +1713,15 @@
               btn.onclick = (e) => deleteUser(e.target.dataset.id);
             }
           );
+          Array.from(document.getElementsByClassName("assign-courses")).forEach(
+            (btn) => {
+              btn.onclick = (e) =>
+                openFacultyAssignmentModal(
+                  e.target.dataset.id,
+                  e.target.dataset.username
+                );
+            }
+          );
         } catch (err) {
           console.error("Failed to load users:", err);
           container.innerHTML = `
@@ -1046,6 +1729,190 @@
               <div class="text-red-600 text-sm">Failed to load users. Please try again.</div>
             </div>
           `;
+        }
+      }
+
+      // ========== FACULTY ASSIGNMENT FUNCTIONS ==========
+
+      async function openFacultyAssignmentModal(userId, username) {
+        facultyAssignmentTitle.textContent = `Assign Courses to ${username}`;
+        facultyAssignmentBody.innerHTML =
+          "<div class='text-center py-8'>Loading available courses...</div>";
+        facultyAssignmentModal.classList.remove("hidden");
+
+        try {
+          const courses = await fetchJSON(API.courses);
+          const departments = await fetchJSON(API.departments);
+
+          // Create department map
+          const departmentMap = {};
+          departments.forEach((dept) => {
+            departmentMap[dept.id] = dept;
+          });
+
+          // Group courses by department
+          const coursesByDepartment = {};
+          courses.forEach((course) => {
+            const deptId = course.department_id;
+            if (!coursesByDepartment[deptId]) {
+              coursesByDepartment[deptId] = {
+                department: departmentMap[deptId],
+                courses: [],
+              };
+            }
+            coursesByDepartment[deptId].courses.push(course);
+          });
+
+          facultyAssignmentBody.innerHTML = `
+            <form id="faculty-assignment-form" class="space-y-6">
+              <div class="text-sm text-gray-600">
+                Select the courses you want to assign to this faculty member. They will see these courses on their dashboard.
+              </div>
+              
+              ${Object.values(coursesByDepartment)
+                .map(
+                  (deptGroup) => `
+                <div class="border border-gray-200 rounded-lg">
+                  <div class="bg-gray-50 px-4 py-3 border-b">
+                    <h4 class="font-medium text-gray-900">${
+                      deptGroup.department.name
+                    } (${deptGroup.department.code})</h4>
+                  </div>
+                  <div class="p-4 space-y-3">
+                    ${deptGroup.courses
+                      .map(
+                        (course) => `
+                      <label class="flex items-start space-x-3 cursor-pointer">
+                        <input type="checkbox" name="course_ids" value="${
+                          course.id
+                        }" class="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                        <div class="flex-1">
+                          <div class="font-medium text-gray-900">${
+                            course.title
+                          }</div>
+                          <div class="text-sm text-gray-500">${course.code} • ${
+                          course.credits || 3
+                        } credits</div>
+                          ${
+                            course.description
+                              ? `<div class="text-xs text-gray-400 mt-1">${course.description}</div>`
+                              : ""
+                          }
+                        </div>
+                      </label>
+                    `
+                      )
+                      .join("")}
+                  </div>
+                </div>
+              `
+                )
+                .join("")}
+              
+              <div class="flex gap-3 justify-end mt-6 pt-4 border-t">
+                <button type="button" id="cancel-faculty-assignment" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
+                <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Assign Selected Courses</button>
+              </div>
+            </form>
+          `;
+
+          document.getElementById("cancel-faculty-assignment").onclick = () =>
+            facultyAssignmentModal.classList.add("hidden");
+          document.getElementById("faculty-assignment-form").onsubmit = async (
+            e
+          ) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const courseIds = formData
+              .getAll("course_ids")
+              .map((id) => parseInt(id));
+
+            try {
+              await fetchJSON(API.assign_courses(userId), {
+                method: "POST",
+                body: JSON.stringify({ course_ids: courseIds }),
+              });
+              facultyAssignmentModal.classList.add("hidden");
+              showUsersPage(); // Refresh users page
+            } catch (err) {
+              alert("Failed to assign courses: " + err.message);
+            }
+          };
+        } catch (err) {
+          console.error("Failed to load courses for assignment:", err);
+          facultyAssignmentBody.innerHTML = `
+            <div class="text-center py-8">
+              <div class="text-red-600 mb-2">Failed to load courses</div>
+              <p class="text-gray-500">Please try again later</p>
+            </div>
+          `;
+        }
+      }
+
+      async function loadCoursesPreview() {
+        const el = document.getElementById("courses-list");
+        el.innerHTML = "Loading…";
+        try {
+          const data = await fetchJSON(API.courses);
+          if (data.length === 0)
+            el.innerHTML =
+              '<div class="text-sm text-gray-500">No courses yet</div>';
+          else {
+            el.innerHTML =
+              '<ul class="space-y-3">' +
+              data
+                .slice(0, 5)
+                .map(
+                  (c) => `<li class="flex justify-between items-center">
+                  <div>
+                    <div class="font-medium">${c.title}</div>
+                    <div class="text-xs text-gray-500 font-mono">${c.code}</div>
+                  </div>
+                  <span class="bg-purple-100 text-purple-800 text-xs px-2 py-1 rounded-full">${
+                    c.credits || 3
+                  } cr</span>
+                </li>`
+                )
+                .join("") +
+              "</ul>";
+          }
+        } catch (err) {
+          console.error("Failed to load courses:", err);
+          el.innerHTML =
+            '<div class="text-sm text-red-500">Failed to load courses</div>';
+        }
+      }
+
+      async function loadUsersPreview() {
+        const el = document.getElementById("users-list");
+        el.innerHTML = "Loading…";
+        try {
+          const data = await fetchJSON(API.users);
+          if (!data.results || data.results.length === 0)
+            el.innerHTML = '<div class="text-sm text-gray-500">No users</div>';
+          else {
+            el.innerHTML =
+              '<ul class="space-y-3">' +
+              data.results
+                .slice(0, 5)
+                .map(
+                  (u) => `<li class="flex items-center gap-3">
+                  <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(
+                    u.username
+                  )}&background=ddd&color=555" class="h-8 w-8 rounded-full"/>
+                  <div class="flex-1">
+                    <div class="font-medium">${u.username}</div>
+                    <div class="text-xs text-gray-500">${u.role || ""}</div>
+                  </div>
+                </li>`
+                )
+                .join("") +
+              "</ul>";
+          }
+        } catch (err) {
+          console.error("Failed to load users:", err);
+          el.innerHTML =
+            '<div class="text-sm text-red-500">Failed to load users</div>';
         }
       }
 
@@ -1162,71 +2029,6 @@
         }
       }
 
-      // ========== ALL YOUR EXISTING CRUD FUNCTIONS ==========
-
-      async function loadCoursesPreview() {
-        const el = document.getElementById("courses-list");
-        el.innerHTML = "Loading…";
-        try {
-          const data = await fetchJSON(API.courses);
-          if (data.length === 0)
-            el.innerHTML =
-              '<div class="text-sm text-gray-500">No courses yet</div>';
-          else {
-            el.innerHTML =
-              '<ul class="space-y-2">' +
-              data
-                .slice(0, 5)
-                .map(
-                  (c) =>
-                    `<li class="flex justify-between items-center"><div><div class="font-medium">${
-                      c.title
-                    }</div><div class="text-xs text-gray-500">${
-                      c.code || ""
-                    }</div></div></li>`
-                )
-                .join("") +
-              "</ul>";
-          }
-        } catch (err) {
-          console.error("Failed to load courses:", err);
-          el.innerHTML =
-            '<div class="text-sm text-red-500">Failed to load courses</div>';
-        }
-      }
-
-      async function loadUsersPreview() {
-        const el = document.getElementById("users-list");
-        el.innerHTML = "Loading…";
-        try {
-          const data = await fetchJSON(API.users);
-          if (!data.results || data.results.length === 0)
-            el.innerHTML = '<div class="text-sm text-gray-500">No users</div>';
-          else {
-            el.innerHTML =
-              '<ul class="space-y-2">' +
-              data.results
-                .slice(0, 5)
-                .map(
-                  (u) =>
-                    `<li class="flex items-center gap-3"><img src="https://ui-avatars.com/api/?name=${encodeURIComponent(
-                      u.username
-                    )}&background=ddd&color=555" class="h-8 w-8 rounded-full"/><div><div class="font-medium">${
-                      u.username
-                    }</div><div class="text-xs text-gray-500">${
-                      u.role || ""
-                    }</div></div></li>`
-                )
-                .join("") +
-              "</ul>";
-          }
-        } catch (err) {
-          console.error("Failed to load users:", err);
-          el.innerHTML =
-            '<div class="text-sm text-red-500">Failed to load users</div>';
-        }
-      }
-
       async function loadFormsPreview() {
         const el = document.getElementById("forms-list");
         el.innerHTML = "Loading…";
@@ -1236,16 +2038,16 @@
             el.innerHTML = '<div class="text-sm text-gray-500">No forms</div>';
           else
             el.innerHTML =
-              '<ul class="space-y-2">' +
+              '<ul class="space-y-3">' +
               data
                 .slice(0, 5)
                 .map(
-                  (f) =>
-                    `<li><div class="font-medium">${
-                      f.name
-                    }</div><div class="text-xs text-gray-500">${
-                      f.description || ""
-                    }</div></li>`
+                  (f) => `<li>
+                  <div class="font-medium">${f.name}</div>
+                  <div class="text-xs text-gray-500">${
+                    f.description || ""
+                  }</div>
+                </li>`
                 )
                 .join("") +
               "</ul>";
@@ -1256,116 +2058,17 @@
         }
       }
 
-      function openCourseCreateModal() {
-        modalTitle.textContent = "Create course";
-        modalBody.innerHTML = `
-          <form id="course-form" class="space-y-4">
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Title *</label>
-              <input name="title" required class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500" />
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Code *</label>
-              <input name="code" required class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500" />
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
-              <textarea name="description" rows="3" class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"></textarea>
-            </div>
-            <div class="flex gap-3 justify-end mt-6 pt-4 border-t">
-              <button type="button" id="cancel-course" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
-              <button type="submit" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">Create</button>
-            </div>
-          </form>
-        `;
-        modal.classList.remove("hidden");
-        document.getElementById("cancel-course").onclick = () =>
-          modal.classList.add("hidden");
-        document.getElementById("course-form").onsubmit = async (e) => {
-          e.preventDefault();
-          const fd = new FormData(e.target);
-          const payload = Object.fromEntries(fd.entries());
-          try {
-            await fetchJSON(API.courses_create, {
-              method: "POST",
-              body: JSON.stringify(payload),
-            });
-            modal.classList.add("hidden");
-            // Refresh the current page
-            if (currentPage === "courses") {
-              showCoursesPage();
-            } else {
-              renderDashboard();
-            }
-          } catch (err) {
-            alert("Failed to create course: " + err.message);
-          }
-        };
-      }
-
-      async function openCourseEditModal(id) {
-        modalTitle.textContent = "Edit course";
-        modalBody.innerHTML = "<div class='text-center py-4'>Loading…</div>";
-        modal.classList.remove("hidden");
+      async function loadDepartmentsForCourseModal() {
         try {
-          const data = await fetchJSON(API.courses);
-          const course = data.find((c) => c.id == id);
-          if (!course) throw new Error("Course not found");
-
-          modalBody.innerHTML = `
-            <form id="course-edit-form" class="space-y-4">
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Title *</label>
-                <input name="title" value="${
-                  course.title || ""
-                }" required class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500" />
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Code *</label>
-                <input name="code" value="${
-                  course.code || ""
-                }" required class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500" />
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                <textarea name="description" rows="3" class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">${
-                  course.description || ""
-                }</textarea>
-              </div>
-              <div class="flex gap-3 justify-end mt-6 pt-4 border-t">
-                <button type="button" id="cancel-edit-course" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
-                <button type="submit" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">Save</button>
-              </div>
-            </form>
-          `;
-          document.getElementById("cancel-edit-course").onclick = () =>
-            modal.classList.add("hidden");
-          document.getElementById("course-edit-form").onsubmit = async (e) => {
-            e.preventDefault();
-            const fd = new FormData(e.target);
-            const payload = Object.fromEntries(fd.entries());
-            try {
-              await fetchJSON(API.courses_update(id), {
-                method: "PUT",
-                body: JSON.stringify(payload),
-              });
-              modal.classList.add("hidden");
-              // Refresh the current page
-              if (currentPage === "courses") {
-                showCoursesPage();
-              } else {
-                renderDashboard();
-              }
-            } catch (err) {
-              alert("Failed to update: " + err.message);
-            }
-          };
+          const response = await fetchJSON(API.departments);
+          return response;
         } catch (err) {
-          console.error("Failed to load course:", err);
-          modalBody.innerHTML =
-            '<div class="text-sm text-red-500 text-center py-4">Failed to load course</div>';
+          console.error("Failed to load departments:", err);
+          return [];
         }
       }
+
+      // ========== EXISTING CRUD FUNCTIONS ==========
 
       async function deleteCourse(id) {
         if (!confirm("Are you sure you want to delete this course?")) return;
@@ -1660,10 +2363,16 @@
         setupNavigation();
         renderDashboard();
 
-        // Close modal when clicking outside
+        // Close modals when clicking outside
         modal.addEventListener("click", (e) => {
           if (e.target === modal) {
             modal.classList.add("hidden");
+          }
+        });
+
+        facultyAssignmentModal.addEventListener("click", (e) => {
+          if (e.target === facultyAssignmentModal) {
+            facultyAssignmentModal.classList.add("hidden");
           }
         });
       });

@@ -15,6 +15,10 @@ urlpatterns = [
     path("dashboard/", views.dashboard, name="dashboard"),
 
     # API endpoints for admin dashboard
+    path("api/departments/", api_views.api_departments, name="api_departments"),
+    path("api/departments/create/", api_views.api_departments_create, name="api_departments_create"),
+    path("api/departments/<int:department_id>/", api_views.api_department_detail, name="api_department_detail"),
+    
     path("api/courses/", api_views.api_courses, name="api_courses"),
     path("api/courses/create/", api_views.api_courses_create, name="api_courses_create"),
     path("api/courses/<int:course_id>/", api_views.api_course_update, name="api_course_update"),
@@ -29,4 +33,8 @@ urlpatterns = [
     path("api/users/create/", api_views.api_users_create, name="api_users_create"),
     path("api/users/<int:user_id>/", api_views.api_user_update, name="api_user_update"),
     path("api/users/<int:user_id>/delete/", api_views.api_user_delete, name="api_user_delete"),
+    
+    # Faculty assignment APIs
+    path("api/faculty/<int:user_id>/assign-courses/", api_views.api_assign_courses_to_faculty, name="api_assign_courses_to_faculty"),
+    path("api/faculty/my-courses/", api_views.api_faculty_courses, name="api_faculty_courses"),
 ]

@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from .models import User, Course, Form
+from .models import User, Course, Form, Department
 
 @admin.register(User)
 class CustomUserAdmin(UserAdmin):
@@ -13,11 +13,18 @@ class CustomUserAdmin(UserAdmin):
         ('Role', {'fields': ('role',)}),
     )
 
+@admin.register(Department)
+class DepartmentAdmin(admin.ModelAdmin):
+    list_display = ('name', 'code', 'created_at')
+    search_fields = ('name', 'code')
+    list_filter = ('created_at',)
+
 @admin.register(Course)
 class CourseAdmin(admin.ModelAdmin):
-    list_display = ('title', 'code', 'created_at')
-    search_fields = ('title', 'code')
-    list_filter = ('created_at',)
+    list_display = ('title', 'code', 'department', 'created_at')
+    search_fields = ('title', 'code', 'department__name')
+    list_filter = ('department', 'created_at')
+    filter_horizontal = ('faculty',)
 
 @admin.register(Form)
 class FormAdmin(admin.ModelAdmin):
