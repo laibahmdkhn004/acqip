@@ -33,7 +33,7 @@ venv.bak/
 *.log
 staticfiles/
 media/
-static/
+
 # If using collectstatic --> STATIC_ROOT directory
 static_root/
 
