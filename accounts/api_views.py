@@ -2,7 +2,7 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 import json
-from .models import Course, Form, User, Department
+from .models import Course, Form, User, Department, CCRForm, CCRSubmission
 from django.contrib.auth.decorators import login_required, user_passes_test
 
 def is_admin(user):
@@ -327,3 +327,48 @@ def api_user_delete(request, user_id):
         return JsonResponse({'message': 'User deleted successfully'})
     except User.DoesNotExist:
         return JsonResponse({'error': 'User not found'}, status=404)
+
+# CCR Form API Views
+@login_required
+@user_passes_test(is_admin)
+@require_http_methods(["GET"])
+def api_ccr_forms(request):
+    forms = list(CCRForm.objects.values('id', 'name', 'status', 'created_at'))
+    return JsonResponse(forms, safe=False)
+
+@login_required
+@user_passes_test(is_admin)
+@csrf_exempt
+@require_http_methods(["POST"])
+def api_ccr_forms_toggle(request):
+    try:
+        data = json.loads(request.body)
+        form_id = data.get('form_id')
+        
+        ccr_form = CCRForm.objects.get(id=form_id)
+        if ccr_form.status == CCRForm.STATUS_ACTIVE:
+            ccr_form.status = CCRForm.STATUS_INACTIVE
+        else:
+            ccr_form.status = CCRForm.STATUS_ACTIVE
+        
+        ccr_form.save()
+        
+        return JsonResponse({
+            'id': ccr_form.id,
+            'name': ccr_form.name,
+            'status': ccr_form.status
+        })
+    except CCRForm.DoesNotExist:
+        return JsonResponse({'error': 'CCR Form not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+@login_required
+@user_passes_test(is_admin)
+@require_http_methods(["GET"])
+def api_ccr_submissions(request):
+    submissions = list(CCRSubmission.objects.select_related('faculty', 'course').values(
+        'id', 'faculty__username', 'course__title', 'course__code',
+        'course_coordinator', 'submission_date'
+    ))
+    return JsonResponse(submissions, safe=False)

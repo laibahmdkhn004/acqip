@@ -1,0 +1,501 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>My CCR Submissions - ACQIP</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      body {
+        font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial;
+      }
+      .avatar {
+        width: 38px;
+        height: 38px;
+        border-radius: 9999px;
+        object-fit: cover;
+        border: 2px solid rgba(0, 0, 0, 0.06);
+      }
+      .nav-item {
+        transition: all 0.2s ease;
+      }
+      .nav-item.active {
+        background-color: #f5f3ff;
+        color: #7c3aed;
+        border-left: 3px solid #7c3aed;
+      }
+      .nav-item.disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        pointer-events: none;
+      }
+      .sidebar-scroll {
+        scrollbar-width: thin;
+        scrollbar-color: #c4b5fd transparent;
+      }
+      .sidebar-scroll::-webkit-scrollbar {
+        width: 4px;
+      }
+      .sidebar-scroll::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .sidebar-scroll::-webkit-scrollbar-thumb {
+        background-color: #c4b5fd;
+        border-radius: 20px;
+      }
+    </style>
+  </head>
+  <body class="min-h-screen bg-gray-50 text-gray-800">
+    <!-- Header (purple) - Full width -->
+    <header class="bg-purple-700 text-white fixed w-full z-30 shadow">
+      <div class="px-6 py-3 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <a href="/" class="flex items-center gap-3">
+            <img
+              src="{% static 'images/logo.png' %}"
+              alt="CUAST"
+              class="h-10 w-10 rounded-md object-cover"
+              onerror="this.style.display='none'"
+            />
+            <div class="hidden sm:block">
+              <div class="font-semibold">
+                Capital University of Science and Technology
+              </div>
+              <div class="text-xs text-white/80 -mt-1">
+                Faculty Portal — ACQIP
+              </div>
+            </div>
+          </a>
+        </div>
+        <div class="flex items-center gap-3">
+          <div class="relative">
+            <div
+              id="avatar-dropdown-trigger"
+              class="bg-white/10 px-2 py-1 rounded-lg flex items-center gap-2 cursor-pointer hover:bg-white/20 transition-colors"
+            >
+              <img
+                src="https://ui-avatars.com/api/?name={{ user.username|default:'Faculty' }}&background=ffffff&color=555555"
+                alt="avatar"
+                class="avatar"
+              />
+              <div class="hidden sm:block text-sm text-white/90">
+                <div class="font-medium">
+                  {{ user.username|default:'Faculty Member' }}
+                </div>
+                <div class="text-xs text-white/70">Faculty</div>
+              </div>
+              <svg
+                class="w-4 h-4 text-white/70"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M19 9l-7 7-7-7"
+                ></path>
+              </svg>
+            </div>
+
+            <!-- Dropdown Menu -->
+            <div
+              id="avatar-dropdown"
+              class="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 hidden z-50"
+            >
+              <a
+                href="{% url 'dashboard' %}"
+                class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                >Dashboard</a
+              >
+              <a
+                href="{% url 'logout' %}"
+                class="block px-4 py-2 text-sm text-red-600 hover:bg-gray-100 flex items-center"
+              >
+                <svg
+                  class="w-4 h-4 mr-2"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                  ></path>
+                </svg>
+                Logout
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main layout with sidebar and content -->
+    <div class="pt-16 flex">
+      <!-- Sidebar - Fixed to left -->
+      <aside
+        class="w-64 bg-white shadow-lg h-[calc(100vh-4rem)] sticky top-16 overflow-y-auto sidebar-scroll"
+      >
+        <nav class="p-4 space-y-1 text-sm">
+          <a
+            href="{% url 'dashboard' %}"
+            class="nav-item flex items-center gap-3 p-2 rounded-md hover:bg-gray-50 text-gray-700"
+          >
+            <svg
+              class="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
+              ></path>
+            </svg>
+            Dashboard
+          </a>
+          {% if form_active %}
+          <a
+            href="{% url 'ccr_form' %}"
+            class="nav-item flex items-center gap-3 p-2 rounded-md hover:bg-gray-50 text-gray-700"
+          >
+            <svg
+              class="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+              ></path>
+            </svg>
+            Submit CCR Form
+          </a>
+          {% else %}
+          <span
+            class="nav-item disabled flex items-center gap-3 p-2 rounded-md text-gray-400 cursor-not-allowed"
+            title="CCR forms are currently inactive"
+          >
+            <svg
+              class="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+              ></path>
+            </svg>
+            Submit CCR Form
+          </span>
+          {% endif %}
+          <a
+            href="{% url 'ccr_submissions' %}"
+            class="nav-item flex items-center gap-3 p-2 rounded-md bg-purple-50 text-purple-700 font-medium active"
+          >
+            <svg
+              class="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+              ></path>
+            </svg>
+            My Submissions
+          </a>
+        </nav>
+        <div class="mt-6 px-4 text-xs text-gray-500">© 2025 ACQIP</div>
+      </aside>
+
+      <!-- Main content -->
+      <main class="flex-1 p-6">
+        <section id="dashboard-header" class="mb-6">
+          <div class="flex items-center justify-between">
+            <div>
+              <h1 id="page-title" class="text-2xl font-semibold">
+                My CCR Submissions
+              </h1>
+              <p id="page-subtitle" class="text-sm text-gray-600 mt-1">
+                View all your submitted Course Content Review forms
+              </p>
+            </div>
+            <div id="action-buttons" class="flex gap-2">
+              {% if form_active %}
+              <a
+                href="{% url 'ccr_form' %}"
+                class="px-4 py-2 bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors"
+              >
+                New CCR Form
+              </a>
+              {% else %}
+              <button
+                disabled
+                class="px-4 py-2 bg-gray-400 text-white rounded-lg shadow-sm cursor-not-allowed transition-colors"
+                title="CCR forms are currently inactive"
+              >
+                New CCR Form
+              </button>
+              {% endif %}
+            </div>
+          </div>
+        </section>
+
+        <!-- Form Status Alert -->
+        {% if not form_active %}
+        <div class="mb-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+          <div class="flex items-center">
+            <svg
+              class="w-5 h-5 text-yellow-600 mr-3"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.35 16.5c-.77.833.192 2.5 1.732 2.5z"
+              ></path>
+            </svg>
+            <div>
+              <h3 class="text-sm font-medium text-yellow-800">
+                CCR Forms Inactive
+              </h3>
+              <p class="text-sm text-yellow-700 mt-1">
+                CCR form submissions are currently disabled. Please check back
+                later.
+              </p>
+            </div>
+          </div>
+        </div>
+        {% endif %}
+
+        <!-- Submissions Table -->
+        <div class="bg-white rounded-lg shadow">
+          <div class="px-6 py-4 border-b">
+            <h3 class="text-lg font-medium">CCR Submissions</h3>
+          </div>
+          <div class="p-6">
+            {% if submissions %}
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-sm">
+                <thead class="bg-gray-50">
+                  <tr>
+                    <th class="px-4 py-3 font-medium text-gray-700">Course</th>
+                    <th class="px-4 py-3 font-medium text-gray-700">
+                      Course Coordinator
+                    </th>
+                    <th class="px-4 py-3 font-medium text-gray-700">
+                      Submission Date
+                    </th>
+                    <th class="px-4 py-3 font-medium text-gray-700">Actions</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200">
+                  {% for submission in submissions %}
+                  <tr class="hover:bg-gray-50">
+                    <td class="px-4 py-3">
+                      <div class="font-medium text-gray-900">
+                        {{ submission.course.title }}
+                      </div>
+                      <div class="text-xs text-gray-500 font-mono">
+                        {{ submission.course.code }}
+                      </div>
+                    </td>
+                    <td class="px-4 py-3 text-gray-600">
+                      {{ submission.course_coordinator }}
+                    </td>
+                    <td class="px-4 py-3 text-gray-600">
+                      {{ submission.submission_date|date:"M d, Y" }}
+                    </td>
+                    <td class="px-4 py-3">
+                      <button
+                        class="text-blue-600 hover:text-blue-800 text-sm font-medium view-submission"
+                        data-id="{{ submission.id }}"
+                      >
+                        View Details
+                      </button>
+                    </td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            {% else %}
+            <div class="text-center py-12">
+              <div
+                class="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4"
+              >
+                <svg
+                  class="w-12 h-12 text-gray-400"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                  ></path>
+                </svg>
+              </div>
+              <h3 class="text-lg font-medium text-gray-900 mb-2">
+                No submissions yet
+              </h3>
+              <p class="text-gray-500 mb-4">
+                You haven't submitted any CCR forms yet.
+              </p>
+              {% if form_active %}
+              <a
+                href="{% url 'ccr_form' %}"
+                class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Submit Your First CCR Form
+              </a>
+              {% else %}
+              <button
+                disabled
+                class="px-4 py-2 bg-gray-400 text-white rounded-lg cursor-not-allowed transition-colors"
+                title="CCR forms are currently inactive"
+              >
+                Submit Your First CCR Form
+              </button>
+              {% endif %}
+            </div>
+            {% endif %}
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- Submission Details Modal -->
+    <div
+      id="submission-modal"
+      class="fixed inset-0 bg-black/40 hidden items-center justify-center z-50 p-4"
+    >
+      <div
+        class="bg-white rounded-xl max-w-4xl w-full p-6 shadow-2xl mx-auto max-h-[90vh] overflow-y-auto"
+      >
+        <div class="flex items-start justify-between mb-4">
+          <h3 class="text-xl font-semibold text-gray-900">
+            CCR Submission Details
+          </h3>
+          <button
+            id="close-modal"
+            class="text-gray-500 hover:text-gray-700 text-xl p-1"
+          >
+            ✕
+          </button>
+        </div>
+        <div id="submission-details" class="mt-2">
+          <!-- Content loaded by JavaScript -->
+        </div>
+      </div>
+    </div>
+
+    <footer class="bg-white/90 shadow-inner border-t">
+      <div class="py-3 text-sm text-gray-600 text-center">
+        © 2025 ACQIP. Built with Django & Tailwind CSS
+      </div>
+    </footer>
+
+    <script>
+      // Avatar dropdown functionality
+      document
+        .getElementById("avatar-dropdown-trigger")
+        .addEventListener("click", function () {
+          const dropdown = document.getElementById("avatar-dropdown");
+          dropdown.classList.toggle("hidden");
+        });
+
+      // Close dropdowns when clicking outside
+      document.addEventListener("click", function (event) {
+        const avatarDropdown = document.getElementById("avatar-dropdown");
+        const avatarTrigger = document.getElementById(
+          "avatar-dropdown-trigger"
+        );
+        if (
+          !avatarTrigger.contains(event.target) &&
+          !avatarDropdown.contains(event.target)
+        ) {
+          avatarDropdown.classList.add("hidden");
+        }
+      });
+
+      // Modal functionality
+      document.addEventListener("DOMContentLoaded", function () {
+        const modal = document.getElementById("submission-modal");
+        const closeBtn = document.getElementById("close-modal");
+        const detailsContainer = document.getElementById("submission-details");
+
+        // Close modal when clicking X or outside
+        closeBtn.addEventListener("click", () => modal.classList.add("hidden"));
+        modal.addEventListener("click", (e) => {
+          if (e.target === modal) modal.classList.add("hidden");
+        });
+
+        // View submission details
+        document.querySelectorAll(".view-submission").forEach((btn) => {
+          btn.addEventListener("click", function () {
+            const submissionId = this.getAttribute("data-id");
+            loadSubmissionDetails(submissionId);
+          });
+        });
+
+        function loadSubmissionDetails(submissionId) {
+          detailsContainer.innerHTML = `
+            <div class="text-center py-8">
+              <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+              <p class="text-gray-500 mt-2">Loading submission details...</p>
+            </div>
+          `;
+
+          modal.classList.remove("hidden");
+
+          // In a real implementation, you would fetch the submission details via AJAX
+          // For now, we'll show a message
+          setTimeout(() => {
+            detailsContainer.innerHTML = `
+              <div class="space-y-6">
+                <div class="text-center py-8">
+                  <p class="text-gray-500">Submission details would be displayed here.</p>
+                  <p class="text-sm text-gray-400 mt-2">In a full implementation, this would show all the form data.</p>
+                </div>
+                <div class="flex justify-end">
+                  <button onclick="document.getElementById('submission-modal').classList.add('hidden')" 
+                          class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                    Close
+                  </button>
+                </div>
+              </div>
+            `;
+          }, 1000);
+        }
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,314 @@
+﻿{% extends 'accounts/base.html' %}
+{% load static %}
+
+{% block title %}CCR Form - ACQIP{% endblock %}
+
+{% block content %}
+<div class='max-w-4xl mx-auto px-6 py-8'>
+    <div class='bg-white rounded-xl shadow-sm p-8 border border-gray-100'>
+        <!-- Header -->
+        <div class='text-center mb-8'>
+            <h1 class='text-2xl font-bold text-gray-900'>Course Content Review (CCR) Form</h1>
+            <p class='text-gray-600 mt-2'>Please fill out this form to review your course content</p>
+        </div>
+
+        {% if messages %}
+            {% for message in messages %}
+                <div class='mb-6 p-4 rounded-lg {% if message.tags == "error" %}bg-red-100 text-red-700{% else %}bg-green-100 text-green-700{% endif %}'>
+                    {{ message }}
+                </div>
+            {% endfor %}
+        {% endif %}
+
+        <form method='post' class='space-y-8'>
+            {% csrf_token %}
+            
+            <!-- Basic Course Information -->
+            <div class='border-b border-gray-200 pb-6'>
+                <h2 class='text-lg font-semibold text-gray-900 mb-4'>Basic Course Information</h2>
+                <div class='grid grid-cols-1 gap-6'>
+                    <div>
+                        <label class='block text-sm font-medium text-gray-700 mb-2'>Select Course *</label>
+                        {{ form.course }}
+                        {% if form.course.errors %}
+                            <p class='text-red-600 text-sm mt-1'>{{ form.course.errors }}</p>
+                        {% endif %}
+                    </div>
+                    <div>
+                        <label class='block text-sm font-medium text-gray-700 mb-2'>Course Code and Title</label>
+                        {{ form.course_code_title }}
+                    </div>
+                    <div>
+                        <label class='block text-sm font-medium text-gray-700 mb-2'>Course Coordinator *</label>
+                        {{ form.course_coordinator }}
+                        {% if form.course_coordinator.errors %}
+                            <p class='text-red-600 text-sm mt-1'>{{ form.course_coordinator.errors }}</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Questions Section -->
+            <div class='border-b border-gray-200 pb-6'>
+                <h2 class='text-lg font-semibold text-gray-900 mb-4'>Course Content Review</h2>
+                <div class='space-y-6'>
+                    <div>
+                        <label class='block text-sm font-medium text-gray-700 mb-2'>
+                            1. Does the current course outline include all topics given in HEC outline? If not, please mention the topics not included
+                        </label>
+                        {{ form.q1_topics_included }}
+                    </div>
+                    
+                    <div>
+                        <label class='block text-sm font-medium text-gray-700 mb-2'>
+                            2. Please mention any topics that need to be added or removed keeping in view the current tools and technologies used in the industry
+                        </label>
+                        {{ form.q2_topics_adjustments }}
+                    </div>
+                    
+                    <div>
+                        <label class='block text-sm font-medium text-gray-700 mb-2'>
+                            3. Is week-wise distribution of course contents appropriate? If not, mention corrections to be made
+                        </label>
+                        {{ form.q3_week_distribution }}
+                    </div>
+                    
+                    <div>
+                        <label class='block text-sm font-medium text-gray-700 mb-2'>
+                            4. Are the textbook and reference books latest and relevant? If not, give detail of new books
+                        </label>
+                        {{ form.q4_books_relevance }}
+                    </div>
+                    
+                    <div>
+                        <label class='block text-sm font-medium text-gray-700 mb-2'>
+                            5. Is pre-requisite course correct? If not, suggest alternate pre-requisite course. In case you suggest multiple pre-requisite courses, please mention primary pre-requisite
+                        </label>
+                        {{ form.q5_prerequisite_course }}
+                    </div>
+                </div>
+            </div>
+
+            <!-- CLO Review Section -->
+            <div class='border-b border-gray-200 pb-6'>
+                <h2 class='text-lg font-semibold text-gray-900 mb-4'>Review of Course Learning Outcomes</h2>
+                <div class='overflow-x-auto'>
+                    <table class='w-full text-sm text-left border border-gray-300'>
+                        <thead class='bg-gray-50'>
+                            <tr>
+                                <th class='px-4 py-3 font-medium text-gray-700 border border-gray-300'>Criteria</th>
+                                <th class='px-4 py-3 font-medium text-gray-700 border border-gray-300 text-center'>CLO-1</th>
+                                <th class='px-4 py-3 font-medium text-gray-700 border border-gray-300 text-center'>CLO-2</th>
+                                <th class='px-4 py-3 font-medium text-gray-700 border border-gray-300 text-center'>CLO-3</th>
+                                <th class='px-4 py-3 font-medium text-gray-700 border border-gray-300 text-center'>CLO-4</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td class='px-4 py-3 border border-gray-300 font-medium'>Is the CLO student-centered?</td>
+                                <td class='px-4 py-3 border border-gray-300 text-center'>
+                                    <input type='checkbox' name='clo1_student_centered' class='w-5 h-5'>
+                                </td>
+                                <td class='px-4 py-3 border border-gray-300 text-center'>
+                                    <input type='checkbox' name='clo2_student_centered' class='w-5 h-5'>
+                                </td>
+                                <td class='px-4 py-3 border border-gray-300 text-center'>
+                                    <input type='checkbox' name='clo3_student_centered' class='w-5 h-5'>
+                                </td>
+                                <td class='px-4 py-3 border border-gray-300 text-center'>
+                                    <input type='checkbox' name='clo4_student_centered' class='w-5 h-5'>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class='px-4 py-3 border border-gray-300 font-medium'>Is the CLO measurable?</td>
+                                <td class='px-4 py-3 border border-gray-300 text-center'>
+                                    <input type='checkbox' name='clo1_measurable' class='w-5 h-5'>
+                                </td>
+                                <td class='px-4 py-3 border border-gray-300 text-center'>
+                                    <input type='checkbox' name='clo2_measurable' class='w-5 h-5'>
+                                </td>
+                                <td class='px-4 py-3 border border-gray-300 text-center'>
+                                    <input type='checkbox' name='clo3_measurable' class='w-5 h-5'>
+                                </td>
+                                <td class='px-4 py-3 border border-gray-300 text-center'>
+                                    <input type='checkbox' name='clo4_measurable' class='w-5 h-5'>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class='px-4 py-3 border border-gray-300 font-medium'>Is the CLO realistic and achievable?</td>
+                                <td class='px-4 py-3 border border-gray-300 text-center'>
+                                    <input type='checkbox' name='clo1_achievable' class='w-5 h-5'>
+                                </td>
+                                <td class='px-4 py-3 border border-gray-300 text-center'>
+                                    <input type='checkbox' name='clo2_achievable' class='w-5 h-5'>
+                                </td>
+                                <td class='px-4 py-3 border border-gray-300 text-center'>
+                                    <input type='checkbox' name='clo3_achievable' class='w-5 h-5'>
+                                </td>
+                                <td class='px-4 py-3 border border-gray-300 text-center'>
+                                    <input type='checkbox' name='clo4_achievable' class='w-5 h-5'>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class='px-4 py-3 border border-gray-300 font-medium'>Does the CLO use correct action verb according to Bloom's Taxonomy or Dave's Taxonomy?</td>
+                                <td class='px-4 py-3 border border-gray-300 text-center'>
+                                    <input type='checkbox' name='clo1_correct_verb' class='w-5 h-5'>
+                                </td>
+                                <td class='px-4 py-3 border border-gray-300 text-center'>
+                                    <input type='checkbox' name='clo2_correct_verb' class='w-5 h-5'>
+                                </td>
+                                <td class='px-4 py-3 border border-gray-300 text-center'>
+                                    <input type='checkbox' name='clo3_correct_verb' class='w-5 h-5'>
+                                </td>
+                                <td class='px-4 py-3 border border-gray-300 text-center'>
+                                    <input type='checkbox' name='clo4_correct_verb' class='w-5 h-5'>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- CLO Domain, Level and Mapping -->
+            <div class='border-b border-gray-200 pb-6'>
+                <h2 class='text-lg font-semibold text-gray-900 mb-4'>CLO Domain, Level and Mapping</h2>
+                <div class='overflow-x-auto'>
+                    <table class='w-full text-sm text-left border border-gray-300'>
+                        <thead class='bg-gray-50'>
+                            <tr>
+                                <th class='px-4 py-3 font-medium text-gray-700 border border-gray-300'>CLO</th>
+                                <th class='px-4 py-3 font-medium text-gray-700 border border-gray-300'>Learning Domain</th>
+                                <th class='px-4 py-3 font-medium text-gray-700 border border-gray-300'>Level</th>
+                                <th class='px-4 py-3 font-medium text-gray-700 border border-gray-300'>GA Mapping</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td class='px-4 py-3 border border-gray-300 font-medium'>CLO-1</td>
+                                <td class='px-4 py-3 border border-gray-300'>
+                                    <input type='text' name='clo1_domain' class='w-full border border-gray-300 rounded px-2 py-1'>
+                                </td>
+                                <td class='px-4 py-3 border border-gray-300'>
+                                    <input type='text' name='clo1_level' class='w-full border border-gray-300 rounded px-2 py-1'>
+                                </td>
+                                <td class='px-4 py-3 border border-gray-300'>
+                                    <input type='text' name='clo1_ga_mapping' class='w-full border border-gray-300 rounded px-2 py-1'>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class='px-4 py-3 border border-gray-300 font-medium'>CLO-2</td>
+                                <td class='px-4 py-3 border border-gray-300'>
+                                    <input type='text' name='clo2_domain' class='w-full border border-gray-300 rounded px-2 py-1'>
+                                </td>
+                                <td class='px-4 py-3 border border-gray-300'>
+                                    <input type='text' name='clo2_level' class='w-full border border-gray-300 rounded px-2 py-1'>
+                                </td>
+                                <td class='px-4 py-3 border border-gray-300'>
+                                    <input type='text' name='clo2_ga_mapping' class='w-full border border-gray-300 rounded px-2 py-1'>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class='px-4 py-3 border border-gray-300 font-medium'>CLO-3</td>
+                                <td class='px-4 py-3 border border-gray-300'>
+                                    <input type='text' name='clo3_domain' class='w-full border border-gray-300 rounded px-2 py-1'>
+                                </td>
+                                <td class='px-4 py-3 border border-gray-300'>
+                                    <input type='text' name='clo3_level' class='w-full border border-gray-300 rounded px-2 py-1'>
+                                </td>
+                                <td class='px-4 py-3 border border-gray-300'>
+                                    <input type='text' name='clo3_ga_mapping' class='w-full border border-gray-300 rounded px-2 py-1'>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class='px-4 py-3 border border-gray-300 font-medium'>CLO-4</td>
+                                <td class='px-4 py-3 border border-gray-300'>
+                                    <input type='text' name='clo4_domain' class='w-full border border-gray-300 rounded px-2 py-1'>
+                                </td>
+                                <td class='px-4 py-3 border border-gray-300'>
+                                    <input type='text' name='clo4_level' class='w-full border border-gray-300 rounded px-2 py-1'>
+                                </td>
+                                <td class='px-4 py-3 border border-gray-300'>
+                                    <input type='text' name='clo4_ga_mapping' class='w-full border border-gray-300 rounded px-2 py-1'>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Group Members -->
+            <div class='border-b border-gray-200 pb-6'>
+                <h2 class='text-lg font-semibold text-gray-900 mb-4'>Group Members</h2>
+                <div class='grid grid-cols-1 md:grid-cols-2 gap-4'>
+                    <div>
+                        <label class='block text-sm font-medium text-gray-700 mb-2'>Member 1</label>
+                        <input type='text' name='group_member_1' class='w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500' placeholder='Name and Signature'>
+                    </div>
+                    <div>
+                        <label class='block text-sm font-medium text-gray-700 mb-2'>Member 2</label>
+                        <input type='text' name='group_member_2' class='w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500' placeholder='Name and Signature'>
+                    </div>
+                    <div>
+                        <label class='block text-sm font-medium text-gray-700 mb-2'>Member 3</label>
+                        <input type='text' name='group_member_3' class='w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500' placeholder='Name and Signature'>
+                    </div>
+                    <div>
+                        <label class='block text-sm font-medium text-gray-700 mb-2'>Member 4</label>
+                        <input type='text' name='group_member_4' class='w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500' placeholder='Name and Signature'>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Submit Button -->
+            <div class='flex justify-end space-x-4'>
+                <a href='{% url "dashboard" %}' class='px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors'>
+                    Back to Dashboard
+                </a>
+                <button type='submit' class='px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors'>
+                    Submit CCR Form
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+// Course data for auto-fill
+const courseData = {
+    {% for course in form.course.field.queryset %}
+    '{{ course.id }}': {
+        'code': '{{ course.code }}',
+        'title': '{{ course.title }}',
+        'full_title': '{{ course.code }} - {{ course.title }}'
+    }{% if not forloop.last %},{% endif %}
+    {% endfor %}
+};
+
+function updateCourseInfo() {
+    const courseSelect = document.getElementById('course-select');
+    const courseCodeTitle = document.getElementById('course-code-title');
+    const selectedCourseId = courseSelect.value;
+    
+    if (selectedCourseId && courseData[selectedCourseId]) {
+        courseCodeTitle.value = courseData[selectedCourseId].full_title;
+    } else {
+        courseCodeTitle.value = '';
+    }
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+    updateCourseInfo();
+});
+</script>
+
+<style>
+    input[type='checkbox'] {
+        width: 20px;
+        height: 20px;
+    }
+    input, textarea, select {
+        outline: none;
+    }
+</style>
+{% endblock %}

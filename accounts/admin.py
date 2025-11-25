@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from .models import User, Course, Form, Department
+from .models import User, Course, Form, Department, CCRForm, CCRSubmission
 
 @admin.register(User)
 class CustomUserAdmin(UserAdmin):
@@ -31,3 +31,22 @@ class FormAdmin(admin.ModelAdmin):
     list_display = ('name', 'created_at')
     search_fields = ('name',)
     list_filter = ('created_at',)
+
+@admin.register(CCRForm)
+class CCRFormAdmin(admin.ModelAdmin):
+    list_display = ('name', 'status', 'created_at')
+    list_editable = ('status',)
+    list_filter = ('status', 'created_at')
+    
+    def has_add_permission(self, request):
+        # Prevent creating multiple CCR forms
+        if CCRForm.objects.filter(name="CCR Form").exists():
+            return False
+        return super().has_add_permission(request)
+
+@admin.register(CCRSubmission)
+class CCRSubmissionAdmin(admin.ModelAdmin):
+    list_display = ('faculty', 'course', 'course_coordinator', 'submission_date')
+    list_filter = ('submission_date', 'course')
+    search_fields = ('faculty__username', 'course__title', 'course_coordinator')
+    readonly_fields = ('submission_date', 'updated_at')

@@ -14,6 +14,10 @@ urlpatterns = [
     # dashboard (role-based)
     path("dashboard/", views.dashboard, name="dashboard"),
 
+    # CCR Form URLs
+    path("ccr/", views.ccr_form, name="ccr_form"),
+    path("ccr/submissions/", views.ccr_submissions, name="ccr_submissions"),
+
     # API endpoints for admin dashboard
     path("api/departments/", api_views.api_departments, name="api_departments"),
     path("api/departments/create/", api_views.api_departments_create, name="api_departments_create"),
@@ -37,4 +41,9 @@ urlpatterns = [
     # Faculty assignment APIs
     path("api/faculty/<int:user_id>/assign-courses/", api_views.api_assign_courses_to_faculty, name="api_assign_courses_to_faculty"),
     path("api/faculty/my-courses/", api_views.api_faculty_courses, name="api_faculty_courses"),
+    
+    # CCR API URLs
+    path("api/ccr-forms/", api_views.api_ccr_forms, name="api_ccr_forms"),
+    path("api/ccr-forms/toggle/", api_views.api_ccr_forms_toggle, name="api_ccr_forms_toggle"),
+    path("api/ccr-submissions/", api_views.api_ccr_submissions, name="api_ccr_submissions"),
 ]
