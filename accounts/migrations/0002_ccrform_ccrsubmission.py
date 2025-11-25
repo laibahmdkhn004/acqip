@@ -4,6 +4,12 @@ import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
 
+def create_default_ccr_form(apps, schema_editor):
+    CCRForm = apps.get_model('accounts', 'CCRForm')
+    CCRForm.objects.create(
+        name="CCR Form",
+        status="active"
+    )
 
 class Migration(migrations.Migration):
 
@@ -22,6 +28,7 @@ class Migration(migrations.Migration):
                 ('updated_at', models.DateTimeField(auto_now=True)),
             ],
         ),
+        migrations.RunPython(create_default_ccr_form),
         migrations.CreateModel(
             name='CCRSubmission',
             fields=[
