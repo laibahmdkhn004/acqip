@@ -1,0 +1,300 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dynamic Form - ACQIP</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      body {
+        font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial;
+        margin: 0;
+        padding: 0;
+      }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <!-- Header -->
+    <header class="bg-purple-700 text-white shadow">
+      <div class="px-6 py-3 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <a href="{% url 'dashboard' %}" class="flex items-center gap-3">
+            <div>
+              <div class="font-semibold">
+                Capital University of Science and Technology
+              </div>
+              <div class="text-xs text-white/80 -mt-1">
+                Faculty Portal — Dynamic Form
+              </div>
+            </div>
+          </a>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="text-sm text-white/90">
+            {{ user.username }}
+          </span>
+          <a href="{% url 'dashboard' %}" class="text-white/80 hover:text-white text-sm">
+            Back to Dashboard
+          </a>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="container mx-auto px-4 py-6">
+        <div class="max-w-4xl mx-auto bg-white rounded-lg shadow-md p-6">
+            <h1 class="text-2xl font-bold text-gray-800 mb-2">{{ dynamic_form.name }}</h1>
+            <p class="text-gray-600 mb-6">{{ dynamic_form.description }}</p>
+
+            <!-- Course Selection -->
+            <div class="mb-6">
+                <label class="block text-sm font-medium text-gray-700 mb-2">Select Course *</label>
+                <select id="course-select" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                    <option value="">Choose a course...</option>
+                    {% for course in assigned_courses %}
+                    <option value="{{ course.id }}">{{ course.code }} - {{ course.title }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Dynamic Form -->
+            <form id="dynamic-form">
+                {% csrf_token %}
+                <div id="questions-container" class="space-y-6">
+                    {% for question in questions %}
+                    
+                    {% if question.question_type == 'section_header' %}
+                    <!-- Section Header - Simple bold heading -->
+                    <div class="question-item" data-question-id="{{ question.id }}" data-question-type="{{ question.question_type }}">
+                        <h3 class="text-lg font-bold text-gray-800 border-b pb-2 mt-6">{{ question.question_text }}</h3>
+                    </div>
+                    
+                    {% else %}
+                    <!-- Regular Questions -->
+                    <div class="question-item" data-question-id="{{ question.id }}" data-question-type="{{ question.question_type }}">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            {{ question.question_text }}
+                            {% if question.required %}<span class="text-red-500">*</span>{% endif %}
+                        </label>
+                        
+                        {% if question.question_type == 'text' %}
+                        <input type="text" 
+                               name="question_{{ question.id }}" 
+                               class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                               {% if question.required %}required{% endif %}>
+
+                        {% elif question.question_type == 'textarea' %}
+                        <textarea 
+                            name="question_{{ question.id }}" 
+                            rows="3"
+                            class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            {% if question.required %}required{% endif %}></textarea>
+
+                        {% elif question.question_type == 'checkbox' %}
+                        <div class="space-y-2">
+                            {% if question.options %}
+                                {% for option in question.options.split %}
+                                <label class="flex items-center">
+                                    <input type="checkbox" 
+                                           name="question_{{ question.id }}" 
+                                           value="{{ option }}"
+                                           class="mr-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                                    <span class="text-sm text-gray-700">{{ option }}</span>
+                                </label>
+                                {% endfor %}
+                            {% else %}
+                                <p class="text-sm text-gray-500">No options configured</p>
+                            {% endif %}
+                        </div>
+
+                        {% elif question.question_type == 'radio' %}
+                        <div class="space-y-2">
+                            {% if question.options %}
+                                {% for option in question.options.split %}
+                                <label class="flex items-center">
+                                    <input type="radio" 
+                                           name="question_{{ question.id }}" 
+                                           value="{{ option }}"
+                                           class="mr-2 rounded-full border-gray-300 text-blue-600 focus:ring-blue-500"
+                                           {% if question.required %}required{% endif %}>
+                                    <span class="text-sm text-gray-700">{{ option }}</span>
+                                </label>
+                                {% endfor %}
+                            {% else %}
+                                <p class="text-sm text-gray-500">No options configured</p>
+                            {% endif %}
+                        </div>
+
+                        {% elif question.question_type == 'select' %}
+                        <select name="question_{{ question.id }}" 
+                                class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                {% if question.required %}required{% endif %}>
+                            <option value="">Select an option...</option>
+                            {% if question.options %}
+                                {% for option in question.options.split %}
+                                <option value="{{ option }}">{{ option }}</option>
+                                {% endfor %}
+                            {% endif %}
+                        </select>
+                        {% endif %}
+
+                        {% if question.help_text %}
+                        <p class="text-xs text-gray-500 mt-1">{{ question.help_text }}</p>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                    
+                    {% empty %}
+                    <div class="text-center py-8 text-gray-500">
+                        No questions have been added to this form yet.
+                    </div>
+                    {% endfor %}
+                </div>
+
+                <div class="mt-8 flex justify-end space-x-4">
+                    <a href="{% url 'dashboard' %}" class="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
+                        Cancel
+                    </a>
+                    <button type="submit" class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                        Submit Form
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('dynamic-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const courseId = document.getElementById('course-select').value;
+            if (!courseId) {
+                alert('Please select a course');
+                return;
+            }
+
+            // Validate required fields (skip section headers)
+            let isValid = true;
+            document.querySelectorAll('.question-item').forEach(questionEl => {
+                const questionType = questionEl.dataset.questionType;
+                
+                // Skip validation for section headers
+                if (questionType === 'section_header') {
+                    return;
+                }
+                
+                const required = questionEl.querySelector('input[required], select[required], textarea[required]');
+                
+                if (required) {
+                    if (questionType === 'checkbox') {
+                        const checked = questionEl.querySelectorAll('input[type="checkbox"]:checked').length > 0;
+                        if (!checked) {
+                            isValid = false;
+                            questionEl.classList.add('border', 'border-red-500', 'p-4', 'rounded-lg');
+                        } else {
+                            questionEl.classList.remove('border', 'border-red-500', 'p-4', 'rounded-lg');
+                        }
+                    } else if (questionType === 'radio') {
+                        const checked = questionEl.querySelector('input[type="radio"]:checked');
+                        if (!checked) {
+                            isValid = false;
+                            questionEl.classList.add('border', 'border-red-500', 'p-4', 'rounded-lg');
+                        } else {
+                            questionEl.classList.remove('border', 'border-red-500', 'p-4', 'rounded-lg');
+                        }
+                    } else {
+                        const value = required.value.trim();
+                        if (!value) {
+                            isValid = false;
+                            required.classList.add('border-red-500');
+                        } else {
+                            required.classList.remove('border-red-500');
+                        }
+                    }
+                }
+            });
+
+            if (!isValid) {
+                alert('Please fill in all required fields');
+                return;
+            }
+
+            const answers = {};
+
+            // Collect all answers (skip section headers)
+            document.querySelectorAll('.question-item').forEach(questionEl => {
+                const questionId = questionEl.dataset.questionId;
+                const questionType = questionEl.dataset.questionType;
+                
+                // Skip section headers entirely
+                if (questionType === 'section_header') {
+                    return;
+                }
+                
+                if (questionType === 'checkbox') {
+                    // For checkboxes, get all checked values
+                    const checkedBoxes = questionEl.querySelectorAll('input[type="checkbox"]:checked');
+                    answers[questionId] = Array.from(checkedBoxes).map(cb => cb.value);
+                } else if (questionType === 'radio') {
+                    // For radio, get the selected value
+                    const selectedRadio = questionEl.querySelector('input[type="radio"]:checked');
+                    answers[questionId] = selectedRadio ? selectedRadio.value : '';
+                } else {
+                    // For text, textarea, select
+                    const input = questionEl.querySelector('input, select, textarea');
+                    if (input) {
+                        answers[questionId] = input.value;
+                    }
+                }
+            });
+
+            const payload = {
+                course_id: parseInt(courseId),
+                answers: answers
+            };
+
+            console.log('Submitting:', payload);
+
+            try {
+                const response = await fetch('{% url "api_submit_dynamic_form" %}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': '{{ csrf_token }}'
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await response.json();
+                
+                if (response.ok) {
+                    alert('Form submitted successfully!');
+                    window.location.href = '{% url "dashboard" %}';
+                } else {
+                    alert('Error: ' + result.error);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error submitting form: ' + error.message);
+            }
+        });
+
+        // Add visual feedback for required fields
+        document.querySelectorAll('input, select, textarea').forEach(field => {
+            field.addEventListener('blur', function() {
+                if (this.hasAttribute('required') && !this.value.trim()) {
+                    this.classList.add('border-red-500');
+                } else {
+                    this.classList.remove('border-red-500');
+                }
+            });
+        });
+    </script>
+</body>
+</html>
