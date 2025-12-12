@@ -2,299 +2,626 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dynamic Form - ACQIP</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
     <style>
-      body {
-        font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto,
-          "Helvetica Neue", Arial;
-        margin: 0;
-        padding: 0;
-      }
+        .form-section {
+            margin-bottom: 2rem;
+            padding: 1.5rem;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.5rem;
+            background-color: white;
+        }
+        .section-header {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid #e5e7eb;
+        }
     </style>
 </head>
 <body class="bg-gray-50">
-    <!-- Header -->
-    <header class="bg-purple-700 text-white shadow">
-      <div class="px-6 py-3 flex items-center justify-between">
-        <div class="flex items-center gap-3">
-          <a href="{% url 'dashboard' %}" class="flex items-center gap-3">
-            <div>
-              <div class="font-semibold">
-                Capital University of Science and Technology
-              </div>
-              <div class="text-xs text-white/80 -mt-1">
-                Faculty Portal — Dynamic Form
-              </div>
-            </div>
-          </a>
+    <div class="max-w-4xl mx-auto py-8 px-4">
+        <!-- Header -->
+        <div class="mb-8">
+            <h1 class="text-3xl font-bold text-gray-900">Dynamic Form Submission</h1>
+            <p class="text-gray-600 mt-2">Fill out the form for your assigned course</p>
         </div>
-        <div class="flex items-center gap-3">
-          <span class="text-sm text-white/90">
-            {{ user.username }}
-          </span>
-          <a href="{% url 'dashboard' %}" class="text-white/80 hover:text-white text-sm">
-            Back to Dashboard
-          </a>
-        </div>
-      </div>
-    </header>
 
-    <!-- Main Content -->
-    <div class="container mx-auto px-4 py-6">
-        <div class="max-w-4xl mx-auto bg-white rounded-lg shadow-md p-6">
-            <h1 class="text-2xl font-bold text-gray-800 mb-2">{{ dynamic_form.name }}</h1>
-            <p class="text-gray-600 mb-6">{{ dynamic_form.description }}</p>
-
-            <!-- Course Selection -->
-            <div class="mb-6">
-                <label class="block text-sm font-medium text-gray-700 mb-2">Select Course *</label>
-                <select id="course-select" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" required>
-                    <option value="">Choose a course...</option>
-                    {% for course in assigned_courses %}
-                    <option value="{{ course.id }}">{{ course.code }} - {{ course.title }}</option>
-                    {% endfor %}
-                </select>
+        {% if messages %}
+        <div class="mb-6">
+            {% for message in messages %}
+            <div class="p-4 rounded-lg {% if message.tags == 'success' %}bg-green-50 text-green-800{% else %}bg-red-50 text-red-800{% endif %}">
+                {{ message }}
             </div>
+            {% endfor %}
+        </div>
+        {% endif %}
 
-            <!-- Dynamic Form -->
-            <form id="dynamic-form">
-                {% csrf_token %}
-                <div id="questions-container" class="space-y-6">
-                    {% for question in questions %}
-                    
-                    {% if question.question_type == 'section_header' %}
-                    <!-- Section Header - Simple bold heading -->
-                    <div class="question-item" data-question-id="{{ question.id }}" data-question-type="{{ question.question_type }}">
-                        <h3 class="text-lg font-bold text-gray-800 border-b pb-2 mt-6">{{ question.question_text }}</h3>
-                    </div>
-                    
-                    {% else %}
-                    <!-- Regular Questions -->
-                    <div class="question-item" data-question-id="{{ question.id }}" data-question-type="{{ question.question_type }}">
-                        <label class="block text-sm font-medium text-gray-700 mb-2">
-                            {{ question.question_text }}
-                            {% if question.required %}<span class="text-red-500">*</span>{% endif %}
-                        </label>
-                        
-                        {% if question.question_type == 'text' %}
-                        <input type="text" 
-                               name="question_{{ question.id }}" 
-                               class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                               {% if question.required %}required{% endif %}>
-
-                        {% elif question.question_type == 'textarea' %}
-                        <textarea 
-                            name="question_{{ question.id }}" 
-                            rows="3"
-                            class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            {% if question.required %}required{% endif %}></textarea>
-
-                        {% elif question.question_type == 'checkbox' %}
-                        <div class="space-y-2">
-                            {% if question.options %}
-                                {% for option in question.options.split %}
-                                <label class="flex items-center">
-                                    <input type="checkbox" 
-                                           name="question_{{ question.id }}" 
-                                           value="{{ option }}"
-                                           class="mr-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
-                                    <span class="text-sm text-gray-700">{{ option }}</span>
-                                </label>
-                                {% endfor %}
-                            {% else %}
-                                <p class="text-sm text-gray-500">No options configured</p>
-                            {% endif %}
-                        </div>
-
-                        {% elif question.question_type == 'radio' %}
-                        <div class="space-y-2">
-                            {% if question.options %}
-                                {% for option in question.options.split %}
-                                <label class="flex items-center">
-                                    <input type="radio" 
-                                           name="question_{{ question.id }}" 
-                                           value="{{ option }}"
-                                           class="mr-2 rounded-full border-gray-300 text-blue-600 focus:ring-blue-500"
-                                           {% if question.required %}required{% endif %}>
-                                    <span class="text-sm text-gray-700">{{ option }}</span>
-                                </label>
-                                {% endfor %}
-                            {% else %}
-                                <p class="text-sm text-gray-500">No options configured</p>
-                            {% endif %}
-                        </div>
-
-                        {% elif question.question_type == 'select' %}
-                        <select name="question_{{ question.id }}" 
-                                class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                {% if question.required %}required{% endif %}>
-                            <option value="">Select an option...</option>
-                            {% if question.options %}
-                                {% for option in question.options.split %}
-                                <option value="{{ option }}">{{ option }}</option>
-                                {% endfor %}
-                            {% endif %}
-                        </select>
-                        {% endif %}
-
-                        {% if question.help_text %}
-                        <p class="text-xs text-gray-500 mt-1">{{ question.help_text }}</p>
-                        {% endif %}
-                    </div>
+        <!-- Form Type and Course Selection -->
+        <div class="bg-white rounded-lg shadow p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">Form Details</h2>
+            
+            <!-- Form Type Selection -->
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">Form Type</label>
+                <div class="flex space-x-4">
+                    {% if ccr_active and is_coordinator_for_any %}
+                    <button type="button" id="ccr-btn" 
+                            class="px-4 py-2 border border-purple-600 text-purple-600 rounded-lg hover:bg-purple-50 {% if form_type == 'ccr' %}bg-purple-600 text-white hover:bg-purple-700{% endif %}">
+                        CCR Form (Course Coordinators)
+                    </button>
                     {% endif %}
                     
-                    {% empty %}
-                    <div class="text-center py-8 text-gray-500">
-                        No questions have been added to this form yet.
-                    </div>
+                    {% if crr_active %}
+                    <button type="button" id="crr-btn" 
+                            class="px-4 py-2 border border-green-600 text-green-600 rounded-lg hover:bg-green-50 {% if form_type == 'crr' %}bg-green-600 text-white hover:bg-green-700{% endif %}">
+                        CRR Form (All Faculty)
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Course Selection -->
+            <div id="course-selection" class="{% if not form_type %}hidden{% endif %}">
+                <label class="block text-sm font-medium text-gray-700 mb-2">Select Course</label>
+                <select id="course-select" class="w-full border border-gray-300 rounded-lg p-3">
+                    <option value="">Select a course...</option>
+                    {% for course in assigned_courses %}
+                    <option value="{{ course.id }}" 
+                            data-is-coordinator="{{ course.is_coordinator|yesno:'true,false' }}"
+                            {% if selected_course and selected_course.id == course.id %}selected{% endif %}>
+                        {{ course.code }} - {{ course.title }}
+                        {% if course.is_coordinator %} (Coordinator){% endif %}
+                    </option>
                     {% endfor %}
+                </select>
+                <p id="form-info" class="text-sm text-gray-500 mt-2 hidden"></p>
+            </div>
+        </div>
+
+        <!-- Form Container -->
+        <div id="form-container" class="hidden">
+            <div class="bg-white rounded-lg shadow">
+                <div id="form-header" class="p-6 border-b">
+                    <h2 id="form-title" class="text-xl font-semibold"></h2>
+                    <p id="form-description" class="text-gray-600 mt-1"></p>
+                    <div id="course-info" class="mt-2 text-sm text-gray-500"></div>
                 </div>
 
-                <div class="mt-8 flex justify-end space-x-4">
-                    <a href="{% url 'dashboard' %}" class="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
-                        Cancel
-                    </a>
-                    <button type="submit" class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-                        Submit Form
-                    </button>
-                </div>
-            </form>
+                <form id="dynamic-form" class="p-6">
+                    <div id="questions-container" class="space-y-6">
+                        <!-- Questions will be loaded here -->
+                        <div class="text-center py-8">
+                            <p class="text-gray-400">Loading form questions...</p>
+                        </div>
+                    </div>
+
+                    <div class="mt-8 pt-6 border-t flex justify-between">
+                        <button type="button" onclick="window.history.back()" 
+                                class="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50">
+                            Cancel
+                        </button>
+                        <div class="space-x-3">
+                            <button type="button" id="save-draft-btn" 
+                                    class="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700">
+                                Save as Draft
+                            </button>
+                            <button type="button" id="submit-form-btn" 
+                                    class="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
+                                Submit Form
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
 
     <script>
-        document.getElementById('dynamic-form').addEventListener('submit', async function(e) {
-            e.preventDefault();
-            
-            const courseId = document.getElementById('course-select').value;
-            if (!courseId) {
-                alert('Please select a course');
-                return;
+        const API = {
+            faculty_dynamic_forms: "{% url 'api_faculty_dynamic_forms' %}",
+            submit_dynamic_form: "{% url 'api_submit_dynamic_form' %}",
+        };
+
+        // Get URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlCourseId = urlParams.get('course_id');
+        const urlFormType = urlParams.get('form_type') || 'crr';
+
+        let currentCourseId = null;
+        let currentFormType = urlFormType;
+        let currentFormId = null;
+        let currentFormData = null;
+
+        // Initialize form
+        document.addEventListener('DOMContentLoaded', function() {
+            // Set active form type button
+            if (urlFormType === 'ccr') {
+                document.getElementById('ccr-btn')?.classList.add('bg-purple-600', 'text-white', 'hover:bg-purple-700');
+                document.getElementById('ccr-btn')?.classList.remove('text-purple-600', 'border-purple-600');
+            } else if (urlFormType === 'crr') {
+                document.getElementById('crr-btn')?.classList.add('bg-green-600', 'text-white', 'hover:bg-green-700');
+                document.getElementById('crr-btn')?.classList.remove('text-green-600', 'border-green-600');
             }
 
-            // Validate required fields (skip section headers)
-            let isValid = true;
-            document.querySelectorAll('.question-item').forEach(questionEl => {
-                const questionType = questionEl.dataset.questionType;
-                
-                // Skip validation for section headers
-                if (questionType === 'section_header') {
-                    return;
-                }
-                
-                const required = questionEl.querySelector('input[required], select[required], textarea[required]');
-                
-                if (required) {
-                    if (questionType === 'checkbox') {
-                        const checked = questionEl.querySelectorAll('input[type="checkbox"]:checked').length > 0;
-                        if (!checked) {
-                            isValid = false;
-                            questionEl.classList.add('border', 'border-red-500', 'p-4', 'rounded-lg');
-                        } else {
-                            questionEl.classList.remove('border', 'border-red-500', 'p-4', 'rounded-lg');
-                        }
-                    } else if (questionType === 'radio') {
-                        const checked = questionEl.querySelector('input[type="radio"]:checked');
-                        if (!checked) {
-                            isValid = false;
-                            questionEl.classList.add('border', 'border-red-500', 'p-4', 'rounded-lg');
-                        } else {
-                            questionEl.classList.remove('border', 'border-red-500', 'p-4', 'rounded-lg');
-                        }
-                    } else {
-                        const value = required.value.trim();
-                        if (!value) {
-                            isValid = false;
-                            required.classList.add('border-red-500');
-                        } else {
-                            required.classList.remove('border-red-500');
-                        }
-                    }
-                }
+            // Show course selection
+            document.getElementById('course-selection').classList.remove('hidden');
+
+            // If course_id is in URL, select it
+            if (urlCourseId) {
+                document.getElementById('course-select').value = urlCourseId;
+                setTimeout(() => {
+                    loadFormForCourse(urlCourseId, urlFormType);
+                }, 100);
+            }
+
+            // Form type button handlers
+            document.getElementById('ccr-btn')?.addEventListener('click', function() {
+                setFormType('ccr');
             });
 
-            if (!isValid) {
-                alert('Please fill in all required fields');
-                return;
-            }
+            document.getElementById('crr-btn')?.addEventListener('click', function() {
+                setFormType('crr');
+            });
 
-            const answers = {};
-
-            // Collect all answers (skip section headers)
-            document.querySelectorAll('.question-item').forEach(questionEl => {
-                const questionId = questionEl.dataset.questionId;
-                const questionType = questionEl.dataset.questionType;
-                
-                // Skip section headers entirely
-                if (questionType === 'section_header') {
-                    return;
-                }
-                
-                if (questionType === 'checkbox') {
-                    // For checkboxes, get all checked values
-                    const checkedBoxes = questionEl.querySelectorAll('input[type="checkbox"]:checked');
-                    answers[questionId] = Array.from(checkedBoxes).map(cb => cb.value);
-                } else if (questionType === 'radio') {
-                    // For radio, get the selected value
-                    const selectedRadio = questionEl.querySelector('input[type="radio"]:checked');
-                    answers[questionId] = selectedRadio ? selectedRadio.value : '';
+            // Course select handler
+            document.getElementById('course-select').addEventListener('change', function() {
+                const courseId = this.value;
+                if (courseId) {
+                    loadFormForCourse(courseId, currentFormType);
                 } else {
-                    // For text, textarea, select
-                    const input = questionEl.querySelector('input, select, textarea');
-                    if (input) {
-                        answers[questionId] = input.value;
+                    hideForm();
+                }
+            });
+
+            // Button handlers
+            document.getElementById('save-draft-btn').addEventListener('click', function() {
+                saveForm('draft');
+            });
+
+            document.getElementById('submit-form-btn').addEventListener('click', function() {
+                if (confirm('Are you sure you want to submit this form? Once submitted, you cannot edit it unless CRC requests revision.')) {
+                    saveForm('submitted');
+                }
+            });
+        });
+
+        function setFormType(formType) {
+            currentFormType = formType;
+            
+            // Update button styles
+            const ccrBtn = document.getElementById('ccr-btn');
+            const crrBtn = document.getElementById('crr-btn');
+            
+            if (ccrBtn) {
+                ccrBtn.classList.toggle('bg-purple-600', formType === 'ccr');
+                ccrBtn.classList.toggle('text-white', formType === 'ccr');
+                ccrBtn.classList.toggle('hover:bg-purple-700', formType === 'ccr');
+                ccrBtn.classList.toggle('text-purple-600', formType !== 'ccr');
+                ccrBtn.classList.toggle('border-purple-600', formType !== 'ccr');
+                ccrBtn.classList.toggle('hover:bg-purple-50', formType !== 'ccr');
+            }
+            
+            if (crrBtn) {
+                crrBtn.classList.toggle('bg-green-600', formType === 'crr');
+                crrBtn.classList.toggle('text-white', formType === 'crr');
+                crrBtn.classList.toggle('hover:bg-green-700', formType === 'crr');
+                crrBtn.classList.toggle('text-green-600', formType !== 'crr');
+                crrBtn.classList.toggle('border-green-600', formType !== 'crr');
+                crrBtn.classList.toggle('hover:bg-green-50', formType !== 'crr');
+            }
+
+            // Update form info
+            const formInfo = document.getElementById('form-info');
+            if (formType === 'ccr') {
+                formInfo.textContent = 'CCR Form: For course coordinators only. You can submit this form for courses where you are the coordinator.';
+                formInfo.classList.remove('hidden');
+                
+                // Filter courses to show only coordinator courses
+                const courseSelect = document.getElementById('course-select');
+                const options = courseSelect.options;
+                for (let i = 0; i < options.length; i++) {
+                    const isCoordinator = options[i].getAttribute('data-is-coordinator') === 'true';
+                    options[i].style.display = isCoordinator ? '' : 'none';
+                }
+            } else {
+                formInfo.textContent = 'CRR Form: For all faculty members. You can submit this form for all assigned courses.';
+                formInfo.classList.remove('hidden');
+                
+                // Show all courses
+                const courseSelect = document.getElementById('course-select');
+                const options = courseSelect.options;
+                for (let i = 0; i < options.length; i++) {
+                    options[i].style.display = '';
+                }
+            }
+
+            // If a course is selected, reload form
+            const selectedCourseId = document.getElementById('course-select').value;
+            if (selectedCourseId) {
+                loadFormForCourse(selectedCourseId, formType);
+            }
+        }
+
+        async function loadFormForCourse(courseId, formType) {
+            try {
+                currentCourseId = courseId;
+                currentFormType = formType;
+                
+                // Show loading state
+                const formContainer = document.getElementById('form-container');
+                const questionsContainer = document.getElementById('questions-container');
+                formContainer.classList.remove('hidden');
+                questionsContainer.innerHTML = '<div class="text-center py-8"><p class="text-gray-400">Loading form...</p></div>';
+
+                // Get form data
+                const response = await fetch(`${API.faculty_dynamic_forms}?form_type=${formType}`);
+                const data = await response.json();
+
+                if (!data.active) {
+                    questionsContainer.innerHTML = `
+                        <div class="text-center py-8 text-red-600">
+                            <i class="fas fa-exclamation-triangle text-2xl mb-3"></i>
+                            <p>${data.message || 'No active form available.'}</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                currentFormId = data.form.id;
+                currentFormData = data;
+
+                // Update form header
+                document.getElementById('form-title').textContent = data.form.name;
+                document.getElementById('form-description').textContent = data.form.description || '';
+                
+                // Find the selected course
+                const courseSelect = document.getElementById('course-select');
+                const selectedOption = courseSelect.options[courseSelect.selectedIndex];
+                const courseCode = selectedOption.text.split(' - ')[0];
+                const courseTitle = selectedOption.text.split(' - ')[1]?.split(' (')[0];
+                
+                document.getElementById('course-info').textContent = 
+                    `Course: ${courseCode} - ${courseTitle}`;
+
+                // Check if course is in assigned courses
+                const assignedCourse = data.assigned_courses?.find(c => c.id == courseId);
+                if (!assignedCourse) {
+                    questionsContainer.innerHTML = `
+                        <div class="text-center py-8 text-red-600">
+                            <i class="fas fa-exclamation-triangle text-2xl mb-3"></i>
+                            <p>You are not assigned to this course for ${formType.toUpperCase()} form submission.</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                // Check existing submission
+                if (assignedCourse.existing_submission) {
+                    const status = assignedCourse.existing_submission.status;
+                    if (status === 'submitted' || status === 'approved') {
+                        questionsContainer.innerHTML = `
+                            <div class="text-center py-8 text-blue-600">
+                                <i class="fas fa-info-circle text-2xl mb-3"></i>
+                                <p>You have already submitted this form for ${courseCode}.</p>
+                                <p class="text-sm mt-2">Status: ${status}</p>
+                                <button onclick="window.location.href='{% url 'dashboard' %}'" 
+                                        class="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                                    Return to Dashboard
+                                </button>
+                            </div>
+                        `;
+                        return;
+                    }
+                }
+
+                // Render questions
+                renderQuestions(data.questions, assignedCourse.existing_submission?.id);
+
+            } catch (error) {
+                console.error('Failed to load form:', error);
+                const questionsContainer = document.getElementById('questions-container');
+                questionsContainer.innerHTML = `
+                    <div class="text-center py-8 text-red-600">
+                        <i class="fas fa-exclamation-triangle text-2xl mb-3"></i>
+                        <p>Failed to load form. Please try again.</p>
+                        <button onclick="location.reload()" class="mt-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">
+                            Reload Page
+                        </button>
+                    </div>
+                `;
+            }
+        }
+
+        function renderQuestions(questions, existingSubmissionId = null) {
+            const container = document.getElementById('questions-container');
+            container.innerHTML = '';
+
+            let currentSection = null;
+            let questionCount = 0;
+
+            questions.forEach((question, index) => {
+                // Handle section headers
+                if (question.question_type === 'section_header') {
+                    if (currentSection) {
+                        container.appendChild(currentSection);
+                    }
+                    currentSection = document.createElement('div');
+                    currentSection.className = 'form-section';
+                    
+                    const header = document.createElement('h3');
+                    header.className = 'section-header';
+                    header.textContent = question.question_text;
+                    currentSection.appendChild(header);
+                    
+                    return;
+                }
+
+                // Create question container
+                if (!currentSection) {
+                    currentSection = document.createElement('div');
+                    currentSection.className = 'form-section';
+                }
+
+                const questionDiv = document.createElement('div');
+                questionDiv.className = 'mb-4';
+                questionDiv.id = `question-${question.id}`;
+
+                const label = document.createElement('label');
+                label.className = 'block text-sm font-medium text-gray-700 mb-2';
+                label.innerHTML = `${++questionCount}. ${question.question_text} ${question.required ? '<span class="text-red-500">*</span>' : ''}`;
+                
+                if (question.help_text) {
+                    const helpText = document.createElement('p');
+                    helpText.className = 'text-sm text-gray-500 mb-2';
+                    helpText.textContent = question.help_text;
+                    questionDiv.appendChild(helpText);
+                }
+                
+                questionDiv.appendChild(label);
+
+                // Add input based on question type
+                let inputElement;
+                switch (question.question_type) {
+                    case 'text':
+                        inputElement = document.createElement('input');
+                        inputElement.type = 'text';
+                        inputElement.className = 'w-full border border-gray-300 rounded-lg p-2 mt-1';
+                        break;
+
+                    case 'textarea':
+                        inputElement = document.createElement('textarea');
+                        inputElement.rows = 4;
+                        inputElement.className = 'w-full border border-gray-300 rounded-lg p-2 mt-1';
+                        break;
+
+                    case 'radio':
+                        const radioGroup = document.createElement('div');
+                        radioGroup.className = 'space-y-2 mt-2';
+                        
+                        const options = question.options ? question.options.split(',') : [];
+                        options.forEach((option, i) => {
+                            const optionDiv = document.createElement('div');
+                            optionDiv.className = 'flex items-center';
+                            
+                            const radio = document.createElement('input');
+                            radio.type = 'radio';
+                            radio.name = `question_${question.id}`;
+                            radio.value = option.trim();
+                            radio.id = `question_${question.id}_${i}`;
+                            radio.className = 'mr-2';
+                            
+                            const optionLabel = document.createElement('label');
+                            optionLabel.htmlFor = radio.id;
+                            optionLabel.textContent = option.trim();
+                            optionLabel.className = 'text-gray-700';
+                            
+                            optionDiv.appendChild(radio);
+                            optionDiv.appendChild(optionLabel);
+                            radioGroup.appendChild(optionDiv);
+                        });
+                        
+                        questionDiv.appendChild(radioGroup);
+                        inputElement = radioGroup;
+                        break;
+
+                    case 'checkbox':
+                        const checkboxGroup = document.createElement('div');
+                        checkboxGroup.className = 'space-y-2 mt-2';
+                        
+                        const checkOptions = question.options ? question.options.split(',') : [];
+                        checkOptions.forEach((option, i) => {
+                            const optionDiv = document.createElement('div');
+                            optionDiv.className = 'flex items-center';
+                            
+                            const checkbox = document.createElement('input');
+                            checkbox.type = 'checkbox';
+                            checkbox.name = `question_${question.id}`;
+                            checkbox.value = option.trim();
+                            checkbox.id = `question_${question.id}_${i}`;
+                            checkbox.className = 'mr-2';
+                            
+                            const optionLabel = document.createElement('label');
+                            optionLabel.htmlFor = checkbox.id;
+                            optionLabel.textContent = option.trim();
+                            optionLabel.className = 'text-gray-700';
+                            
+                            optionDiv.appendChild(checkbox);
+                            optionDiv.appendChild(optionLabel);
+                            checkboxGroup.appendChild(optionDiv);
+                        });
+                        
+                        questionDiv.appendChild(checkboxGroup);
+                        inputElement = checkboxGroup;
+                        break;
+
+                    case 'select':
+                        inputElement = document.createElement('select');
+                        inputElement.className = 'w-full border border-gray-300 rounded-lg p-2 mt-1';
+                        
+                        const defaultOption = document.createElement('option');
+                        defaultOption.value = '';
+                        defaultOption.textContent = 'Select an option...';
+                        inputElement.appendChild(defaultOption);
+                        
+                        const selectOptions = question.options ? question.options.split(',') : [];
+                        selectOptions.forEach(option => {
+                            const opt = document.createElement('option');
+                            opt.value = option.trim();
+                            opt.textContent = option.trim();
+                            inputElement.appendChild(opt);
+                        });
+                        break;
+
+                    default:
+                        inputElement = document.createElement('input');
+                        inputElement.type = 'text';
+                        inputElement.className = 'w-full border border-gray-300 rounded-lg p-2 mt-1';
+                }
+
+                if (inputElement && inputElement.tagName !== 'DIV') {
+                    inputElement.name = `question_${question.id}`;
+                    inputElement.required = question.required;
+                    questionDiv.appendChild(inputElement);
+                }
+
+                currentSection.appendChild(questionDiv);
+            });
+
+            // Add the last section
+            if (currentSection) {
+                container.appendChild(currentSection);
+            }
+        }
+
+        function hideForm() {
+            document.getElementById('form-container').classList.add('hidden');
+        }
+
+        async function saveForm(status) {
+            if (!currentCourseId || !currentFormId) {
+                alert('Please select a course first.');
+                return;
+            }
+
+            // Collect form answers
+            const answers = {};
+            let hasErrors = false;
+            
+            // Get all question inputs
+            const questionInputs = document.querySelectorAll('[name^="question_"]');
+            
+            questionInputs.forEach(input => {
+                const questionId = input.name.replace('question_', '');
+                
+                // Skip if it's a checkbox group (handled separately)
+                if (input.type === 'radio' || input.type === 'checkbox') {
+                    return;
+                }
+                
+                answers[questionId] = input.value;
+                
+                // Check required fields
+                if (input.required && !input.value.trim()) {
+                    input.classList.add('border-red-500');
+                    hasErrors = true;
+                } else {
+                    input.classList.remove('border-red-500');
+                }
+            });
+
+            // Handle radio buttons
+            document.querySelectorAll('[type="radio"]').forEach(radio => {
+                const name = radio.name;
+                const questionId = name.replace('question_', '');
+                
+                if (radio.checked) {
+                    answers[questionId] = radio.value;
+                }
+            });
+
+            // Handle checkboxes (multiple values)
+            document.querySelectorAll('[type="checkbox"]').forEach(checkbox => {
+                const name = checkbox.name;
+                const questionId = name.replace('question_', '');
+                
+                if (!answers[questionId]) {
+                    answers[questionId] = [];
+                }
+                
+                if (checkbox.checked) {
+                    if (Array.isArray(answers[questionId])) {
+                        answers[questionId].push(checkbox.value);
                     }
                 }
             });
 
-            const payload = {
-                course_id: parseInt(courseId),
-                answers: answers
-            };
+            // Check required radio groups
+            document.querySelectorAll('[type="radio"]').forEach(radio => {
+                const name = radio.name;
+                const questionId = name.replace('question_', '');
+                
+                if (radio.required && !answers[questionId]) {
+                    hasErrors = true;
+                    document.querySelectorAll(`[name="${name}"]`).forEach(r => {
+                        r.closest('div').classList.add('border', 'border-red-500', 'p-2', 'rounded');
+                    });
+                }
+            });
 
-            console.log('Submitting:', payload);
+            if (hasErrors) {
+                alert('Please fill in all required fields.');
+                return;
+            }
 
             try {
-                const response = await fetch('{% url "api_submit_dynamic_form" %}', {
+                const response = await fetch(API.submit_dynamic_form, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-CSRFToken': '{{ csrf_token }}'
+                        'X-CSRFToken': getCookie('csrftoken'),
                     },
-                    body: JSON.stringify(payload)
+                    body: JSON.stringify({
+                        course_id: currentCourseId,
+                        form_id: currentFormId,
+                        answers: answers,
+                        status: status
+                    })
                 });
 
                 const result = await response.json();
                 
                 if (response.ok) {
-                    alert('Form submitted successfully!');
-                    window.location.href = '{% url "dashboard" %}';
+                    alert(`Form ${status === 'draft' ? 'saved as draft' : 'submitted'} successfully!`);
+                    window.location.href = "{% url 'dashboard' %}";
                 } else {
-                    alert('Error: ' + result.error);
+                    alert(`Submission failed: ${result.error}`);
                 }
             } catch (error) {
-                console.error('Error:', error);
-                alert('Error submitting form: ' + error.message);
+                console.error('Submission error:', error);
+                alert('Failed to submit form. Please try again.');
             }
-        });
+        }
 
-        // Add visual feedback for required fields
-        document.querySelectorAll('input, select, textarea').forEach(field => {
-            field.addEventListener('blur', function() {
-                if (this.hasAttribute('required') && !this.value.trim()) {
-                    this.classList.add('border-red-500');
-                } else {
-                    this.classList.remove('border-red-500');
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
                 }
-            });
-        });
+            }
+            return cookieValue;
+        }
     </script>
 </body>
 </html>

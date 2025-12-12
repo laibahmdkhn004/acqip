@@ -1,0 +1,48 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Select Form - ACQIP</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <div class="max-w-4xl mx-auto">
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h1 class="text-2xl font-bold text-gray-900 mb-2">Select Form to Submit</h1>
+                <p class="text-gray-600 mb-6">Choose which form you want to fill out:</p>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {% for form in active_forms %}
+                    <a href="{% url 'dynamic_form_with_id' form.id %}" 
+                       class="block p-6 border-2 border-gray-200 rounded-lg hover:border-blue-500 transition-colors {% if form.form_type == 'ccr' %}bg-blue-50{% else %}bg-purple-50{% endif %}">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-lg font-semibold {% if form.form_type == 'ccr' %}text-blue-800{% else %}text-purple-800{% endif %}">
+                                {{ form.name }}
+                            </h3>
+                            <span class="px-3 py-1 rounded-full text-sm font-medium {% if form.form_type == 'ccr' %}bg-blue-100 text-blue-800{% else %}bg-purple-100 text-purple-800{% endif %}">
+                                {{ form.form_type|upper }}
+                            </span>
+                        </div>
+                        <p class="text-gray-600 text-sm mb-4">{{ form.description|default:"No description available" }}</p>
+                        <div class="text-xs text-gray-500">
+                            {% if form.form_type == 'ccr' %}
+                                📋 For Course Coordinators
+                            {% else %}
+                                📋 For All Faculty
+                            {% endif %}
+                        </div>
+                    </a>
+                    {% endfor %}
+                </div>
+                
+                <div class="mt-6 pt-6 border-t border-gray-200">
+                    <a href="{% url 'dashboard' %}" class="text-blue-600 hover:text-blue-800">← Back to Dashboard</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

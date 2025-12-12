@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Course Outline Editor - ACQIP</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { font-family: Inter, sans-serif; }
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            display: none;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <!-- Navigation -->
+    <nav class="bg-purple-700 text-white p-4">
+        <div class="container mx-auto flex justify-between items-center">
+            <div class="flex items-center gap-3">
+                <a href="{% url 'faculty_dashboard' %}" class="hover:bg-white/10 p-2 rounded">
+                    <i class="fas fa-arrow-left"></i> Back to Dashboard
+                </a>
+                <div>
+                    <h1 class="text-xl font-bold">Course Outline Editor</h1>
+                    <p class="text-sm opacity-80">{{ course.code }} - {{ course.title }}</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-4">
+                <span class="bg-white/20 px-3 py-1 rounded-full text-sm">
+                    {{ faculty_name }}
+                </span>
+                <a href="{% url 'logout' %}" class="hover:bg-white/10 p-2 rounded">
+                    <i class="fas fa-sign-out-alt"></i>
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Debug Info (remove in production) -->
+    <div class="container mx-auto px-4 py-4">
+        <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+            <h3 class="font-semibold text-yellow-800">Debug Info:</h3>
+            <p class="text-sm text-yellow-700">
+                Course: {{ course.code }} (ID: {{ course.id }})<br>
+                Existing Outline: {{ existing_outline|yesno:"Yes,No" }}<br>
+                {% if existing_outline %}
+                    Outline ID: {{ existing_outline.id }}, Status: {{ existing_outline.status }}, Version: {{ existing_outline.version }}
+                {% endif %}
+            </p>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="container mx-auto px-4 py-6">
+        <!-- Course Info -->
+        <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h2 class="text-2xl font-bold text-gray-800">{{ course.code }} - {{ course.title }}</h2>
+                    <div class="flex items-center gap-4 mt-2 text-gray-600">
+                        <span><i class="fas fa-university mr-1"></i> {{ course.department }}</span>
+                        <span><i class="fas fa-graduation-cap mr-1"></i> {{ course.credits }} Credits</span>
+                        <span class="px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-sm">
+                            <i class="fas fa-crown mr-1"></i> Coordinator
+                        </span>
+                    </div>
+                </div>
+                <div id="status-indicator">
+                    {% if existing_outline %}
+                        {% if existing_outline.status == 'draft' %}
+                        <span class="bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full">Draft</span>
+                        {% elif existing_outline.status == 'submitted' %}
+                        <span class="bg-blue-100 text-blue-800 px-3 py-1 rounded-full">Submitted</span>
+                        {% elif existing_outline.status == 'approved' %}
+                        <span class="bg-green-100 text-green-800 px-3 py-1 rounded-full">Approved</span>
+                        {% elif existing_outline.status == 'revision_requested' %}
+                        <span class="bg-red-100 text-red-800 px-3 py-1 rounded-full">Revision Requested</span>
+                        {% endif %}
+                    {% else %}
+                        <span class="bg-gray-100 text-gray-800 px-3 py-1 rounded-full">New Outline</span>
+                    {% endif %}
+                </div>
+            </div>
+            
+            {% if existing_outline and existing_outline.notes %}
+            <div class="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <h4 class="font-semibold text-yellow-800 flex items-center gap-2">
+                    <i class="fas fa-exclamation-circle"></i> CRC Notes
+                </h4>
+                <p class="text-yellow-700 mt-1">{{ existing_outline.notes }}</p>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Editor Form -->
+        <div class="bg-white rounded-xl shadow-lg p-6">
+            <form id="outline-form">
+                {% csrf_token %}
+                <input type="hidden" id="course_id" value="{{ course.id }}">
+                <input type="hidden" id="outline_id" value="{{ existing_outline.id|default:'' }}">
+                
+                <div class="space-y-6">
+                    <!-- Title -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            <i class="fas fa-heading mr-2"></i>Outline Title *
+                        </label>
+                        <input type="text" id="title" name="title" 
+                               value="{{ existing_outline.title|default:'Course Outline' }}"
+                               class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                               placeholder="Enter outline title" required>
+                    </div>
+
+                    <!-- Description -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            <i class="fas fa-align-left mr-2"></i>Description
+                        </label>
+                        <textarea id="description" name="description" rows="3"
+                                  class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                                  placeholder="Brief description of this outline">{{ existing_outline.description|default:'' }}</textarea>
+                    </div>
+
+                    <!-- Content Editor -->
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <label class="block text-sm font-medium text-gray-700">
+                                <i class="fas fa-edit mr-2"></i>Outline Content *
+                            </label>
+                            <div class="flex gap-2">
+                                <button type="button" onclick="insertTemplate('objectives')" class="text-sm bg-blue-50 text-blue-700 px-3 py-1 rounded hover:bg-blue-100">
+                                    <i class="fas fa-plus mr-1"></i>Objectives
+                                </button>
+                                <button type="button" onclick="insertTemplate('outcomes')" class="text-sm bg-green-50 text-green-700 px-3 py-1 rounded hover:bg-green-100">
+                                    <i class="fas fa-plus mr-1"></i>Outcomes
+                                </button>
+                                <button type="button" onclick="insertTemplate('grading')" class="text-sm bg-purple-50 text-purple-700 px-3 py-1 rounded hover:bg-purple-100">
+                                    <i class="fas fa-plus mr-1"></i>Grading
+                                </button>
+                            </div>
+                        </div>
+                        <textarea id="content" name="content" rows="15"
+                                  class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent font-mono"
+                                  placeholder="Enter your course outline content here..." required>{{ existing_outline.content|default:'' }}</textarea>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="flex flex-wrap gap-3 pt-6 border-t">
+                        <button type="button" onclick="saveOutline('draft')" 
+                                class="px-6 py-3 bg-gray-100 text-gray-800 rounded-lg hover:bg-gray-200 transition-colors font-medium flex items-center gap-2">
+                            <i class="fas fa-save"></i>
+                            Save as Draft
+                        </button>
+                        
+                        {% if not existing_outline or existing_outline.status != 'submitted' %}
+                        <button type="button" onclick="saveOutline('submitted')"
+                                class="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center gap-2">
+                            <i class="fas fa-paper-plane"></i>
+                            Submit for Review
+                        </button>
+                        {% endif %}
+                        
+                        <a href="{% url 'faculty_dashboard' %}" 
+                           class="px-6 py-3 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors font-medium flex items-center gap-2">
+                            <i class="fas fa-times"></i>
+                            Cancel
+                        </a>
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        <!-- Quick Templates -->
+        <div class="mt-8 bg-white rounded-xl shadow-lg p-6">
+            <h3 class="text-lg font-semibold text-gray-800 mb-4">
+                <i class="fas fa-lightbulb mr-2"></i>Quick Templates
+            </h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="border rounded-lg p-4 hover:border-blue-500 cursor-pointer" onclick="insertTemplate('objectives')">
+                    <h4 class="font-medium text-blue-700">Course Objectives</h4>
+                    <p class="text-sm text-gray-600 mt-1">Learning objectives template</p>
+                </div>
+                <div class="border rounded-lg p-4 hover:border-green-500 cursor-pointer" onclick="insertTemplate('outcomes')">
+                    <h4 class="font-medium text-green-700">Learning Outcomes</h4>
+                    <p class="text-sm text-gray-600 mt-1">Expected outcomes template</p>
+                </div>
+                <div class="border rounded-lg p-4 hover:border-purple-500 cursor-pointer" onclick="insertTemplate('grading')">
+                    <h4 class="font-medium text-purple-700">Grading Policy</h4>
+                    <p class="text-sm text-gray-600 mt-1">Assessment breakdown template</p>
+                </div>
+                <div class="border rounded-lg p-4 hover:border-amber-500 cursor-pointer" onclick="insertTemplate('schedule')">
+                    <h4 class="font-medium text-amber-700">Course Schedule</h4>
+                    <p class="text-sm text-gray-600 mt-1">Weekly schedule template</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed top-4 right-4 p-4 rounded-lg shadow-lg hidden z-50">
+        <div class="flex items-center gap-3">
+            <i id="toast-icon" class="text-xl"></i>
+            <div>
+                <h4 id="toast-title" class="font-semibold"></h4>
+                <p id="toast-message" class="text-sm"></p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // CSRF token setup
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+        const csrftoken = getCookie('csrftoken');
+        
+        console.log("DEBUG: Course Outline Editor Loaded");
+        console.log("DEBUG: Course ID:", document.getElementById('course_id').value);
+        console.log("DEBUG: Outline ID:", document.getElementById('outline_id').value);
+
+        // Show toast notification
+        function showToast(type, title, message) {
+            const toast = document.getElementById('toast');
+            const icon = document.getElementById('toast-icon');
+            const toastTitle = document.getElementById('toast-title');
+            const toastMessage = document.getElementById('toast-message');
+            
+            // Set colors and icon based on type
+            let bgColor = 'bg-blue-500';
+            let iconClass = 'fas fa-info-circle';
+            
+            switch(type) {
+                case 'success':
+                    bgColor = 'bg-green-500';
+                    iconClass = 'fas fa-check-circle';
+                    break;
+                case 'error':
+                    bgColor = 'bg-red-500';
+                    iconClass = 'fas fa-exclamation-circle';
+                    break;
+                case 'warning':
+                    bgColor = 'bg-yellow-500';
+                    iconClass = 'fas fa-exclamation-triangle';
+                    break;
+            }
+            
+            toast.className = `fixed top-4 right-4 p-4 rounded-lg shadow-lg ${bgColor} text-white hidden z-50`;
+            toastTitle.textContent = title;
+            toastMessage.textContent = message;
+            icon.className = iconClass + ' text-xl';
+            
+            toast.classList.remove('hidden');
+            
+            // Auto hide after 5 seconds
+            setTimeout(() => {
+                toast.classList.add('hidden');
+            }, 5000);
+        }
+
+        // Save outline function
+        async function saveOutline(status) {
+            const courseId = document.getElementById('course_id').value;
+            const outlineId = document.getElementById('outline_id').value;
+            const title = document.getElementById('title').value;
+            const description = document.getElementById('description').value;
+            const content = document.getElementById('content').value;
+            
+            console.log('DEBUG: Saving outline:', { 
+                courseId, 
+                outlineId, 
+                title, 
+                description, 
+                status,
+                contentLength: content.length 
+            });
+            
+            // Basic validation
+            if (!title.trim()) {
+                showToast('error', 'Validation Error', 'Title is required');
+                return;
+            }
+            
+            if (!content.trim()) {
+                showToast('error', 'Validation Error', 'Content is required');
+                return;
+            }
+            
+            // If submitting, ask for confirmation
+            if (status === 'submitted') {
+                if (!confirm('Are you sure you want to submit this outline for review? You cannot edit it after submission.')) {
+                    return;
+                }
+            }
+            
+            try {
+                const response = await fetch('/api/save-course-outline/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrftoken
+                    },
+                    body: JSON.stringify({
+                        course_id: courseId,
+                        outline_id: outlineId || null,
+                        title: title,
+                        description: description,
+                        content: content,
+                        status: status
+                    })
+                });
+                
+                const data = await response.json();
+                console.log('DEBUG: API Response:', data);
+                
+                if (response.ok) {
+                    // Update outline ID if it's a new outline
+                    if (data.outline_id && outlineId !== data.outline_id) {
+                        document.getElementById('outline_id').value = data.outline_id;
+                    }
+                    
+                    // Update status indicator
+                    const statusIndicator = document.getElementById('status-indicator');
+                    statusIndicator.innerHTML = `
+                        <span class="px-3 py-1 rounded-full ${status === 'draft' ? 'bg-yellow-100 text-yellow-800' : 'bg-blue-100 text-blue-800'}">
+                            ${status.charAt(0).toUpperCase() + status.slice(1)}
+                        </span>
+                    `;
+                    
+                    showToast('success', 'Success', data.message);
+                    
+                    // If submitted, redirect after 2 seconds
+                    if (status === 'submitted') {
+                        setTimeout(() => {
+                            window.location.href = "{% url 'faculty_dashboard' %}";
+                        }, 2000);
+                    }
+                } else {
+                    showToast('error', 'Error', data.error || 'Failed to save outline');
+                }
+            } catch (error) {
+                console.error('DEBUG: Error:', error);
+                showToast('error', 'Network Error', 'Failed to connect to server. Check console for details.');
+            }
+        }
+
+        // Template insertion functions
+        function insertTemplate(templateName) {
+            const textarea = document.getElementById('content');
+            let template = '';
+            
+            switch(templateName) {
+                case 'objectives':
+                    template = '\n\n## Course Objectives\n\nUpon successful completion of this course, students will be able to:\n\n1. \n2. \n3. \n4. \n5. \n';
+                    break;
+                case 'outcomes':
+                    template = '\n\n## Learning Outcomes\n\nBy the end of this course, students should be able to:\n\n- \n- \n- \n- \n- \n';
+                    break;
+                case 'grading':
+                    template = '\n\n## Grading Policy\n\n| Assessment | Weight | Description |\n|------------|--------|-------------|\n| Midterm Exam | 30% | Covers weeks 1-6 |\n| Final Exam | 40% | Comprehensive exam |\n| Assignments | 20% | Weekly assignments |\n| Participation | 10% | Class participation |\n\n**Grading Scale:**\n- A: 90-100%\n- B: 80-89%\n- C: 70-79%\n- D: 60-69%\n- F: Below 60%';
+                    break;
+                case 'schedule':
+                    template = '\n\n## Course Schedule\n\n| Week | Topics | Readings | Assignments Due |\n|------|--------|----------|-----------------|\n| 1 | Introduction | Chapter 1 | None |\n| 2 | Fundamentals | Chapter 2 | Assignment 1 |\n| 3 | Advanced Concepts | Chapter 3 | Quiz 1 |\n| 4-5 | Applications | Chapters 4-5 | Project Proposal |\n| 6 | **Midterm Exam** | Review 1-5 | Midterm Exam |\n| 7-10 | Special Topics | Chapters 6-9 | Group Project |\n| 11-14 | Case Studies | Selected Papers | Final Project |\n| 15 | **Final Exam** | All Material | Final Exam |';
+                    break;
+            }
+            
+            // Insert at cursor position
+            const start = textarea.selectionStart;
+            const end = textarea.selectionEnd;
+            const text = textarea.value;
+            
+            textarea.value = text.substring(0, start) + template + text.substring(end);
+            textarea.focus();
+            textarea.selectionStart = textarea.selectionEnd = start + template.length;
+            
+            // Trigger input event for validation
+            textarea.dispatchEvent(new Event('input'));
+        }
+
+        // Auto-save draft every 2 minutes
+        let autoSaveInterval;
+        function startAutoSave() {
+            const outlineId = document.getElementById('outline_id').value;
+            if (!outlineId) return; // Don't auto-save new outlines
+            
+            autoSaveInterval = setInterval(() => {
+                console.log('Auto-saving draft...');
+                saveOutline('draft');
+            }, 120000); // 2 minutes
+        }
+
+        // Start auto-save when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            const outlineId = document.getElementById('outline_id').value;
+            if (outlineId) {
+                startAutoSave();
+            }
+            
+            // Warn before leaving if there are unsaved changes
+            let isDirty = false;
+            const form = document.getElementById('outline-form');
+            
+            form.addEventListener('input', () => {
+                isDirty = true;
+            });
+            
+            window.addEventListener('beforeunload', function (e) {
+                if (isDirty) {
+                    e.preventDefault();
+                    e.returnValue = '';
+                }
+            });
+            
+            // Save on Ctrl+S
+            document.addEventListener('keydown', function(e) {
+                if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                    e.preventDefault();
+                    saveOutline('draft');
+                }
+            });
+        });
+    </script>
+</body>
+</html>
