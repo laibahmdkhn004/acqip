@@ -1,0 +1,2480 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CRC Dashboard - ACQIP</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <style>
+        body { font-family: Inter, system-ui, sans-serif; }
+        .sidebar-scroll { scrollbar-width: thin; scrollbar-color: #c4b5fd transparent; }
+        .sidebar-scroll::-webkit-scrollbar { width: 4px; }
+        .sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
+        .sidebar-scroll::-webkit-scrollbar-thumb { background-color: #c4b5fd; border-radius: 20px; }
+        .nav-item.active { background-color: #f5f3ff; color: #7c3aed; border-left: 3px solid #7c3aed; }
+        .form-badge, .status-badge, .type-badge { display: inline-flex; align-items: center; padding: 0.25rem 0.75rem; font-size: 0.75rem; font-weight: 500; border-radius: 9999px; }
+        .btn { padding: 0.5rem 1rem; border-radius: 0.5rem; font-weight: 500; transition: all 0.2s; display: inline-flex; align-items: center; gap: 0.5rem; }
+        .btn-blue { background-color: #3b82f6; color: white; }
+        .btn-blue:hover { background-color: #2563eb; }
+        .btn-green { background-color: #10b981; color: white; }
+        .btn-green:hover { background-color: #059669; }
+        .btn-red { background-color: #ef4444; color: white; }
+        .btn-red:hover { background-color: #dc2626; }
+        .btn-gray { background-color: #6b7280; color: white; }
+        .btn-gray:hover { background-color: #4b5563; }
+        .outline-content { max-width: 100%; }
+        .outline-content table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+        .outline-content th, .outline-content td { border: 1px solid #e5e7eb; padding: 0.5rem; text-align: left; }
+        .outline-content th { background-color: #f9fafb; font-weight: 600; }
+        .outline-content h3 { font-size: 1.25rem; font-weight: 600; margin: 1rem 0 0.5rem 0; }
+        .outline-content h4 { font-size: 1.125rem; font-weight: 600; margin: 0.75rem 0 0.5rem 0; }
+        .outline-content p { margin: 0.5rem 0; }
+        .outline-content ul { list-style-type: disc; padding-left: 1.5rem; margin: 0.5rem 0; }
+        /* Add these to the existing style block */
+.modal-overlay { z-index: 1000; }
+#modal { z-index: 1001; }
+#outline-modal { z-index: 1002; }
+#analytics-modal { z-index: 1003; }
+    </style>
+</head>
+<body class="min-h-screen bg-gray-50 text-gray-800">
+    <!-- Header -->
+    <header class="bg-purple-700 text-white fixed w-full z-30 shadow">
+        <div class="px-6 py-3 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <button id="sidebar-toggle" class="p-2 rounded-md hover:bg-white/10">
+                    <i class="fas fa-bars"></i>
+                </button>
+                <a href="/" class="flex items-center gap-3">
+                    <img src="{% static 'images/logo.png' %}" alt="CUAST" class="h-10 w-10 rounded-md object-cover" onerror="this.style.display='none'">
+                    <div class="hidden sm:block">
+                        <div class="font-semibold">Capital University of Science and Technology</div>
+                        <div class="text-xs text-white/80 -mt-1">CRC Portal — ACQIP</div>
+                    </div>
+                </a>
+            </div>
+            <div class="flex items-center gap-3">
+                <div class="relative">
+                    <div id="avatar-dropdown-trigger" class="bg-white/7 px-2 py-1 rounded-lg flex items-center gap-2 cursor-pointer hover:bg-white/10">
+                        <img src="https://ui-avatars.com/api/?name={{ user.username|default:'CRC' }}&background=ffffff&color=555555" alt="avatar" class="w-10 h-10 rounded-full object-cover border-2 border-white/10">
+                        <div class="hidden sm:block text-sm">
+                            <div class="font-medium">{{ user.username|default:'CRC Member' }}</div>
+                            <div class="text-xs text-white/70">CRC Member</div>
+                        </div>
+                        <i class="fas fa-chevron-down text-white/70 text-sm"></i>
+                    </div>
+                    <div id="avatar-dropdown" class="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 hidden z-50">
+                        <a href="{% url 'dashboard' %}" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"><i class="fas fa-tachometer-alt mr-2"></i>Dashboard</a>
+                        <a href="{% url 'logout' %}" class="block px-4 py-2 text-sm text-red-600 hover:bg-gray-100"><i class="fas fa-sign-out-alt mr-2"></i>Logout</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Layout -->
+    <div class="pt-16 flex">
+        <!-- Sidebar -->
+        <aside id="sidebar" class="w-64 bg-white shadow-lg h-[calc(100vh-4rem)] sticky top-16 overflow-y-auto sidebar-scroll">
+            <nav class="p-4 space-y-1 text-sm">
+                <a href="#" data-page="dashboard" class="nav-item flex items-center gap-3 p-2 rounded-md bg-blue-50 text-blue-700 font-medium active"><i class="fas fa-tachometer-alt"></i>Dashboard</a>
+                <a href="#" data-page="faculty" class="nav-item flex items-center gap-3 p-2 rounded-md hover:bg-gray-50 text-gray-700"><i class="fas fa-users"></i>View All Faculty</a>
+                <a href="#" data-page="form-editor" class="nav-item flex items-center gap-3 p-2 rounded-md hover:bg-gray-50 text-gray-700"><i class="fas fa-edit"></i>Form Editor</a>
+                <a href="#" data-page="course-catalogue" class="nav-item flex items-center gap-3 p-2 rounded-md hover:bg-gray-50 text-gray-700"><i class="fas fa-book"></i>Course Catalogue</a>
+                <a href="#" data-page="outline-submissions" class="nav-item flex items-center gap-3 p-2 rounded-md hover:bg-gray-50 text-gray-700"><i class="fas fa-file-upload"></i>Outline Submissions</a>
+                <a href="#" data-page="form-submissions" class="nav-item flex items-center gap-3 p-2 rounded-md hover:bg-gray-50 text-gray-700"><i class="fas fa-file-alt"></i>Form Submissions</a>
+                <a href="#" data-page="analytics" class="nav-item flex items-center gap-3 p-2 rounded-md hover:bg-gray-50 text-gray-700"><i class="fas fa-chart-bar"></i>Analysis & Analytics</a>
+                <a href="#" data-page="cqi-reports" class="nav-item flex items-center gap-3 p-2 rounded-md hover:bg-gray-50 text-gray-700"><i class="fas fa-file-pdf"></i>CQI Reports</a>
+            </nav>
+            <div class="mt-6 px-4 text-xs text-gray-500">© 2025 ACQIP</div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="flex-1 p-6" id="main-content">
+            <section id="dashboard-header" class="mb-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h1 id="page-title" class="text-2xl font-semibold">CRC Dashboard</h1>
+                        <p id="page-subtitle" class="text-sm text-gray-600 mt-1">Monitor faculty activities and submissions.</p>
+                    </div>
+                    <div class="flex gap-2" id="header-actions"></div>
+                </div>
+                <div id="filter-bar" class="mt-4 hidden"></div>
+            </section>
+            <section id="content-area"></section>
+        </main>
+    </div>
+
+    <!-- Modals -->
+ <div id="modal" class="modal-overlay fixed inset-0 bg-black/40 hidden items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-xl max-w-2xl w-full p-6 shadow-2xl mx-auto max-h-[90vh] overflow-y-auto" style="z-index: 1001;">
+        <div class="flex items-start justify-between mb-4">
+            <h3 id="modal-title" class="text-xl font-semibold text-gray-900">Modal</h3>
+            <button id="close-modal" class="text-gray-500 hover:text-gray-700 text-xl p-1">✕</button>
+        </div>
+        <div id="modal-body" class="mt-2"></div>
+    </div>
+</div>
+
+  <div id="outline-modal" class="modal-overlay fixed inset-0 bg-black/40 hidden items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-xl max-w-4xl w-full p-6 shadow-2xl mx-auto max-h-[90vh] overflow-y-auto" style="z-index: 1002;">
+        <div class="flex items-start justify-between mb-4">
+            <h3 id="outline-modal-title" class="text-xl font-semibold text-gray-900">Course Outline</h3>
+            <button id="close-outline-modal" class="text-gray-500 hover:text-gray-700 text-xl p-1">✕</button>
+        </div>
+        <div id="outline-modal-body" class="mt-2"></div>
+    </div>
+</div>
+
+<div id="outline-modal" class="modal-overlay fixed inset-0 bg-black/40 hidden items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-xl max-w-4xl w-full p-6 shadow-2xl mx-auto max-h-[90vh] overflow-y-auto" style="z-index: 1002;">
+        <div class="flex items-start justify-between mb-4">
+            <h3 id="outline-modal-title" class="text-xl font-semibold text-gray-900">Course Outline</h3>
+            <button id="close-outline-modal" class="text-gray-500 hover:text-gray-700 text-xl p-1">✕</button>
+        </div>
+        <div id="outline-modal-body" class="mt-2"></div>
+    </div>
+</div>
+
+    
+
+    <!-- JavaScript -->
+    <script>
+        // API Configuration
+        const API = {
+            crc_faculty_list: "{% url 'api_crc_faculty_list' %}",
+            crc_course_catalogue: "{% url 'api_crc_course_catalogue' %}",
+            crc_update_course_outline: "{% url 'api_crc_update_course_outline' %}",
+            crc_course_outline_submissions: "{% url 'api_crc_course_outline_submissions' %}",
+            crc_form_submissions: "{% url 'api_crc_form_submissions' %}",
+            crc_analytics: "{% url 'api_crc_analytics' %}",
+            crc_export_analytics: "{% url 'api_crc_export_analytics' %}",
+            crc_dashboard_stats: "{% url 'api_crc_dashboard_stats' %}",
+            crc_compare_outlines: "{% url 'api_crc_compare_outlines' %}",
+            crc_view_outline_content: (id) => `/api/crc/outline-content/${id}/`,
+            publish_form: (id) => `/api/publish-form/${id}/`,
+            unpublish_form: (id) => `/api/unpublish-form/${id}/`,
+            approve_submission: (id) => `/api/submissions/${id}/approve/`,
+            reject_submission: (id) => `/api/submissions/${id}/reject/`,
+            request_revision_submission: (id) => `/api/submissions/${id}/request-revision/`,
+            submission_details: (id) => `/api/submission-details/${id}/`,
+            forms: "{% url 'api_forms' %}",
+            forms_create: "{% url 'api_dynamic_forms_create' %}",
+            form_update: (id) => `/api/forms/${id}/`,
+            form_delete: (id) => `/api/forms/${id}/delete/`,
+            dynamic_forms: "{% url 'api_dynamic_forms' %}",
+            dynamic_forms_create: "{% url 'api_dynamic_forms_create' %}",
+            dynamic_form_update: (id) => `/api/dynamic-forms/${id}/`,
+            dynamic_form_delete: (id) => `/api/dynamic-forms/${id}/delete/`,
+            form_questions: (id) => `/api/dynamic-forms/${id}/questions/`,
+            form_questions_create: (id) => `/api/dynamic-forms/${id}/questions/create/`,
+            form_question_update: (id) => `/api/questions/${id}/`,
+            form_question_delete: (id) => `/api/questions/${id}/delete/`,
+            get_course_outline: "{% url 'api_get_course_outline' %}",
+            save_course_outline: "{% url 'api_save_course_outline' %}",
+        };
+
+        // State Management
+        let currentPage = "dashboard";
+        let allForms = [];
+
+        // DOM Elements
+        const elements = {
+            modal: document.getElementById("modal"),
+            modalTitle: document.getElementById("modal-title"),
+            modalBody: document.getElementById("modal-body"),
+            closeModal: document.getElementById("close-modal"),
+            outlineModal: document.getElementById("outline-modal"),
+            outlineModalTitle: document.getElementById("outline-modal-title"),
+            outlineModalBody: document.getElementById("outline-modal-body"),
+            closeOutlineModal: document.getElementById("close-outline-modal"),
+            analyticsModal: document.getElementById("analytics-modal"),
+            analyticsModalTitle: document.getElementById("analytics-modal-title"),
+            analyticsModalBody: document.getElementById("analytics-modal-body"),
+            closeAnalyticsModal: document.getElementById("close-analytics-modal"),
+            pageTitle: document.getElementById("page-title"),
+            pageSubtitle: document.getElementById("page-subtitle"),
+            headerActions: document.getElementById("header-actions"),
+            filterBar: document.getElementById("filter-bar"),
+            contentArea: document.getElementById("content-area"),
+            sidebar: document.getElementById("sidebar"),
+            avatarDropdown: document.getElementById("avatar-dropdown")
+        };
+
+        // Utility Functions
+        function getCSRFToken() {
+            const name = 'csrftoken';
+            let cookieValue = null;
+            if (document.cookie) {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+
+        async function fetchAPI(url, options = {}) {
+            const defaultOptions = {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCSRFToken(),
+                },
+            };
+            
+            try {
+                const response = await fetch(url, { ...defaultOptions, ...options });
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+                return await response.json();
+            } catch (error) {
+                console.error('API Error:', error);
+                showNotification(`Error: ${error.message}`, 'error');
+                throw error;
+            }
+        }
+
+        function showNotification(message, type = 'info') {
+            const colors = {
+                success: 'bg-green-500 border-green-600',
+                error: 'bg-red-500 border-red-600',
+                warning: 'bg-yellow-500 border-yellow-600',
+                info: 'bg-blue-500 border-blue-600'
+            };
+
+            const notification = document.createElement('div');
+            notification.className = `fixed top-20 right-4 px-4 py-3 rounded-lg shadow-lg text-white border ${colors[type]} z-50 flex items-center`;
+            notification.innerHTML = `
+                ${type === 'success' ? '<i class="fas fa-check-circle mr-2"></i>' : 
+                  type === 'error' ? '<i class="fas fa-exclamation-circle mr-2"></i>' : 
+                  type === 'warning' ? '<i class="fas fa-exclamation-triangle mr-2"></i>' : 
+                  '<i class="fas fa-info-circle mr-2"></i>'}
+                <span>${message}</span>
+            `;
+
+            document.body.appendChild(notification);
+
+            setTimeout(() => {
+                notification.style.opacity = '0';
+                notification.style.transition = 'opacity 0.5s';
+                setTimeout(() => notification.remove(), 500);
+            }, 3000);
+        }
+
+        function showError(message) {
+            elements.contentArea.innerHTML = `
+                <div class="bg-white rounded-lg shadow p-6">
+                    <div class="text-center py-8">
+                        <i class="fas fa-exclamation-triangle text-yellow-500 text-3xl mb-3"></i>
+                        <p class="text-gray-600">${message}</p>
+                        <button onclick="loadPage(currentPage)" class="mt-3 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                            Try Again
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Initialization
+        document.addEventListener('DOMContentLoaded', async () => {
+            setupEventListeners();
+            setupModals();
+            await loadPage('dashboard');
+        });
+
+        function setupEventListeners() {
+            // Avatar dropdown
+            document.getElementById('avatar-dropdown-trigger')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                elements.avatarDropdown.classList.toggle('hidden');
+            });
+
+            // Close dropdowns on outside click
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('#avatar-dropdown-trigger')) {
+                    elements.avatarDropdown.classList.add('hidden');
+                }
+            });
+
+            // Sidebar toggle
+            document.getElementById('sidebar-toggle')?.addEventListener('click', () => {
+                elements.sidebar.classList.toggle('hidden');
+            });
+
+            // Navigation
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    document.querySelectorAll('.nav-item').forEach(nav => {
+                        nav.classList.remove('active', 'bg-blue-50', 'text-blue-700');
+                    });
+                    item.classList.add('active', 'bg-blue-50', 'text-blue-700');
+                    loadPage(item.dataset.page);
+                });
+            });
+        }
+
+        function setupModals() {
+            elements.closeModal.addEventListener('click', () => elements.modal.classList.add('hidden'));
+            elements.closeOutlineModal.addEventListener('click', () => elements.outlineModal.classList.add('hidden'));
+            elements.closeAnalyticsModal.addEventListener('click', () => elements.analyticsModal.classList.add('hidden'));
+
+            [elements.modal, elements.outlineModal, elements.analyticsModal].forEach(modalEl => {
+                modalEl.addEventListener('click', (e) => {
+                    if (e.target === modalEl) modalEl.classList.add('hidden');
+                });
+            });
+        }
+
+        // Page Loading
+        async function loadPage(page) {
+            currentPage = page;
+            elements.headerActions.innerHTML = '';
+            elements.filterBar.classList.add('hidden');
+            elements.filterBar.innerHTML = '';
+            
+            const pageRenderers = {
+                dashboard: renderDashboard,
+                faculty: renderFacultyPage,
+                'course-catalogue': renderCourseCataloguePage,
+                'outline-submissions': renderOutlineSubmissionsPage,
+                'form-submissions': renderFormSubmissionsPage,
+                analytics: renderAnalyticsPage,
+                'cqi-reports': renderCQIReportsPage,
+                'form-editor': renderFormEditorPage,
+            };
+            
+            if (pageRenderers[page]) {
+                await pageRenderers[page]();
+            }
+        }
+
+        // Page Renderers
+        async function renderDashboard() {
+            elements.pageTitle.textContent = 'CRC Dashboard';
+            elements.pageSubtitle.textContent = 'Monitor faculty activities and submissions';
+            
+            try {
+                const stats = await fetchAPI(API.crc_dashboard_stats);
+                allForms = await fetchAPI(API.dynamic_forms);
+                
+                elements.contentArea.innerHTML = `
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                        <div class="bg-white rounded-xl shadow p-6 border-l-4 border-blue-500">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-sm font-medium text-gray-600">Total Faculty</p>
+                                    <p class="text-3xl font-bold text-gray-900">${stats.total_faculty || 0}</p>
+                                </div>
+                                <div class="p-3 bg-blue-100 rounded-lg">
+                                    <i class="fas fa-users text-blue-600 text-xl"></i>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-white rounded-xl shadow p-6 border-l-4 border-purple-500">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-sm font-medium text-gray-600">Total Courses</p>
+                                    <p class="text-3xl font-bold text-gray-900">${stats.total_courses || 0}</p>
+                                </div>
+                                <div class="p-3 bg-purple-100 rounded-lg">
+                                    <i class="fas fa-book text-purple-600 text-xl"></i>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-white rounded-xl shadow p-6 border-l-4 border-yellow-500">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-sm font-medium text-gray-600">Pending Outlines</p>
+                                    <p class="text-3xl font-bold text-gray-900">${stats.pending_outlines || 0}</p>
+                                </div>
+                                <div class="p-3 bg-yellow-100 rounded-lg">
+                                    <i class="fas fa-clock text-yellow-600 text-xl"></i>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-white rounded-xl shadow p-6 border-l-4 border-green-500">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-sm font-medium text-gray-600">Form Submissions</p>
+                                    <p class="text-3xl font-bold text-gray-900">${stats.total_submissions || 0}</p>
+                                </div>
+                                <div class="p-3 bg-green-100 rounded-lg">
+                                    <i class="fas fa-file-alt text-green-600 text-xl"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div class="bg-white rounded-lg shadow p-6">
+                            <h3 class="font-medium text-lg mb-4">Form Status</h3>
+                            <div class="space-y-3">
+                                ${allForms.filter(f => f.form_type === 'ccr' || f.form_type === 'crr').map(form => `
+                                    <div class="flex justify-between items-center">
+                                        <div>
+                                            <span class="text-gray-700">${form.name}</span>
+                                            <span class="text-xs text-gray-500 ml-2">(${form.form_type === 'ccr' ? 'CCR' : 'CRR'})</span>
+                                        </div>
+                                        <div class="flex items-center gap-2">
+                                            <span class="px-3 py-1 rounded-full text-xs font-medium ${form.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
+                                                ${form.status === 'active' ? 'Active' : 'Inactive'}
+                                            </span>
+                                            <button onclick="toggleFormStatus(${form.id}, '${form.status}', '${form.form_type}')" class="text-xs text-blue-600 hover:text-blue-800">
+                                                ${form.status === 'active' ? 'Unpublish' : 'Publish'}
+                                            </button>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                        
+                        <div class="bg-white rounded-lg shadow p-6">
+                            <h3 class="font-medium text-lg mb-4">Recent Submissions (7 days)</h3>
+                            <div class="text-center py-4">
+                                <div class="text-3xl font-bold text-blue-600">${stats.recent_submissions || 0}</div>
+                                <p class="text-sm text-gray-500 mt-2">New form submissions</p>
+                            </div>
+                        </div>
+                        
+                        <div class="bg-white rounded-lg shadow p-6">
+                            <h3 class="font-medium text-lg mb-4">Quick Actions</h3>
+                            <div class="grid grid-cols-2 gap-3">
+                                <button onclick="loadPage('outline-submissions')" class="p-4 bg-yellow-50 rounded-lg hover:bg-yellow-100 text-left">
+                                    <i class="fas fa-file-upload text-yellow-600 mb-2"></i>
+                                    <div class="font-medium">Review Outlines</div>
+                                    <div class="text-sm text-gray-600">${stats.pending_outlines || 0} pending</div>
+                                </button>
+                                <button onclick="loadPage('analytics')" class="p-4 bg-green-50 rounded-lg hover:bg-green-100 text-left">
+                                    <i class="fas fa-chart-bar text-green-600 mb-2"></i>
+                                    <div class="font-medium">Analytics</div>
+                                    <div class="text-sm text-gray-600">View reports</div>
+                                </button>
+                                <button onclick="loadPage('course-catalogue')" class="p-4 bg-blue-50 rounded-lg hover:bg-blue-100 text-left">
+                                    <i class="fas fa-book text-blue-600 mb-2"></i>
+                                    <div class="font-medium">Course Catalogue</div>
+                                </button>
+                                <button onclick="exportCQIReport()" class="p-4 bg-purple-50 rounded-lg hover:bg-purple-100 text-left">
+                                    <i class="fas fa-file-pdf text-purple-600 mb-2"></i>
+                                    <div class="font-medium">CQI Report</div>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                showError('Error loading dashboard data.');
+            }
+        }
+
+        async function renderFacultyPage() {
+            elements.pageTitle.textContent = 'View All Faculty';
+            elements.pageSubtitle.textContent = 'View faculty members and their assigned courses';
+            elements.headerActions.innerHTML = `
+                <button onclick="exportFacultyReport()" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2">
+                    <i class="fas fa-download"></i>
+                    Export List
+                </button>
+            `;
+            
+            try {
+                const facultyData = await fetchAPI(API.crc_faculty_list);
+                const faculty = facultyData.faculty || [];
+                
+                elements.contentArea.innerHTML = `
+                    <div class="bg-white rounded-lg shadow">
+                        <div class="px-6 py-4 border-b flex justify-between items-center">
+                            <h3 class="text-lg font-medium">All Faculty Members</h3>
+                            <span class="text-sm text-gray-500">${faculty.length} faculty members</span>
+                        </div>
+                        <div class="p-6">
+                            ${faculty.length > 0 ? `
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-sm text-left">
+                                        <thead class="bg-gray-50">
+                                            <tr>
+                                                <th class="px-4 py-3 font-medium text-gray-700">Faculty</th>
+                                                <th class="px-4 py-3 font-medium text-gray-700">Department</th>
+                                                <th class="px-4 py-3 font-medium text-gray-700">Courses</th>
+                                                <th class="px-4 py-3 font-medium text-gray-700">Coordinator Courses</th>
+                                                <th class="px-4 py-3 font-medium text-gray-700">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-gray-200">
+                                            ${faculty.map(fac => `
+                                                <tr class="hover:bg-gray-50">
+                                                    <td class="px-4 py-3">
+                                                        <div class="flex items-center">
+                                                            <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(fac.username)}&background=ddd&color=555" class="h-10 w-10 rounded-full mr-3" />
+                                                            <div>
+                                                                <div class="font-medium">${fac.username}</div>
+                                                                <div class="text-xs text-gray-500">${fac.email}</div>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                    <td class="px-4 py-3">
+                                                        ${fac.department || '<span class="text-gray-400">Not assigned</span>'}
+                                                    </td>
+                                                    <td class="px-4 py-3">
+                                                        <span class="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm">${fac.total_courses || 0} total</span>
+                                                    </td>
+                                                    <td class="px-4 py-3">
+                                                        <span class="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm">${fac.coordinator_courses_count || 0}</span>
+                                                    </td>
+                                                    <td class="px-4 py-3">
+                                                        <button onclick="viewFacultySubmissions(${fac.id}, '${fac.username}')" class="text-green-600 hover:text-green-800 text-sm font-medium">
+                                                            <i class="fas fa-file-alt mr-1"></i> Submissions
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            `).join('')}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            ` : `
+                                <div class="text-center py-12">
+                                    <i class="fas fa-users text-gray-400 text-5xl mb-4"></i>
+                                    <p class="text-gray-500">No faculty members found</p>
+                                </div>
+                            `}
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                showError('Error loading faculty data.');
+            }
+        }
+
+        async function renderCourseCataloguePage() {
+            elements.pageTitle.textContent = 'Course Catalogue';
+            elements.pageSubtitle.textContent = 'View all course outlines and their status';
+            
+            try {
+                const catalogue = await fetchAPI(API.crc_course_catalogue);
+                
+                elements.contentArea.innerHTML = `
+                    <div class="bg-white rounded-lg shadow">
+                        <div class="px-6 py-4 border-b flex justify-between items-center">
+                            <h3 class="text-lg font-medium">Course Catalogue</h3>
+                            <span class="text-sm text-gray-500">${catalogue.length} courses</span>
+                        </div>
+                        <div class="p-6">
+                            ${catalogue.length > 0 ? `
+                                <div class="space-y-6">
+                                    ${catalogue.map(course => `
+                                        <div class="border border-gray-200 rounded-lg p-6">
+                                            <div class="flex justify-between items-start mb-4">
+                                                <div>
+                                                    <h4 class="font-medium text-lg">${course.course_code} - ${course.course_title}</h4>
+                                                    <p class="text-sm text-gray-600">${course.department}</p>
+                                                </div>
+                                                ${course.current_outline ? `
+                                                    <div class="text-right">
+                                                        <div class="text-sm font-medium text-green-700">Current Outline</div>
+                                                        <div class="text-xs text-gray-500">v${course.current_outline.version}</div>
+                                                    </div>
+                                                ` : `
+                                                    <span class="text-red-600 text-sm font-medium">No current outline</span>
+                                                `}
+                                            </div>
+                                            <div class="mt-4">
+                                                <button onclick="viewCourseOutlines(${course.course_id})" class="text-blue-600 hover:text-blue-800 text-sm">
+                                                    <i class="fas fa-eye mr-1"></i> View All Outlines (${course.total_outlines})
+                                                </button>
+                                                ${course.outlines && course.outlines.length > 0 ? `
+                                                    <div class="mt-3 text-sm text-gray-600">
+                                                        Recent versions:
+                                                        ${course.outlines.slice(0, 3).map(outline => `
+                                                            <div class="flex items-center gap-2 mt-1">
+                                                                <span class="px-2 py-1 bg-gray-100 rounded text-xs">v${outline.version}</span>
+                                                                <span>${outline.title}</span>
+                                                                <span class="px-2 py-1 text-xs rounded ${outline.status === 'approved' ? 'bg-green-100 text-green-800' : outline.status === 'submitted' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-800'}">
+                                                                    ${outline.status}
+                                                                </span>
+                                                            </div>
+                                                        `).join('')}
+                                                    </div>
+                                                ` : ''}
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            ` : `
+                                <div class="text-center py-12">
+                                    <i class="fas fa-book text-gray-400 text-5xl mb-4"></i>
+                                    <p class="text-gray-500">No courses found in catalogue</p>
+                                </div>
+                            `}
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                showError('Error loading course catalogue.');
+            }
+        }
+
+        async function renderOutlineSubmissionsPage() {
+            elements.pageTitle.textContent = 'Outline Submissions';
+            elements.pageSubtitle.textContent = 'Review and approve course outline submissions';
+            
+            elements.headerActions.innerHTML = `
+                <button onclick="refreshOutlineSubmissions()" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 flex items-center gap-2">
+                    <i class="fas fa-sync-alt"></i>
+                    Refresh
+                </button>
+            `;
+            
+            try {
+                const submissions = await fetchAPI(API.crc_course_outline_submissions);
+                
+                elements.contentArea.innerHTML = `
+                    <div class="bg-white rounded-lg shadow">
+                        <div class="px-6 py-4 border-b flex justify-between items-center">
+                            <h3 class="text-lg font-medium">Pending Outline Submissions</h3>
+                            <span class="text-sm text-gray-500">${submissions.length} submissions</span>
+                        </div>
+                        <div class="p-6">
+                            ${submissions.length > 0 ? `
+                                <div class="space-y-6">
+                                    ${submissions.map(submission => {
+                                        const submissionStr = JSON.stringify(submission).replace(/"/g, '&quot;');
+                                        return `
+                                        <div class="border border-gray-200 rounded-lg p-6 hover:shadow-md">
+                                            <div class="flex justify-between items-start mb-4">
+                                                <div>
+                                                    <h4 class="font-medium text-lg">${submission.course__code} - ${submission.title || 'Course Outline'}</h4>
+                                                    <div class="flex items-center gap-4 mt-2 text-sm text-gray-600">
+                                                        <span><i class="fas fa-user mr-1"></i> ${submission.faculty__username}</span>
+                                                        <span><i class="fas fa-code-branch mr-1"></i> Version: ${submission.version}</span>
+                                                        <span><i class="fas fa-calendar mr-1"></i> ${submission.submitted_at ? new Date(submission.submitted_at).toLocaleDateString() : 'Unknown'}</span>
+                                                    </div>
+                                                </div>
+                                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${submission.status === 'submitted' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}">
+                                                    ${submission.status}
+                                                </span>
+                                            </div>
+                                            
+                                            <div class="flex gap-3">
+                                                <button onclick="viewOutlineDetails('${submissionStr}')" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2">
+                                                    <i class="fas fa-eye"></i>
+                                                    Review Details
+                                                </button>
+                                                <button onclick="approveOutline(${submission.id})" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2">
+                                                    <i class="fas fa-check"></i>
+                                                    Approve
+                                                </button>
+                                            </div>
+                                        </div>
+                                    `}).join('')}
+                                </div>
+                            ` : `
+                                <div class="text-center py-12">
+                                    <i class="fas fa-check-circle text-green-400 text-5xl mb-4"></i>
+                                    <p class="text-gray-500">No pending outline submissions</p>
+                                </div>
+                            `}
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                showError('Error loading outline submissions.');
+            }
+        }
+
+        async function renderFormSubmissionsPage() {
+            elements.pageTitle.textContent = 'Form Submissions';
+            elements.pageSubtitle.textContent = 'View and analyze form submissions from faculty';
+            
+            elements.filterBar.classList.remove('hidden');
+            elements.filterBar.innerHTML = `
+                <div class="flex flex-wrap gap-4 p-4 bg-white rounded-lg shadow">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Form Type</label>
+                        <select id="form-type-filter" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                            <option value="">All Forms</option>
+                            <option value="ccr">CCR Forms</option>
+                            <option value="crr">CRR Forms</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                        <select id="status-filter" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                            <option value="">All Status</option>
+                            <option value="submitted">Submitted</option>
+                            <option value="approved">Approved</option>
+                            <option value="revision_requested">Revision Requested</option>
+                            <option value="draft">Draft</option>
+                        </select>
+                    </div>
+                    <div class="flex items-end">
+                        <button onclick="applyFormFilters()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                            Apply Filters
+                        </button>
+                        <button onclick="resetFormFilters()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 ml-2">
+                            Reset
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            try {
+                const submissions = await fetchAPI(API.crc_form_submissions);
+                
+                const ccrCount = submissions.filter(s => s.dynamic_form__form_type === 'ccr').length;
+                const crrCount = submissions.filter(s => s.dynamic_form__form_type === 'crr').length;
+                
+                elements.contentArea.innerHTML = `
+                    <div class="bg-white rounded-lg shadow mt-4">
+                        <div class="px-6 py-4 border-b">
+                            <h3 class="text-lg font-medium">Form Submissions</h3>
+                            <div class="flex gap-4 mt-2 text-sm">
+                                <span class="text-gray-600">Total: ${submissions.length}</span>
+                                <span class="text-blue-600">CCR: ${ccrCount}</span>
+                                <span class="text-green-600">CRR: ${crrCount}</span>
+                            </div>
+                        </div>
+                        <div class="p-6">
+                            ${submissions.length > 0 ? `
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-sm text-left">
+                                        <thead class="bg-gray-50">
+                                            <tr>
+                                                <th class="px-4 py-3 font-medium text-gray-700">Faculty</th>
+                                                <th class="px-4 py-3 font-medium text-gray-700">Course</th>
+                                                <th class="px-4 py-3 font-medium text-gray-700">Form Type</th>
+                                                <th class="px-4 py-3 font-medium text-gray-700">Status</th>
+                                                <th class="px-4 py-3 font-medium text-gray-700">Submission Date</th>
+                                                <th class="px-4 py-3 font-medium text-gray-700">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-gray-200">
+                                            ${submissions.map(sub => {
+                                                const submissionDate = sub.submission_date ? new Date(sub.submission_date) : null;
+                                                return `
+                                                <tr class="hover:bg-gray-50">
+                                                    <td class="px-4 py-3">
+                                                        <div class="flex items-center">
+                                                            <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(sub.faculty__username)}&background=ddd&color=555" class="h-8 w-8 rounded-full mr-2" />
+                                                            <div>
+                                                                <div class="font-medium">${sub.faculty__username}</div>
+                                                                <div class="text-xs text-gray-500">${sub.faculty__department || 'N/A'}</div>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                    <td class="px-4 py-3">
+                                                        <div class="font-medium">${sub.course__code}</div>
+                                                        <div class="text-xs text-gray-500">${sub.course__title}</div>
+                                                    </td>
+                                                    <td class="px-4 py-3">
+                                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${sub.dynamic_form__form_type === 'ccr' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}">
+                                                            ${sub.dynamic_form__form_type.toUpperCase()}
+                                                        </span>
+                                                    </td>
+                                                    <td class="px-4 py-3">
+                                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                                            sub.status === 'submitted' ? 'bg-yellow-100 text-yellow-800' : 
+                                                            sub.status === 'approved' ? 'bg-green-100 text-green-800' : 
+                                                            sub.status === 'revision_requested' ? 'bg-red-100 text-red-800' :
+                                                            sub.status === 'draft' ? 'bg-gray-100 text-gray-800' :
+                                                            'bg-gray-100 text-gray-800'
+                                                        }">
+                                                            ${sub.status}
+                                                        </span>
+                                                    </td>
+                                                    <td class="px-4 py-3">
+                                                        ${submissionDate ? submissionDate.toLocaleDateString() : 'N/A'}
+                                                    </td>
+                                                    <td class="px-4 py-3">
+                                                        <div class="flex gap-2">
+                                                            <button onclick="viewFormSubmissionDetails(${sub.id})" class="text-blue-600 hover:text-blue-800 text-sm font-medium">
+                                                                <i class="fas fa-eye mr-1"></i> View
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            `}).join('')}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            ` : `
+                                <div class="text-center py-12">
+                                    <i class="fas fa-file-alt text-gray-400 text-5xl mb-4"></i>
+                                    <p class="text-gray-500">No form submissions found</p>
+                                </div>
+                            `}
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                showError('Error loading form submissions.');
+            }
+        }
+
+        async function renderAnalyticsPage() {
+            elements.pageTitle.textContent = 'Analysis & Analytics';
+            elements.pageSubtitle.textContent = 'Analyze form submission data and trends';
+            
+            elements.headerActions.innerHTML = `
+                <button onclick="exportAnalytics()" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2">
+                    <i class="fas fa-download"></i>
+                    Export Analytics
+                </button>
+            `;
+            
+            try {
+                const analytics = await fetchAPI(API.crc_analytics);
+                
+                setTimeout(() => {
+                    if (analytics.status_distribution && analytics.status_distribution.length > 0) {
+                        createStatusChart(analytics.status_distribution || []);
+                    }
+                    createFormTypeChart(analytics.ccr_submissions || 0, analytics.crr_submissions || 0);
+                }, 100);
+                
+                elements.contentArea.innerHTML = `
+                    <div class="space-y-6">
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                            <div class="bg-white rounded-lg shadow p-6">
+                                <div class="text-3xl font-bold text-blue-900">${analytics.total_submissions || 0}</div>
+                                <div class="text-sm text-gray-600">Total Submissions</div>
+                            </div>
+                            <div class="bg-white rounded-lg shadow p-6">
+                                <div class="text-3xl font-bold text-green-900">${analytics.ccr_submissions || 0}</div>
+                                <div class="text-sm text-gray-600">CCR Submissions</div>
+                            </div>
+                            <div class="bg-white rounded-lg shadow p-6">
+                                <div class="text-3xl font-bold text-purple-900">${analytics.crr_submissions || 0}</div>
+                                <div class="text-sm text-gray-600">CRR Submissions</div>
+                            </div>
+                            <div class="bg-white rounded-lg shadow p-6">
+                                <div class="text-sm text-gray-600">Generated</div>
+                                <div class="font-medium">${analytics.generated_at ? new Date(analytics.generated_at).toLocaleString() : 'Just now'}</div>
+                            </div>
+                        </div>
+                        
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <div class="bg-white rounded-lg shadow p-6">
+                                <h4 class="font-medium text-gray-900 mb-4">Submission Status Distribution</h4>
+                                <div class="h-64">
+                                    <canvas id="statusChart"></canvas>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-white rounded-lg shadow p-6">
+                                <h4 class="font-medium text-gray-900 mb-4">Form Type Distribution</h4>
+                                <div class="h-64">
+                                    <canvas id="formTypeChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        ${analytics.question_analytics ? `
+                            <div class="bg-white rounded-lg shadow p-6">
+                                <h4 class="font-medium text-gray-900 mb-4">Question Analysis</h4>
+                                <div class="space-y-4">
+                                    <div>
+                                        <h5 class="font-medium text-gray-700">${analytics.question_analytics.question_text}</h5>
+                                        <div class="text-sm text-gray-600 mb-2">Type: ${analytics.question_analytics.question_type}</div>
+                                        ${analytics.question_analytics.option_counts ? `
+                                            <div class="space-y-2">
+                                                ${Object.entries(analytics.question_analytics.option_counts).map(([option, count]) => `
+                                                    <div class="flex items-center justify-between">
+                                                        <span class="text-sm">${option}</span>
+                                                        <span class="font-medium">${count} responses</span>
+                                                    </div>
+                                                `).join('')}
+                                            </div>
+                                        ` : `
+                                            <p class="text-gray-500">No response data available</p>
+                                        `}
+                                    </div>
+                                </div>
+                            </div>
+                        ` : ''}
+                        
+                        <div class="bg-white rounded-lg shadow p-6">
+                            <h4 class="font-medium text-gray-900 mb-4">Quick Actions</h4>
+                            <div class="grid grid-cols-2 gap-4">
+                                <button onclick="generateRealTimeCharts()" class="p-4 bg-blue-50 rounded-lg hover:bg-blue-100 text-left">
+                                    <i class="fas fa-chart-bar text-blue-600 text-xl mb-2"></i>
+                                    <div class="font-medium">Advanced Charts</div>
+                                    <div class="text-sm text-gray-600">Generate detailed charts</div>
+                                </button>
+                                <button onclick="showAISummary()" class="p-4 bg-yellow-50 rounded-lg hover:bg-yellow-100 text-left">
+                                    <i class="fas fa-robot text-yellow-600 text-xl mb-2"></i>
+                                    <div class="font-medium">AI Summary</div>
+                                    <div class="text-sm text-gray-600">Get insights</div>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                showError('Error loading analytics.');
+            }
+        }
+
+        async function renderFormEditorPage() {
+            elements.pageTitle.textContent = 'Form Editor';
+            elements.pageSubtitle.textContent = 'Create and manage dynamic forms for CCR and CRR';
+            
+            elements.headerActions.innerHTML = `
+                <button onclick="createNewForm()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2">
+                    <i class="fas fa-plus"></i>
+                    Create New Form
+                </button>
+            `;
+            
+            try {
+                const dynamicForms = await fetchAPI(API.dynamic_forms);
+                
+                elements.contentArea.innerHTML = `
+                    <div class="space-y-6">
+                        <div class="bg-white rounded-lg shadow">
+                            <div class="px-6 py-4 border-b">
+                                <h3 class="text-lg font-medium">Dynamic Forms</h3>
+                                <p class="text-sm text-gray-600">Forms for CCR (Course Coordinators) and CRR (Regular Faculty)</p>
+                            </div>
+                            <div class="p-6">
+                                ${dynamicForms.length > 0 ? `
+                                    <div class="overflow-x-auto">
+                                        <table class="w-full text-sm text-left">
+                                            <thead class="bg-gray-50">
+                                                <tr>
+                                                    <th class="px-4 py-3 font-medium text-gray-700">Form Name</th>
+                                                    <th class="px-4 py-3 font-medium text-gray-700">Type</th>
+                                                    <th class="px-4 py-3 font-medium text-gray-700">Status</th>
+                                                    <th class="px-4 py-3 font-medium text-gray-700">Created</th>
+                                                    <th class="px-4 py-3 font-medium text-gray-700">Actions</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody class="divide-y divide-gray-200">
+                                                ${dynamicForms.filter(f => f.form_type === 'ccr' || f.form_type === 'crr').map(form => {
+                                                    const formTypeDisplay = form.form_type === 'ccr' ? 'CCR (Course Coordinators)' : 'CRR (Regular Faculty)';
+                                                    return `
+                                                    <tr class="hover:bg-gray-50">
+                                                        <td class="px-4 py-3">
+                                                            <div class="font-medium">${form.name}</div>
+                                                            <div class="text-xs text-gray-500">${form.description || 'No description'}</div>
+                                                        </td>
+                                                        <td class="px-4 py-3">
+                                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${form.form_type === 'ccr' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}">
+                                                                ${formTypeDisplay}
+                                                            </span>
+                                                        </td>
+                                                        <td class="px-4 py-3">
+                                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${form.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
+                                                                ${form.status}
+                                                            </span>
+                                                        </td>
+                                                        <td class="px-4 py-3 text-gray-600">
+                                                            ${new Date(form.created_at).toLocaleDateString()}
+                                                        </td>
+                                                        <td class="px-4 py-3">
+                                                            <div class="flex gap-2">
+                                                                <button onclick="manageFormQuestions(${form.id}, '${form.name}')" class="text-blue-600 hover:text-blue-800" title="Manage Questions">
+                                                                    <i class="fas fa-list-ol"></i>
+                                                                </button>
+                                                                <button onclick="editDynamicForm(${form.id})" class="text-blue-600 hover:text-blue-800" title="Edit">
+                                                                    <i class="fas fa-edit"></i>
+                                                                </button>
+                                                                <button onclick="deleteDynamicForm(${form.id}, '${form.name}')" class="text-red-600 hover:text-red-800" title="Delete">
+                                                                    <i class="fas fa-trash"></i>
+                                                                </button>
+                                                                ${form.status === 'active' ? 
+                                                                    `<button onclick="unpublishForm(${form.id}, '${form.form_type}')" class="text-yellow-600 hover:text-yellow-800" title="Unpublish">
+                                                                        <i class="fas fa-eye-slash"></i>
+                                                                    </button>` :
+                                                                    `<button onclick="publishForm(${form.id}, '${form.form_type}')" class="text-green-600 hover:text-green-800" title="Publish">
+                                                                        <i class="fas fa-eye"></i>
+                                                                    </button>`
+                                                                }
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                `}).join('')}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                ` : `
+                                    <div class="text-center py-12">
+                                        <i class="fas fa-file-alt text-gray-400 text-5xl mb-4"></i>
+                                        <p class="text-gray-500">No dynamic forms created yet</p>
+                                        <button onclick="createNewForm()" class="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                                            Create Your First Form
+                                        </button>
+                                    </div>
+                                `}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                showError('Error loading form editor.');
+            }
+        }
+
+        async function renderCQIReportsPage() {
+            elements.pageTitle.textContent = 'CQI Reports';
+            elements.pageSubtitle.textContent = 'Generate and download Continuous Quality Improvement reports';
+            
+            elements.headerActions.innerHTML = `
+                <button onclick="generateCQIReport()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2">
+                    <i class="fas fa-plus"></i>
+                    Generate New Report
+                </button>
+            `;
+            
+            elements.contentArea.innerHTML = `
+                <div class="bg-white rounded-lg shadow">
+                    <div class="px-6 py-4 border-b">
+                        <h3 class="text-lg font-medium">CQI Report Generation</h3>
+                    </div>
+                    <div class="p-6">
+                        <div class="mb-8">
+                            <h4 class="font-medium text-gray-900 mb-4">Generate Complete CQI Report</h4>
+                            <div class="bg-gray-50 p-6 rounded-lg">
+                                <p class="text-gray-700 mb-4">A complete CQI (Continuous Quality Improvement) Report includes:</p>
+                                <ul class="list-disc pl-5 space-y-2 text-gray-600 mb-6">
+                                    <li>CCR summary and analysis</li>
+                                    <li>CRR summary and analysis</li>
+                                    <li>Course outline comparison analytics</li>
+                                    <li>Visual charts and graphs</li>
+                                    <li>Recommendations for improvement</li>
+                                </ul>
+                                <button onclick="generateCQIReport()" class="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2">
+                                    <i class="fas fa-file-pdf"></i>
+                                    Generate CQI Report (PDF)
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Form Editor Functions
+        function createNewForm() {
+            elements.modalTitle.textContent = 'Create New Form';
+            elements.modalBody.innerHTML = `
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Form Name *</label>
+                        <input type="text" id="form-name" class="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Enter form name" required>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                        <textarea id="form-description" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Enter form description"></textarea>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Form Type *</label>
+                        <select id="form-type" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                            <option value="ccr">CCR Form (Course Coordinators)</option>
+                            <option value="crr">CRR Form (Regular Faculty)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="pt-4 border-t flex justify-end gap-3">
+                        <button type="button" onclick="elements.modal.classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                            Cancel
+                        </button>
+                        <button onclick="saveNewForm()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                            Create Form
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            elements.modal.classList.remove('hidden');
+        }
+
+        async function saveNewForm() {
+            const name = document.getElementById('form-name').value;
+            const description = document.getElementById('form-description').value;
+            const formType = document.getElementById('form-type').value;
+            
+            if (!name.trim()) {
+                showNotification('Form name is required', 'error');
+                return;
+            }
+            
+            try {
+                await fetchAPI(API.dynamic_forms_create, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        name: name,
+                        description: description,
+                        form_type: formType,
+                        status: 'inactive'
+                    })
+                });
+                
+                elements.modal.classList.add('hidden');
+                showNotification('Form created successfully', 'success');
+                renderFormEditorPage();
+            } catch (error) {
+                showNotification('Error creating form', 'error');
+            }
+        }
+
+        async function editDynamicForm(formId) {
+            try {
+                const forms = await fetchAPI(API.dynamic_forms);
+                const form = forms.find(f => f.id === formId);
+                
+                if (!form) {
+                    showNotification('Form not found', 'error');
+                    return;
+                }
+                
+                elements.modalTitle.textContent = 'Edit Form';
+                elements.modalBody.innerHTML = `
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Form Name *</label>
+                            <input type="text" id="edit-form-name" value="${form.name}" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                            <textarea id="edit-form-description" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2">${form.description || ''}</textarea>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Form Type *</label>
+                            <select id="edit-form-type" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                                <option value="ccr" ${form.form_type === 'ccr' ? 'selected' : ''}>CCR Form (Course Coordinators)</option>
+                                <option value="crr" ${form.form_type === 'crr' ? 'selected' : ''}>CRR Form (Regular Faculty)</option>
+                            </select>
+                        </div>
+                        
+                        <div class="pt-4 border-t flex justify-end gap-3">
+                            <button type="button" onclick="elements.modal.classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                                Cancel
+                            </button>
+                            <button onclick="saveEditedForm(${formId})" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                                Save Changes
+                            </button>
+                        </div>
+                    </div>
+                `;
+                
+                elements.modal.classList.remove('hidden');
+            } catch (error) {
+                showNotification('Error loading form details', 'error');
+            }
+        }
+
+        async function saveEditedForm(formId) {
+            const formName = document.getElementById('edit-form-name').value;
+            const formDescription = document.getElementById('edit-form-description').value;
+            const formType = document.getElementById('edit-form-type').value;
+            
+            if (!formName.trim()) {
+                showNotification('Form name is required', 'error');
+                return;
+            }
+            
+            try {
+                await fetchAPI(API.dynamic_form_update(formId), {
+                    method: 'PUT',
+                    body: JSON.stringify({
+                        name: formName,
+                        description: formDescription,
+                        form_type: formType
+                    })
+                });
+                
+                elements.modal.classList.add('hidden');
+                showNotification('Form updated successfully', 'success');
+                renderFormEditorPage();
+            } catch (error) {
+                showNotification('Error updating form', 'error');
+            }
+        }
+
+        async function deleteDynamicForm(formId, formName) {
+            if (!confirm(`Are you sure you want to delete the form "${formName}"? This action cannot be undone.`)) {
+                return;
+            }
+            
+            try {
+                await fetchAPI(API.dynamic_form_delete(formId), {
+                    method: 'DELETE'
+                });
+                
+                showNotification(`Form "${formName}" deleted successfully`, 'success');
+                renderFormEditorPage();
+            } catch (error) {
+                showNotification('Error deleting form', 'error');
+            }
+        }
+
+        async function manageFormQuestions(formId, formName) {
+            try {
+                const questions = await fetchAPI(API.form_questions(formId));
+                
+                elements.outlineModalTitle.textContent = `Manage Questions: ${formName}`;
+                elements.outlineModalBody.innerHTML = `
+                    <div class="space-y-6">
+                        <div class="bg-blue-50 p-4 rounded-lg">
+                            <div class="flex justify-between items-center">
+                                <div>
+                                    <h4 class="font-medium text-blue-900">Form Questions</h4>
+                                    <p class="text-sm text-blue-700">Add, edit, and reorder questions for this form</p>
+                                </div>
+                                <button onclick="addNewQuestion(${formId})" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2">
+                                    <i class="fas fa-plus"></i>
+                                    Add Question
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div id="questions-list" class="space-y-4">
+                            ${questions.length > 0 ? questions.map((question, index) => `
+                                <div class="border border-gray-200 rounded-lg p-4" data-question-id="${question.id}">
+                                    <div class="flex justify-between items-start">
+                                        <div class="flex-1">
+                                            <div class="flex items-center gap-3">
+                                                <div class="bg-gray-100 text-gray-800 rounded-full h-8 w-8 flex items-center justify-center text-sm font-medium">
+                                                    ${index + 1}
+                                                </div>
+                                                <div>
+                                                    <h5 class="font-medium">${question.question_text}</h5>
+                                                    <div class="flex items-center gap-3 mt-1 text-sm text-gray-600">
+                                                        <span class="px-2 py-1 bg-gray-100 rounded">${question.question_type}</span>
+                                                        <span class="${question.required ? 'text-red-600' : 'text-gray-500'}">
+                                                            ${question.required ? 'Required' : 'Optional'}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="flex gap-2">
+                                            <button onclick="editQuestion(${question.id}, ${formId})" class="text-blue-600 hover:text-blue-800 p-2">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            <button onclick="deleteQuestion(${question.id}, ${formId})" class="text-red-600 hover:text-red-800 p-2">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            `).join('') : `
+                                <div class="text-center py-12">
+                                    <i class="fas fa-question-circle text-gray-400 text-5xl mb-4"></i>
+                                    <p class="text-gray-500">No questions added yet</p>
+                                </div>
+                            `}
+                        </div>
+                        
+                        <div class="pt-4 border-t flex justify-end gap-3">
+                            <button onclick="elements.outlineModal.classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                `;
+                
+                elements.outlineModal.classList.remove('hidden');
+            } catch (error) {
+                showNotification('Error loading questions', 'error');
+            }
+        }
+
+            function addNewQuestion(formId) {
+    // Close the outline modal first
+    elements.outlineModal.classList.add('hidden');
+    
+    elements.modalTitle.textContent = 'Add New Question';
+    elements.modalBody.innerHTML = `
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Question Text *</label>
+                <textarea id="question-text" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Enter your question" required></textarea>
+            </div>
+            
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Question Type *</label>
+                <select id="question-type" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                    <option value="text">Text Input</option>
+                    <option value="textarea">Text Area</option>
+                    <option value="checkbox">Checkbox</option>
+                    <option value="select">Dropdown</option>
+                    <option value="radio">Radio Buttons</option>
+                    <option value="file">File Upload</option>
+                </select>
+            </div>
+            
+            <div id="options-container" class="hidden">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Options (comma separated)</label>
+                <input type="text" id="question-options" class="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Option 1, Option 2, Option 3">
+            </div>
+            
+            <div class="flex items-center">
+                <input type="checkbox" id="question-required" class="h-4 w-4 text-blue-600 border-gray-300 rounded" checked>
+                <label for="question-required" class="ml-2 block text-sm text-gray-700">
+                    Required question
+                </label>
+            </div>
+            
+            <div class="pt-4 border-t flex justify-end gap-3">
+                <button type="button" onclick="closeAddQuestionAndShowManageQuestions(${formId})" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                    Cancel
+                </button>
+                <button onclick="saveNewQuestion(${formId})" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                    Add Question
+                </button>
+            </div>
+        </div>
+    `;
+    
+    // Show/hide options based on question type
+    document.getElementById('question-type').addEventListener('change', function() {
+        const optionsContainer = document.getElementById('options-container');
+        const questionType = this.value;
+        if (['select', 'radio', 'checkbox'].includes(questionType)) {
+            optionsContainer.classList.remove('hidden');
+        } else {
+            optionsContainer.classList.add('hidden');
+        }
+    });
+    
+    elements.modal.classList.remove('hidden');
+}
+
+// Add this helper function
+function closeAddQuestionAndShowManageQuestions(formId) {
+    elements.modal.classList.add('hidden');
+    
+    // After a small delay, reopen the manage questions modal
+    setTimeout(() => {
+        // Re-fetch the form name to pass to manageFormQuestions
+        const forms = allForms.filter(f => f.form_type === 'ccr' || f.form_type === 'crr');
+        const currentForm = forms.find(f => f.id === formId);
+        if (currentForm) {
+            manageFormQuestions(formId, currentForm.name);
+        }
+    }, 100);
+}
+
+// Also update the saveNewQuestion function to show manage questions after saving
+async function saveNewQuestion(formId) {
+    const questionText = document.getElementById('question-text').value;
+    const questionType = document.getElementById('question-type').value;
+    const questionRequired = document.getElementById('question-required').checked;
+    const questionOptions = document.getElementById('question-options')?.value || '';
+    
+    if (!questionText.trim()) {
+        showNotification('Question text is required', 'error');
+        return;
+    }
+    
+    try {
+        await fetchAPI(API.form_questions_create(formId), {
+            method: 'POST',
+            body: JSON.stringify({
+                question_text: questionText,
+                question_type: questionType,
+                required: questionRequired,
+                order: 0,
+                options: questionOptions
+            })
+        });
+        
+        elements.modal.classList.add('hidden');
+        showNotification('Question added successfully', 'success');
+        
+        // Reopen the manage questions modal with updated list
+        setTimeout(() => {
+            const forms = allForms.filter(f => f.form_type === 'ccr' || f.form_type === 'crr');
+            const currentForm = forms.find(f => f.id === formId);
+            if (currentForm) {
+                manageFormQuestions(formId, currentForm.name);
+            }
+        }, 100);
+    } catch (error) {
+        showNotification('Error adding question', 'error');
+    }
+}
+
+
+
+        async function saveNewQuestion(formId) {
+            const questionText = document.getElementById('question-text').value;
+            const questionType = document.getElementById('question-type').value;
+            const questionRequired = document.getElementById('question-required').checked;
+            const questionOptions = document.getElementById('question-options')?.value || '';
+            
+            if (!questionText.trim()) {
+                showNotification('Question text is required', 'error');
+                return;
+            }
+            
+            try {
+                await fetchAPI(API.form_questions_create(formId), {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        question_text: questionText,
+                        question_type: questionType,
+                        required: questionRequired,
+                        order: 0,
+                        options: questionOptions
+                    })
+                });
+                
+                elements.modal.classList.add('hidden');
+                showNotification('Question added successfully', 'success');
+                const currentFormName = document.querySelector('#outline-modal-title').textContent.replace('Manage Questions: ', '');
+                manageFormQuestions(formId, currentFormName);
+            } catch (error) {
+                showNotification('Error adding question', 'error');
+            }
+        }
+
+        async function editQuestion(questionId, formId) {
+            try {
+                const questions = await fetchAPI(API.form_questions(formId));
+                const question = questions.find(q => q.id === questionId);
+                
+                if (!question) {
+                    showNotification('Question not found', 'error');
+                    return;
+                }
+                
+                elements.modalTitle.textContent = 'Edit Question';
+                elements.modalBody.innerHTML = `
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Question Text *</label>
+                            <textarea id="edit-question-text" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2">${question.question_text}</textarea>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Question Type *</label>
+                            <select id="edit-question-type" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                                <option value="text" ${question.question_type === 'text' ? 'selected' : ''}>Text Input</option>
+                                <option value="textarea" ${question.question_type === 'textarea' ? 'selected' : ''}>Text Area</option>
+                                <option value="checkbox" ${question.question_type === 'checkbox' ? 'selected' : ''}>Checkbox</option>
+                                <option value="select" ${question.question_type === 'select' ? 'selected' : ''}>Dropdown</option>
+                                <option value="radio" ${question.question_type === 'radio' ? 'selected' : ''}>Radio Buttons</option>
+                                <option value="file" ${question.question_type === 'file' ? 'selected' : ''}>File Upload</option>
+                            </select>
+                        </div>
+                        
+                        <div id="edit-options-container" class="${['select', 'radio', 'checkbox'].includes(question.question_type) ? '' : 'hidden'}">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Options (comma separated)</label>
+                            <input type="text" id="edit-question-options" value="${question.options || ''}" class="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Option 1, Option 2, Option 3">
+                        </div>
+                        
+                        <div class="flex items-center">
+                            <input type="checkbox" id="edit-question-required" class="h-4 w-4 text-blue-600 border-gray-300 rounded" ${question.required ? 'checked' : ''}>
+                            <label for="edit-question-required" class="ml-2 block text-sm text-gray-700">
+                                Required question
+                            </label>
+                        </div>
+                        
+                        <div class="pt-4 border-t flex justify-end gap-3">
+                            <button type="button" onclick="elements.modal.classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                                Cancel
+                            </button>
+                            <button onclick="saveEditedQuestion(${questionId}, ${formId})" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                                Save Changes
+                            </button>
+                        </div>
+                    </div>
+                `;
+                
+                // Show/hide options based on question type
+                document.getElementById('edit-question-type').addEventListener('change', function() {
+                    const optionsContainer = document.getElementById('edit-options-container');
+                    const questionType = this.value;
+                    if (['select', 'radio', 'checkbox'].includes(questionType)) {
+                        optionsContainer.classList.remove('hidden');
+                    } else {
+                        optionsContainer.classList.add('hidden');
+                    }
+                });
+                
+                elements.modal.classList.remove('hidden');
+            } catch (error) {
+                showNotification('Error loading question', 'error');
+            }
+        }
+
+        async function saveEditedQuestion(questionId, formId) {
+            const questionText = document.getElementById('edit-question-text').value;
+            const questionType = document.getElementById('edit-question-type').value;
+            const questionRequired = document.getElementById('edit-question-required').checked;
+            const questionOptions = document.getElementById('edit-question-options')?.value || '';
+            
+            if (!questionText.trim()) {
+                showNotification('Question text is required', 'error');
+                return;
+            }
+            
+            try {
+                await fetchAPI(API.form_question_update(questionId), {
+                    method: 'PUT',
+                    body: JSON.stringify({
+                        question_text: questionText,
+                        question_type: questionType,
+                        required: questionRequired,
+                        options: questionOptions
+                    })
+                });
+                
+                elements.modal.classList.add('hidden');
+                showNotification('Question updated successfully', 'success');
+                const currentFormName = document.querySelector('#outline-modal-title').textContent.replace('Manage Questions: ', '');
+                manageFormQuestions(formId, currentFormName);
+            } catch (error) {
+                showNotification('Error updating question', 'error');
+            }
+        }
+
+        async function deleteQuestion(questionId, formId) {
+            if (!confirm('Are you sure you want to delete this question?')) {
+                return;
+            }
+            
+            try {
+                await fetchAPI(API.form_question_delete(questionId), {
+                    method: 'DELETE'
+                });
+                
+                showNotification('Question deleted successfully', 'success');
+                const currentFormName = document.querySelector('#outline-modal-title').textContent.replace('Manage Questions: ', '');
+                manageFormQuestions(formId, currentFormName);
+            } catch (error) {
+                showNotification('Error deleting question', 'error');
+            }
+        }
+
+        async function publishForm(formId, formType) {
+            const message = formType === 'ccr' 
+                ? 'Are you sure you want to publish this CCR form? This will unpublish any other active CCR form.'
+                : 'Are you sure you want to publish this CRR form? This will unpublish any other active CRR form.';
+            
+            if (!confirm(message)) {
+                return;
+            }
+            
+            try {
+                await fetchAPI(API.publish_form(formId), {
+                    method: 'POST'
+                });
+                
+                showNotification('Form published successfully', 'success');
+                renderFormEditorPage();
+            } catch (error) {
+                showNotification('Error publishing form', 'error');
+            }
+        }
+
+        async function unpublishForm(formId, formType) {
+            const message = formType === 'ccr'
+                ? 'Are you sure you want to unpublish this CCR form? Faculty coordinators will not be able to submit CCR forms.'
+                : 'Are you sure you want to unpublish this CRR form? Regular faculty will not be able to submit CRR forms.';
+            
+            if (!confirm(message)) {
+                return;
+            }
+            
+            try {
+                await fetchAPI(API.unpublish_form(formId), {
+                    method: 'POST'
+                });
+                
+                showNotification('Form unpublished successfully', 'success');
+                renderFormEditorPage();
+            } catch (error) {
+                showNotification('Error unpublishing form', 'error');
+            }
+        }
+
+        async function toggleFormStatus(formId, currentStatus, formType) {
+            if (currentStatus === 'active') {
+                await unpublishForm(formId, formType);
+            } else {
+                await publishForm(formId, formType);
+            }
+        }
+
+        // Outline Functions
+        async function viewOutlineDetails(submissionStr) {
+            try {
+                const submission = JSON.parse(submissionStr);
+                
+                // Show loading
+                elements.outlineModalTitle.textContent = 'Loading Course Outline...';
+                elements.outlineModalBody.innerHTML = `
+                    <div class="flex justify-center items-center h-64">
+                        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                    </div>
+                `;
+                
+                elements.outlineModal.classList.remove('hidden');
+                
+                // Use the CRC endpoint to get outline content
+                try {
+                    const outline = await fetchAPI(API.crc_view_outline_content(submission.id));
+                    
+                    // Display the outline with content
+                    elements.outlineModalTitle.textContent = 'Course Outline Review';
+                    elements.outlineModalBody.innerHTML = `
+                        <div class="space-y-6">
+                            <div class="bg-gray-50 rounded-lg p-4">
+                                <h4 class="font-medium text-gray-900 mb-2">Outline Information</h4>
+                                <div class="grid grid-cols-2 gap-4 text-sm">
+                                    <div>
+                                        <span class="text-gray-600">Course:</span>
+                                        <div class="font-medium">${outline.course.code} - ${outline.course.title}</div>
+                                    </div>
+                                    <div>
+                                        <span class="text-gray-600">Version:</span>
+                                        <div class="font-medium">${outline.version}</div>
+                                    </div>
+                                    <div>
+                                        <span class="text-gray-600">Faculty:</span>
+                                        <div class="font-medium">${outline.faculty.username}</div>
+                                    </div>
+                                    <div>
+                                        <span class="text-gray-600">Status:</span>
+                                        <span class="font-medium ${outline.status === 'submitted' ? 'text-yellow-600' : outline.status === 'approved' ? 'text-green-600' : 'text-red-600'}">
+                                            ${outline.status}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="border border-gray-200 rounded-lg">
+                                <div class="flex justify-between items-center p-4 border-b">
+                                    <h5 class="font-medium text-gray-900">Outline Content: ${outline.title}</h5>
+                                    <div class="flex gap-2">
+                                        <button onclick="printOutline()" class="text-sm text-gray-600 hover:text-gray-800 flex items-center gap-1">
+                                            <i class="fas fa-print"></i> Print
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="p-4 max-h-96 overflow-y-auto">
+                                    <div id="outline-content-viewer" class="outline-content">
+                                        ${outline.content || 
+                                          `<div class="prose max-w-none">
+                                            <h3>${outline.course.code} - ${outline.title}</h3>
+                                            <p><strong>Faculty:</strong> ${outline.faculty.username}</p>
+                                            <p><strong>Version:</strong> ${outline.version}</p>
+                                            <p><strong>Status:</strong> ${outline.status}</p>
+                                            <p><strong>Submitted:</strong> ${outline.submitted_at || 'Not submitted'}</p>
+                                            ${outline.notes ? `<p><strong>Notes:</strong> ${outline.notes}</p>` : ''}
+                                           </div>`}
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <h5 class="font-medium text-gray-900 mb-3">Your Decision</h5>
+                                <div class="grid grid-cols-2 gap-3">
+                                    <button onclick="approveOutline(${outline.id})" class="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center justify-center">
+                                        <i class="fas fa-check mr-2"></i>
+                                        Approve Outline
+                                    </button>
+                                    
+                                    <button onclick="showRevisionNotes(${outline.id})" class="w-full px-4 py-3 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 flex items-center justify-center">
+                                        <i class="fas fa-edit mr-2"></i>
+                                        Request Revision
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div id="revision-notes-container" class="hidden">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Revision Notes *</label>
+                                <textarea id="revision-notes-text" rows="4" class="w-full border border-gray-300 px-3 py-2 rounded-lg" placeholder="Provide detailed feedback for revision..."></textarea>
+                                <div class="grid grid-cols-2 gap-3 mt-3">
+                                    <button onclick="submitRevision(${outline.id})" class="w-full px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700">
+                                        Submit Revision Request
+                                    </button>
+                                    <button onclick="hideRevisionNotes()" class="w-full px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                                        Cancel
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="flex gap-3 justify-end pt-4 border-t">
+                                <button onclick="elements.outlineModal.classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">Close</button>
+                            </div>
+                        </div>
+                    `;
+                } catch (error) {
+                    console.error('Error fetching outline content:', error);
+                    // Fallback display
+                    elements.outlineModalTitle.textContent = 'Course Outline Review';
+                    elements.outlineModalBody.innerHTML = `
+                        <div class="space-y-6">
+                            <div class="bg-gray-50 rounded-lg p-4">
+                                <h4 class="font-medium text-gray-900 mb-2">Outline Information</h4>
+                                <div class="grid grid-cols-2 gap-4 text-sm">
+                                    <div>
+                                        <span class="text-gray-600">Course:</span>
+                                        <div class="font-medium">${submission.course__code} - ${submission.course__title}</div>
+                                    </div>
+                                    <div>
+                                        <span class="text-gray-600">Version:</span>
+                                        <div class="font-medium">${submission.version}</div>
+                                    </div>
+                                    <div>
+                                        <span class="text-gray-600">Faculty:</span>
+                                        <div class="font-medium">${submission.faculty__username}</div>
+                                    </div>
+                                    <div>
+                                        <span class="text-gray-600">Status:</span>
+                                        <span class="font-medium ${submission.status === 'submitted' ? 'text-yellow-600' : submission.status === 'approved' ? 'text-green-600' : 'text-red-600'}">
+                                            ${submission.status}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <h5 class="font-medium text-gray-900 mb-3">Your Decision</h5>
+                                <div class="grid grid-cols-2 gap-3">
+                                    <button onclick="approveOutline(${submission.id})" class="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center justify-center">
+                                        <i class="fas fa-check mr-2"></i>
+                                        Approve Outline
+                                    </button>
+                                    
+                                    <button onclick="showRevisionNotes(${submission.id})" class="w-full px-4 py-3 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 flex items-center justify-center">
+                                        <i class="fas fa-edit mr-2"></i>
+                                        Request Revision
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div id="revision-notes-container" class="hidden">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Revision Notes *</label>
+                                <textarea id="revision-notes-text" rows="4" class="w-full border border-gray-300 px-3 py-2 rounded-lg" placeholder="Provide detailed feedback for revision..."></textarea>
+                                <div class="grid grid-cols-2 gap-3 mt-3">
+                                    <button onclick="submitRevision(${submission.id})" class="w-full px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700">
+                                        Submit Revision Request
+                                    </button>
+                                    <button onclick="hideRevisionNotes()" class="w-full px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                                        Cancel
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="flex gap-3 justify-end pt-4 border-t">
+                                <button onclick="elements.outlineModal.classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">Close</button>
+                            </div>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error in viewOutlineDetails:', error);
+                showNotification('Error loading outline details', 'error');
+                elements.outlineModal.classList.add('hidden');
+            }
+        }
+
+        function showRevisionNotes(outlineId) {
+            const revisionDiv = document.getElementById('revision-notes-container');
+            if (revisionDiv) {
+                revisionDiv.classList.remove('hidden');
+                revisionDiv.dataset.outlineId = outlineId;
+            }
+        }
+
+        function hideRevisionNotes() {
+            const revisionDiv = document.getElementById('revision-notes-container');
+            if (revisionDiv) {
+                revisionDiv.classList.add('hidden');
+            }
+        }
+
+        async function approveOutline(outlineId) {
+            if (!confirm('Are you sure you want to approve this course outline? This will make it the current official outline.')) {
+                return;
+            }
+
+            try {
+                await fetchAPI(API.crc_update_course_outline, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        outline_id: outlineId,
+                        action: 'approve',
+                        notes: 'Approved by CRC Committee'
+                    })
+                });
+
+                elements.outlineModal.classList.add('hidden');
+                showNotification('Course outline approved successfully', 'success');
+                renderOutlineSubmissionsPage();
+            } catch (error) {
+                showNotification('Error approving outline', 'error');
+            }
+        }
+
+        async function submitRevision(outlineId) {
+            const notes = document.getElementById('revision-notes-text').value;
+            
+            if (!notes.trim()) {
+                showNotification('Please provide revision notes', 'error');
+                return;
+            }
+
+            try {
+                await fetchAPI(API.crc_update_course_outline, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        outline_id: outlineId,
+                        action: 'request_revision',
+                        notes: notes
+                    })
+                });
+
+                elements.outlineModal.classList.add('hidden');
+                showNotification('Revision requested successfully', 'success');
+                renderOutlineSubmissionsPage();
+            } catch (error) {
+                showNotification('Error requesting revision', 'error');
+            }
+        }
+
+        function printOutline() {
+            const content = document.getElementById('outline-content-viewer');
+            if (content) {
+                const printWindow = window.open('', '_blank');
+                printWindow.document.write(`
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <title>Course Outline</title>
+                        <style>
+                            body { font-family: Arial, sans-serif; line-height: 1.6; padding: 20px; }
+                            .outline-content { max-width: 100%; }
+                            .outline-content table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+                            .outline-content th, .outline-content td { border: 1px solid #ddd; padding: 0.5rem; }
+                            .outline-content th { background-color: #f5f5f5; }
+                        </style>
+                    </head>
+                    <body>
+                        ${content.innerHTML}
+                    </body>
+                    </html>
+                `);
+                printWindow.document.close();
+                printWindow.print();
+            }
+        }
+
+        // Submission Functions
+        async function viewFormSubmissionDetails(submissionId) {
+            try {
+                const submission = await fetchAPI(API.submission_details(submissionId));
+                
+                elements.modalTitle.textContent = 'Form Submission Details';
+                elements.modalBody.innerHTML = `
+                    <div class="space-y-6">
+                        <div class="bg-gray-50 rounded-lg p-4">
+                            <h4 class="font-medium text-gray-900">Submission Information</h4>
+                            <div class="mt-2 text-sm">
+                                <div class="flex">
+                                    <span class="text-gray-600 w-24">Form:</span>
+                                    <span class="font-medium">${submission.form_name || 'Unknown'} (${submission.form_type || 'N/A'})</span>
+                                </div>
+                                <div class="flex mt-1">
+                                    <span class="text-gray-600 w-24">Course:</span>
+                                    <span class="font-medium">${submission.course_code || 'N/A'} - ${submission.course_title || 'Unknown'}</span>
+                                </div>
+                                <div class="flex mt-1">
+                                    <span class="text-gray-600 w-24">Faculty:</span>
+                                    <span class="font-medium">${submission.faculty_name || 'Unknown'}</span>
+                                </div>
+                                <div class="flex mt-1">
+                                    <span class="text-gray-600 w-24">Status:</span>
+                                    <span class="font-medium ${submission.status === 'approved' ? 'text-green-600' : submission.status === 'revision_requested' ? 'text-red-600' : 'text-yellow-600'}">
+                                        ${submission.status || 'Unknown'}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <h5 class="font-medium text-gray-900 mb-4">Submission Answers</h5>
+                            ${submission.answers && submission.answers.length > 0 ? `
+                                <div class="space-y-4 max-h-96 overflow-y-auto">
+                                    ${submission.answers.map((answer, index) => {
+                                        let answerDisplay = '';
+                                        if (answer.answer_text) {
+                                            answerDisplay = answer.answer_text;
+                                        } else if (answer.answer_data) {
+                                            if (Array.isArray(answer.answer_data)) {
+                                                answerDisplay = answer.answer_data.join(', ');
+                                            } else if (typeof answer.answer_data === 'object') {
+                                                answerDisplay = JSON.stringify(answer.answer_data);
+                                            } else {
+                                                answerDisplay = String(answer.answer_data);
+                                            }
+                                        }
+                                        
+                                        return `
+                                        <div class="border border-gray-200 rounded-lg p-4">
+                                            <h6 class="font-medium text-gray-900 mb-2">${index + 1}. ${answer.question_text || 'Question'}</h6>
+                                            <div class="text-sm text-gray-600">
+                                                ${answerDisplay ? `
+                                                    <div class="bg-gray-50 p-3 rounded">
+                                                        ${answerDisplay}
+                                                    </div>
+                                                ` : `
+                                                    <div class="text-gray-400 italic">No answer provided</div>
+                                                `}
+                                            </div>
+                                        </div>
+                                    `}).join('')}
+                                </div>
+                            ` : `
+                                <div class="text-center py-8 text-gray-500">
+                                    No answers submitted for this form
+                                </div>
+                            `}
+                        </div>
+
+                        <div class="flex gap-3 justify-end pt-4 border-t">
+                            <button onclick="elements.modal.classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">Close</button>
+                            ${submission.status === 'submitted' ? `
+                                <button onclick="approveFormSubmission(${submissionId})" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                                    Approve
+                                </button>
+                                <button onclick="rejectFormSubmission(${submissionId})" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">
+                                    Request Revision
+                                </button>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+
+                elements.modal.classList.remove('hidden');
+            } catch (error) {
+                showNotification('Error loading submission details', 'error');
+            }
+        }
+
+        async function approveFormSubmission(submissionId) {
+            if (!confirm('Are you sure you want to approve this submission?')) {
+                return;
+            }
+
+            try {
+                await fetchAPI(API.approve_submission(submissionId), {
+                    method: 'POST'
+                });
+
+                elements.modal.classList.add('hidden');
+                showNotification('Submission approved successfully', 'success');
+                renderFormSubmissionsPage();
+            } catch (error) {
+                showNotification('Error approving submission', 'error');
+            }
+        }
+
+        async function rejectFormSubmission(submissionId) {
+            const notes = prompt('Please provide reason for revision request:');
+            if (!notes) return;
+
+            try {
+                await fetchAPI(API.request_revision_submission(submissionId), {
+                    method: 'POST',
+                    body: JSON.stringify({ notes: notes })
+                });
+
+                elements.modal.classList.add('hidden');
+                showNotification('Revision requested successfully', 'success');
+                renderFormSubmissionsPage();
+            } catch (error) {
+                showNotification('Error requesting revision', 'error');
+            }
+        }
+
+        // Utility Functions
+        function refreshOutlineSubmissions() {
+            loadPage('outline-submissions');
+            showNotification('Outline submissions refreshed', 'success');
+        }
+
+        async function applyFormFilters() {
+            const formType = document.getElementById('form-type-filter').value;
+            const status = document.getElementById('status-filter').value;
+            
+            let url = API.crc_form_submissions;
+            const params = [];
+            
+            if (formType) params.push(`form_type=${formType}`);
+            if (status) params.push(`status=${status}`);
+            
+            if (params.length > 0) {
+                url += `?${params.join('&')}`;
+            }
+            
+            try {
+                const submissions = await fetchAPI(url);
+                
+                const ccrCount = submissions.filter(s => s.dynamic_form__form_type === 'ccr').length;
+                const crrCount = submissions.filter(s => s.dynamic_form__form_type === 'crr').length;
+                
+                elements.contentArea.querySelector('.bg-white.rounded-lg.shadow.mt-4 .p-6').innerHTML = `
+                    ${submissions.length > 0 ? `
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm text-left">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-4 py-3 font-medium text-gray-700">Faculty</th>
+                                        <th class="px-4 py-3 font-medium text-gray-700">Course</th>
+                                        <th class="px-4 py-3 font-medium text-gray-700">Form Type</th>
+                                        <th class="px-4 py-3 font-medium text-gray-700">Status</th>
+                                        <th class="px-4 py-3 font-medium text-gray-700">Submission Date</th>
+                                        <th class="px-4 py-3 font-medium text-gray-700">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200">
+                                    ${submissions.map(sub => {
+                                        const submissionDate = sub.submission_date ? new Date(sub.submission_date) : null;
+                                        return `
+                                        <tr class="hover:bg-gray-50">
+                                            <td class="px-4 py-3">
+                                                <div class="flex items-center">
+                                                    <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(sub.faculty__username)}&background=ddd&color=555" class="h-8 w-8 rounded-full mr-2" />
+                                                    <div>
+                                                        <div class="font-medium">${sub.faculty__username}</div>
+                                                        <div class="text-xs text-gray-500">${sub.faculty__department || 'N/A'}</div>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td class="px-4 py-3">
+                                                <div class="font-medium">${sub.course__code}</div>
+                                                <div class="text-xs text-gray-500">${sub.course__title}</div>
+                                            </td>
+                                            <td class="px-4 py-3">
+                                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${sub.dynamic_form__form_type === 'ccr' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}">
+                                                    ${sub.dynamic_form__form_type.toUpperCase()}
+                                                </span>
+                                            </td>
+                                            <td class="px-4 py-3">
+                                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                                    sub.status === 'submitted' ? 'bg-yellow-100 text-yellow-800' : 
+                                                    sub.status === 'approved' ? 'bg-green-100 text-green-800' : 
+                                                    sub.status === 'revision_requested' ? 'bg-red-100 text-red-800' :
+                                                    sub.status === 'draft' ? 'bg-gray-100 text-gray-800' :
+                                                    'bg-gray-100 text-gray-800'
+                                                }">
+                                                    ${sub.status}
+                                                </span>
+                                            </td>
+                                            <td class="px-4 py-3">
+                                                ${submissionDate ? submissionDate.toLocaleDateString() : 'N/A'}
+                                            </td>
+                                            <td class="px-4 py-3">
+                                                <div class="flex gap-2">
+                                                    <button onclick="viewFormSubmissionDetails(${sub.id})" class="text-blue-600 hover:text-blue-800 text-sm font-medium">
+                                                        <i class="fas fa-eye mr-1"></i> View
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    `}).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    ` : `
+                        <div class="text-center py-12">
+                            <i class="fas fa-file-alt text-gray-400 text-5xl mb-4"></i>
+                            <p class="text-gray-500">No form submissions found with these filters</p>
+                        </div>
+                    `}
+                `;
+                
+                // Update counts in header
+                const headerDiv = elements.contentArea.querySelector('.px-6.py-4.border-b');
+                if (headerDiv) {
+                    const countsSpan = headerDiv.querySelector('.flex.gap-4.mt-2.text-sm');
+                    if (countsSpan) {
+                        countsSpan.innerHTML = `
+                            <span class="text-gray-600">Total: ${submissions.length}</span>
+                            <span class="text-blue-600">CCR: ${ccrCount}</span>
+                            <span class="text-green-600">CRR: ${crrCount}</span>
+                        `;
+                    }
+                }
+                
+                showNotification('Filters applied successfully', 'success');
+            } catch (error) {
+                showNotification('Error applying filters', 'error');
+            }
+        }
+
+        function resetFormFilters() {
+            document.getElementById('form-type-filter').value = '';
+            document.getElementById('status-filter').value = '';
+            loadPage('form-submissions');
+            showNotification('Filters reset', 'info');
+        }
+
+        async function viewFacultySubmissions(facultyId, facultyName) {
+            try {
+                const submissions = await fetchAPI(`${API.crc_form_submissions}?faculty_id=${facultyId}`);
+                
+                elements.modalTitle.textContent = `Submissions for ${facultyName}`;
+                elements.modalBody.innerHTML = `
+                    <div class="space-y-6">
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <h4 class="font-medium">Total Submissions: ${submissions.length}</h4>
+                        </div>
+                        
+                        ${submissions.length > 0 ? `
+                            <div class="space-y-4">
+                                ${submissions.map(sub => `
+                                    <div class="border border-gray-200 rounded-lg p-4">
+                                        <div class="flex justify-between items-start">
+                                            <div>
+                                                <h6 class="font-medium">${sub.course__code || 'N/A'} - ${sub.course__title || 'Unknown'}</h6>
+                                                <div class="text-sm text-gray-600">
+                                                    ${sub.dynamic_form__name || 'Unknown'} (${sub.dynamic_form__form_type || 'N/A'})
+                                                </div>
+                                            </div>
+                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                                sub.status === 'approved' ? 'bg-green-100 text-green-800' :
+                                                sub.status === 'submitted' ? 'bg-yellow-100 text-yellow-800' :
+                                                'bg-red-100 text-red-800'
+                                            }">
+                                                ${sub.status || 'Unknown'}
+                                            </span>
+                                        </div>
+                                        <div class="mt-3">
+                                            <button onclick="viewFormSubmissionDetails(${sub.id})" class="text-blue-600 hover:text-blue-800 text-sm">
+                                                View Details
+                                            </button>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        ` : `
+                            <div class="text-center py-8 text-gray-500">
+                                No submissions found for this faculty member
+                            </div>
+                        `}
+                        
+                        <div class="flex justify-end pt-4 border-t">
+                            <button onclick="elements.modal.classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">Close</button>
+                        </div>
+                    </div>
+                `;
+
+                elements.modal.classList.remove('hidden');
+            } catch (error) {
+                showNotification('Error loading faculty submissions', 'error');
+            }
+        }
+
+        // Chart Functions
+        function createStatusChart(statusData) {
+            const ctx = document.getElementById('statusChart');
+            if (!ctx) return;
+            
+            const labels = statusData.map(item => item.status);
+            const data = statusData.map(item => item.count);
+            const backgroundColors = [
+                'rgba(59, 130, 246, 0.5)',
+                'rgba(16, 185, 129, 0.5)',
+                'rgba(245, 158, 11, 0.5)',
+                'rgba(239, 68, 68, 0.5)'
+            ];
+            
+            new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        backgroundColor: backgroundColors,
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                        }
+                    }
+                }
+            });
+        }
+
+        function createFormTypeChart(ccrCount, crrCount) {
+            const ctx = document.getElementById('formTypeChart');
+            if (!ctx) return;
+            
+            new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['CCR Forms', 'CRR Forms'],
+                    datasets: [{
+                        data: [ccrCount, crrCount],
+                        backgroundColor: [
+                            'rgba(59, 130, 246, 0.5)',
+                            'rgba(16, 185, 129, 0.5)'
+                        ],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                        }
+                    }
+                }
+            });
+        }
+
+        async function viewCourseOutlines(courseId) {
+            try {
+                const catalogue = await fetchAPI(API.crc_course_catalogue);
+                const course = catalogue.find(c => c.course_id === courseId);
+                
+                if (course) {
+                    elements.modalTitle.textContent = `Course Outlines: ${course.course_code}`;
+                    elements.modalBody.innerHTML = `
+                        <div class="space-y-6">
+                            <div class="bg-blue-50 p-4 rounded-lg">
+                                <div class="flex justify-between items-center">
+                                    <div>
+                                        <h4 class="font-medium text-blue-900">${course.course_code} - ${course.course_title}</h4>
+                                        <p class="text-sm text-blue-700">${course.department}</p>
+                                    </div>
+                                    ${course.current_outline ? `
+                                        <div class="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm">
+                                            Current: v${course.current_outline.version}
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <h5 class="font-medium text-gray-900 mb-3">All Outlines (${course.total_outlines})</h5>
+                                ${course.outlines && course.outlines.length > 0 ? `
+                                    <div class="space-y-3">
+                                        ${course.outlines.map(outline => `
+                                            <div class="border border-gray-200 rounded-lg p-4">
+                                                <div class="flex justify-between items-start">
+                                                    <div>
+                                                        <h6 class="font-medium">${outline.title || 'Course Outline'} (v${outline.version})</h6>
+                                                        <div class="text-sm text-gray-600 mt-1">
+                                                            <div>Faculty: ${outline.faculty__username}</div>
+                                                            <div>Status: 
+                                                                <span class="px-2 py-1 text-xs rounded ${
+                                                                    outline.status === 'approved' ? 'bg-green-100 text-green-800' : 
+                                                                    outline.status === 'submitted' ? 'bg-yellow-100 text-yellow-800' : 
+                                                                    outline.status === 'revision_requested' ? 'bg-red-100 text-red-800' :
+                                                                    outline.status === 'draft' ? 'bg-gray-100 text-gray-800' :
+                                                                    'bg-gray-100 text-gray-800'
+                                                                }">
+                                                                    ${outline.status}
+                                                                </span>
+                                                            </div>
+                                                            <div>Created: ${outline.created_at ? new Date(outline.created_at).toLocaleDateString() : 'Unknown'}</div>
+                                                        </div>
+                                                    </div>
+                                                    ${outline.is_current ? `
+                                                        <span class="bg-green-100 text-green-800 px-2 py-1 rounded text-xs">Current</span>
+                                                    ` : ''}
+                                                </div>
+                                                <div class="mt-3">
+                                                    <button onclick="viewOutlineVersion(${outline.id})" class="text-blue-600 hover:text-blue-800 text-sm">
+                                                        View Details
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                ` : `
+                                    <div class="text-center py-8 text-gray-500">
+                                        No outlines available for this course
+                                    </div>
+                                `}
+                            </div>
+                            
+                            <div class="flex justify-end pt-4 border-t">
+                                <button onclick="elements.modal.classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">Close</button>
+                            </div>
+                        </div>
+                    `;
+                    
+                    elements.modal.classList.remove('hidden');
+                }
+            } catch (error) {
+                showNotification('Error loading course outlines', 'error');
+            }
+        }
+
+        async function viewOutlineVersion(outlineId) {
+            try {
+                const outline = await fetchAPI(API.crc_view_outline_content(outlineId));
+                
+                elements.outlineModalTitle.textContent = `Course Outline: ${outline.course.code} v${outline.version}`;
+                elements.outlineModalBody.innerHTML = `
+                    <div class="space-y-6">
+                        <div class="bg-gray-50 rounded-lg p-4">
+                            <h4 class="font-medium text-gray-900 mb-2">Outline Information</h4>
+                            <div class="grid grid-cols-2 gap-4 text-sm">
+                                <div>
+                                    <span class="text-gray-600">Course:</span>
+                                    <div class="font-medium">${outline.course.code} - ${outline.course.title}</div>
+                                </div>
+                                <div>
+                                    <span class="text-gray-600">Version:</span>
+                                    <div class="font-medium">${outline.version}</div>
+                                </div>
+                                <div>
+                                    <span class="text-gray-600">Faculty:</span>
+                                    <div class="font-medium">${outline.faculty.username}</div>
+                                </div>
+                                <div>
+                                    <span class="text-gray-600">Status:</span>
+                                    <span class="font-medium ${outline.status === 'submitted' ? 'text-yellow-600' : outline.status === 'approved' ? 'text-green-600' : outline.status === 'revision_requested' ? 'text-red-600' : 'text-gray-600'}">
+                                        ${outline.status}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="border border-gray-200 rounded-lg">
+                            <div class="flex justify-between items-center p-4 border-b">
+                                <h5 class="font-medium text-gray-900">Outline Content: ${outline.title}</h5>
+                            </div>
+                            <div class="p-4 max-h-96 overflow-y-auto">
+                                <div class="outline-content">
+                                    ${outline.content || 
+                                      `<div class="prose max-w-none">
+                                        <h3>${outline.course.code} - ${outline.title}</h3>
+                                        <p><strong>Faculty:</strong> ${outline.faculty.username}</p>
+                                        <p><strong>Version:</strong> ${outline.version}</p>
+                                        <p><strong>Status:</strong> ${outline.status}</p>
+                                        <p><strong>Submitted:</strong> ${outline.submitted_at || 'Not submitted'}</p>
+                                        ${outline.notes ? `<p><strong>Notes:</strong> ${outline.notes}</p>` : ''}
+                                       </div>`}
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="flex gap-3 justify-end pt-4 border-t">
+                            <button onclick="elements.outlineModal.classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">Close</button>
+                        </div>
+                    </div>
+                `;
+                
+                elements.outlineModal.classList.remove('hidden');
+            } catch (error) {
+                showNotification('Error loading outline version', 'error');
+            }
+        }
+
+        function exportAnalytics() {
+            showNotification('Analytics export feature will be implemented soon', 'info');
+        }
+
+        function generateCQIReport() {
+            showNotification('CQI Report generation feature will be implemented soon', 'info');
+        }
+
+        function exportCQIReport() {
+            showNotification('CQI Report export feature will be implemented soon', 'info');
+        }
+
+        function exportFacultyReport() {
+            showNotification('Faculty report export feature will be implemented soon', 'info');
+        }
+
+        function generateRealTimeCharts() {
+            elements.analyticsModalTitle.textContent = 'Real-Time Charts';
+            elements.analyticsModalBody.innerHTML = `
+                <div class="space-y-6">
+                    <div class="bg-gray-50 p-4 rounded-lg">
+                        <p class="text-gray-700">Advanced chart generation feature will be implemented soon.</p>
+                    </div>
+                    <div class="flex justify-end">
+                        <button onclick="elements.analyticsModal.classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">Close</button>
+                    </div>
+                </div>
+            `;
+            elements.analyticsModal.classList.remove('hidden');
+        }
+
+        function showAISummary() {
+            elements.analyticsModalTitle.textContent = 'AI/NLP Summary';
+            elements.analyticsModalBody.innerHTML = `
+                <div class="space-y-6">
+                    <div class="bg-gray-50 p-4 rounded-lg">
+                        <p class="text-gray-700">AI summary feature will be implemented soon.</p>
+                    </div>
+                    <div class="flex justify-end">
+                        <button onclick="elements.analyticsModal.classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">Close</button>
+                    </div>
+                </div>
+            `;
+            elements.analyticsModal.classList.remove('hidden');
+        }
+
+        // Export functions to global scope
+        window.loadPage = loadPage;
+        window.viewOutlineDetails = viewOutlineDetails;
+        window.approveOutline = approveOutline;
+        window.showRevisionNotes = showRevisionNotes;
+        window.hideRevisionNotes = hideRevisionNotes;
+        window.submitRevision = submitRevision;
+        window.viewFormSubmissionDetails = viewFormSubmissionDetails;
+        window.approveFormSubmission = approveFormSubmission;
+        window.rejectFormSubmission = rejectFormSubmission;
+        window.createNewForm = createNewForm;
+        window.saveNewForm = saveNewForm;
+        window.manageFormQuestions = manageFormQuestions;
+        window.addNewQuestion = addNewQuestion;
+        window.editQuestion = editQuestion;
+        window.saveEditedQuestion = saveEditedQuestion;
+        window.deleteQuestion = deleteQuestion;
+        window.editDynamicForm = editDynamicForm;
+        window.saveEditedForm = saveEditedForm;
+        window.deleteDynamicForm = deleteDynamicForm;
+        window.publishForm = publishForm;
+        window.unpublishForm = unpublishForm;
+        window.toggleFormStatus = toggleFormStatus;
+        window.exportAnalytics = exportAnalytics;
+        window.generateCQIReport = generateCQIReport;
+        window.exportCQIReport = exportCQIReport;
+        window.refreshOutlineSubmissions = refreshOutlineSubmissions;
+        window.applyFormFilters = applyFormFilters;
+        window.resetFormFilters = resetFormFilters;
+        window.viewFacultySubmissions = viewFacultySubmissions;
+        window.exportFacultyReport = exportFacultyReport;
+        window.generateRealTimeCharts = generateRealTimeCharts;
+        window.showAISummary = showAISummary;
+        window.viewCourseOutlines = viewCourseOutlines;
+        window.viewOutlineVersion = viewOutlineVersion;
+        window.printOutline = printOutline;
+    </script>
+</body>
+</html>
