@@ -8,10 +8,12 @@ from django.contrib.auth.views import LoginView
 from .models import CCRForm, CCRSubmission, Course, DynamicForm, FormQuestion, DynamicFormSubmission
 from .ccr_forms import CCRSubmissionForm
 
+
 def home(request):
+    """Landing page with role selection before login"""
     if request.user.is_authenticated:
         return redirect("dashboard")
-    return redirect("login")
+    return render(request, "accounts/landing.html")
 
 
 def register(request):

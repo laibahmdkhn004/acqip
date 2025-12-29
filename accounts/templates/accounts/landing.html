@@ -1,0 +1,113 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ACQIP - Capital University of Science and Technology</title>
+
+    <!-- Tailwind -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Font -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      body {
+        font-family: "Inter", sans-serif;
+      }
+    </style>
+  </head>
+
+  <body class="min-h-screen bg-gray-50">
+    <!-- Header -->
+    <div class="pt-16 text-center">
+      <h1 class="text-xl md:text-2xl font-semibold text-purple-700">
+        Capital University of Science and Technology
+      </h1>
+
+      <!-- ACQIP Card -->
+      <div class="mt-6 flex justify-center">
+        <div class="bg-white rounded-xl shadow-md px-8 py-4">
+          <h2 class="text-lg font-semibold text-purple-700">ACQIP</h2>
+          <p class="text-sm text-gray-500 mt-1">
+            Automated Continuous Quality Improvement Process
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Role Cards -->
+    <div class="mt-14 max-w-6xl mx-auto px-4">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+        <!-- Faculty -->
+        <a
+          href="{% url 'login' %}?role=Faculty"
+          class="bg-white rounded-2xl shadow-md hover:shadow-xl transition p-8 text-center"
+        >
+          <div
+            class="w-14 h-14 mx-auto mb-5 rounded-xl bg-purple-600 flex items-center justify-center"
+          >
+            <!-- Faculty Icon -->
+            <svg viewBox="0 0 24 24" class="w-7 h-7 text-white">
+              <path d="M12 3L2 8l10 5 10-5-10-5z" fill="currentColor" />
+              <path d="M4 10v4c0 2 4 4 8 4s8-2 8-4v-4" fill="currentColor" />
+            </svg>
+          </div>
+
+          <h3 class="text-lg font-semibold text-gray-800 mb-2">Faculty</h3>
+          <p class="text-sm text-gray-500">
+            Access your courses, submit forms, and manage course outlines
+          </p>
+        </a>
+
+        <!-- CRC Team -->
+        <a
+          href="{% url 'login' %}?role=CRC"
+          class="bg-white rounded-2xl shadow-md hover:shadow-xl transition p-8 text-center"
+        >
+          <div
+            class="w-14 h-14 mx-auto mb-5 rounded-xl bg-blue-600 flex items-center justify-center"
+          >
+            <!-- CRC Icon -->
+            <svg viewBox="0 0 24 24" class="w-7 h-7 text-white">
+              <circle cx="12" cy="8" r="4" fill="currentColor" />
+              <path d="M4 20c0-4 4-6 8-6s8 2 8 6" fill="currentColor" />
+            </svg>
+          </div>
+
+          <h3 class="text-lg font-semibold text-gray-800 mb-2">CRC Team</h3>
+          <p class="text-sm text-gray-500">
+            Manage forms, review submissions, and generate reports
+          </p>
+        </a>
+
+        <!-- Admin -->
+        <a
+          href="{% url 'login' %}?role=Admin"
+          class="bg-white rounded-2xl shadow-md hover:shadow-xl transition p-8 text-center"
+        >
+          <div
+            class="w-14 h-14 mx-auto mb-5 rounded-xl bg-indigo-600 flex items-center justify-center"
+          >
+            <!-- Admin Icon -->
+            <svg viewBox="0 0 24 24" class="w-7 h-7 text-white">
+              <path
+                d="M12 2l8 4v6c0 5-3.5 9-8 10-4.5-1-8-5-8-10V6l8-4z"
+                fill="currentColor"
+              />
+            </svg>
+          </div>
+
+          <h3 class="text-lg font-semibold text-gray-800 mb-2">Admin</h3>
+          <p class="text-sm text-gray-500">
+            System administration and user management
+          </p>
+        </a>
+      </div>
+    </div>
+  </body>
+</html>
