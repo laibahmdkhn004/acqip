@@ -240,6 +240,7 @@
         return cookieValue;
       }
 
+      // Make CSRF token available for fetch requests
       const csrftoken = getCookie("csrftoken");
     </script>
     {% block extra_js %}{% endblock %}
