@@ -4,8 +4,8 @@ from . import api_views
 
 urlpatterns = [
     # root route
-    path("", views.home, name="home"),
-
+   path("", views.landing_page, name="home"),  # Landing page as home
+path("dashboard/", views.dashboard, name="dashboard"),  # Your existing dashboard
     # authentication
     path("register/", views.register, name="register"),
     path("login/", views.CustomLoginView.as_view(), name="login"),

@@ -122,506 +122,591 @@
         </div>
     </div>
 
+
     <script>
-        const API = {
-            faculty_dynamic_forms: "{% url 'api_faculty_dynamic_forms' %}",
-            submit_dynamic_form: "{% url 'api_submit_dynamic_form' %}",
-        };
+    const API = {
+        faculty_dynamic_forms: "{% url 'api_faculty_dynamic_forms' %}",
+        submit_dynamic_form: "{% url 'api_submit_dynamic_form' %}",
+    };
 
-        // Get URL parameters
-        const urlParams = new URLSearchParams(window.location.search);
-        const urlCourseId = urlParams.get('course_id');
-        const urlFormType = urlParams.get('form_type') || 'crr';
+    // Get URL parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlCourseId = urlParams.get('course_id');
+    const urlFormType = urlParams.get('form_type') || 'crr';
+    const urlFormId = urlParams.get('form_id');
 
-        let currentCourseId = null;
-        let currentFormType = urlFormType;
-        let currentFormId = null;
-        let currentFormData = null;
+    let currentCourseId = null;
+    let currentFormType = urlFormType;
+    let currentFormId = urlFormId;
+    let currentFormData = null;
 
-        // Initialize form
-        document.addEventListener('DOMContentLoaded', function() {
-            // Set active form type button
-            if (urlFormType === 'ccr') {
-                document.getElementById('ccr-btn')?.classList.add('bg-purple-600', 'text-white', 'hover:bg-purple-700');
-                document.getElementById('ccr-btn')?.classList.remove('text-purple-600', 'border-purple-600');
-            } else if (urlFormType === 'crr') {
-                document.getElementById('crr-btn')?.classList.add('bg-green-600', 'text-white', 'hover:bg-green-700');
-                document.getElementById('crr-btn')?.classList.remove('text-green-600', 'border-green-600');
-            }
-
-            // Show course selection
-            document.getElementById('course-selection').classList.remove('hidden');
-
-            // If course_id is in URL, select it
-            if (urlCourseId) {
-                document.getElementById('course-select').value = urlCourseId;
-                setTimeout(() => {
-                    loadFormForCourse(urlCourseId, urlFormType);
-                }, 100);
-            }
-
-            // Form type button handlers
-            document.getElementById('ccr-btn')?.addEventListener('click', function() {
-                setFormType('ccr');
-            });
-
-            document.getElementById('crr-btn')?.addEventListener('click', function() {
-                setFormType('crr');
-            });
-
-            // Course select handler
-            document.getElementById('course-select').addEventListener('change', function() {
-                const courseId = this.value;
-                if (courseId) {
-                    loadFormForCourse(courseId, currentFormType);
-                } else {
-                    hideForm();
-                }
-            });
-
-            // Button handlers
-            document.getElementById('save-draft-btn').addEventListener('click', function() {
-                saveForm('draft');
-            });
-
-            document.getElementById('submit-form-btn').addEventListener('click', function() {
-                if (confirm('Are you sure you want to submit this form? Once submitted, you cannot edit it unless CRC requests revision.')) {
-                    saveForm('submitted');
-                }
-            });
+    // Initialize form
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('Initializing form with:', {
+            courseId: urlCourseId,
+            formType: urlFormType,
+            formId: urlFormId
         });
-
-        function setFormType(formType) {
-            currentFormType = formType;
-            
-            // Update button styles
+        
+        // Set active form type button
+        if (urlFormType === 'ccr') {
             const ccrBtn = document.getElementById('ccr-btn');
-            const crrBtn = document.getElementById('crr-btn');
-            
             if (ccrBtn) {
-                ccrBtn.classList.toggle('bg-purple-600', formType === 'ccr');
-                ccrBtn.classList.toggle('text-white', formType === 'ccr');
-                ccrBtn.classList.toggle('hover:bg-purple-700', formType === 'ccr');
-                ccrBtn.classList.toggle('text-purple-600', formType !== 'ccr');
-                ccrBtn.classList.toggle('border-purple-600', formType !== 'ccr');
-                ccrBtn.classList.toggle('hover:bg-purple-50', formType !== 'ccr');
+                ccrBtn.classList.add('bg-purple-600', 'text-white', 'hover:bg-purple-700');
+                ccrBtn.classList.remove('text-purple-600', 'border-purple-600');
             }
-            
+        } else if (urlFormType === 'crr') {
+            const crrBtn = document.getElementById('crr-btn');
             if (crrBtn) {
-                crrBtn.classList.toggle('bg-green-600', formType === 'crr');
-                crrBtn.classList.toggle('text-white', formType === 'crr');
-                crrBtn.classList.toggle('hover:bg-green-700', formType === 'crr');
-                crrBtn.classList.toggle('text-green-600', formType !== 'crr');
-                crrBtn.classList.toggle('border-green-600', formType !== 'crr');
-                crrBtn.classList.toggle('hover:bg-green-50', formType !== 'crr');
-            }
-
-            // Update form info
-            const formInfo = document.getElementById('form-info');
-            if (formType === 'ccr') {
-                formInfo.textContent = 'CCR Form: For course coordinators only. You can submit this form for courses where you are the coordinator.';
-                formInfo.classList.remove('hidden');
-                
-                // Filter courses to show only coordinator courses
-                const courseSelect = document.getElementById('course-select');
-                const options = courseSelect.options;
-                for (let i = 0; i < options.length; i++) {
-                    const isCoordinator = options[i].getAttribute('data-is-coordinator') === 'true';
-                    options[i].style.display = isCoordinator ? '' : 'none';
-                }
-            } else {
-                formInfo.textContent = 'CRR Form: For all faculty members. You can submit this form for all assigned courses.';
-                formInfo.classList.remove('hidden');
-                
-                // Show all courses
-                const courseSelect = document.getElementById('course-select');
-                const options = courseSelect.options;
-                for (let i = 0; i < options.length; i++) {
-                    options[i].style.display = '';
-                }
-            }
-
-            // If a course is selected, reload form
-            const selectedCourseId = document.getElementById('course-select').value;
-            if (selectedCourseId) {
-                loadFormForCourse(selectedCourseId, formType);
+                crrBtn.classList.add('bg-green-600', 'text-white', 'hover:bg-green-700');
+                crrBtn.classList.remove('text-green-600', 'border-green-600');
             }
         }
 
-        async function loadFormForCourse(courseId, formType) {
-            try {
-                currentCourseId = courseId;
-                currentFormType = formType;
-                
-                // Show loading state
-                const formContainer = document.getElementById('form-container');
-                const questionsContainer = document.getElementById('questions-container');
-                formContainer.classList.remove('hidden');
-                questionsContainer.innerHTML = '<div class="text-center py-8"><p class="text-gray-400">Loading form...</p></div>';
+        // Show course selection
+        document.getElementById('course-selection').classList.remove('hidden');
 
-                // Get form data
-                const response = await fetch(`${API.faculty_dynamic_forms}?form_type=${formType}`);
-                const data = await response.json();
+        // If course_id and form_id are in URL, load the form
+        if (urlCourseId && urlFormId) {
+            document.getElementById('course-select').value = urlCourseId;
+            setTimeout(() => {
+                loadFormForCourse(urlCourseId, urlFormType, urlFormId);
+            }, 100);
+        }
 
-                if (!data.active) {
-                    questionsContainer.innerHTML = `
-                        <div class="text-center py-8 text-red-600">
-                            <i class="fas fa-exclamation-triangle text-2xl mb-3"></i>
-                            <p>${data.message || 'No active form available.'}</p>
-                        </div>
-                    `;
-                    return;
+        // Form type button handlers
+        document.getElementById('ccr-btn')?.addEventListener('click', function() {
+            setFormType('ccr');
+        });
+
+        document.getElementById('crr-btn')?.addEventListener('click', function() {
+            setFormType('crr');
+        });
+
+        // Course select handler
+        document.getElementById('course-select').addEventListener('change', function() {
+            const courseId = this.value;
+            if (courseId && currentFormId) {
+                loadFormForCourse(courseId, currentFormType, currentFormId);
+            } else {
+                hideForm();
+            }
+        });
+
+        // Button handlers
+        document.getElementById('save-draft-btn').addEventListener('click', function() {
+            saveForm('draft');
+        });
+
+        document.getElementById('submit-form-btn').addEventListener('click', function() {
+            if (confirm('Are you sure you want to submit this form? Once submitted, you cannot edit it unless CRC requests revision.')) {
+                saveForm('submitted');
+            }
+        });
+    });
+
+    function setFormType(formType) {
+        currentFormType = formType;
+        currentFormId = null; // Reset form ID when changing type
+        
+        // Update button styles
+        const ccrBtn = document.getElementById('ccr-btn');
+        const crrBtn = document.getElementById('crr-btn');
+        
+        if (ccrBtn) {
+            ccrBtn.classList.toggle('bg-purple-600', formType === 'ccr');
+            ccrBtn.classList.toggle('text-white', formType === 'ccr');
+            ccrBtn.classList.toggle('hover:bg-purple-700', formType === 'ccr');
+            ccrBtn.classList.toggle('text-purple-600', formType !== 'ccr');
+            ccrBtn.classList.toggle('border-purple-600', formType !== 'ccr');
+            ccrBtn.classList.toggle('hover:bg-purple-50', formType !== 'ccr');
+        }
+        
+        if (crrBtn) {
+            crrBtn.classList.toggle('bg-green-600', formType === 'crr');
+            crrBtn.classList.toggle('text-white', formType === 'crr');
+            crrBtn.classList.toggle('hover:bg-green-700', formType === 'crr');
+            crrBtn.classList.toggle('text-green-600', formType !== 'crr');
+            crrBtn.classList.toggle('border-green-600', formType !== 'crr');
+            crrBtn.classList.toggle('hover:bg-green-50', formType !== 'crr');
+        }
+
+        // Update form info
+        const formInfo = document.getElementById('form-info');
+        if (formType === 'ccr') {
+            formInfo.textContent = 'CCR Form: For course coordinators only. You can submit this form for courses where you are the coordinator.';
+            formInfo.classList.remove('hidden');
+            
+            // Filter courses to show only coordinator courses
+            const courseSelect = document.getElementById('course-select');
+            const options = courseSelect.options;
+            for (let i = 0; i < options.length; i++) {
+                const isCoordinator = options[i].getAttribute('data-is-coordinator') === 'true';
+                options[i].style.display = isCoordinator ? '' : 'none';
+            }
+        } else {
+            formInfo.textContent = 'CRR Form: For all faculty members. You can submit this form for all assigned courses.';
+            formInfo.classList.remove('hidden');
+            
+            // Show all courses
+            const courseSelect = document.getElementById('course-select');
+            const options = courseSelect.options;
+            for (let i = 0; i < options.length; i++) {
+                options[i].style.display = '';
+            }
+        }
+
+        // If a course is selected, load forms for this type
+        const selectedCourseId = document.getElementById('course-select').value;
+        if (selectedCourseId) {
+            // First, get available forms for this type
+            loadAvailableForms(selectedCourseId, formType);
+        } else {
+            hideForm();
+        }
+    }
+
+    async function loadAvailableForms(courseId, formType) {
+        try {
+            const response = await fetch(`${API.faculty_dynamic_forms}?form_type=${formType}`);
+            const data = await response.json();
+            
+            if (data.active && data.forms && data.forms.length > 0) {
+                // If there's only one form, use it automatically
+                if (data.forms.length === 1) {
+                    currentFormId = data.forms[0].id;
+                    loadFormForCourse(courseId, formType, data.forms[0].id);
+                } else {
+                    // Show form selection modal
+                    showFormSelectionModal(data.forms, courseId, formType);
                 }
+            } else {
+                alert(data.message || 'No active forms available for this type.');
+            }
+        } catch (error) {
+            console.error('Failed to load forms:', error);
+            alert('Failed to load forms. Please try again.');
+        }
+    }
 
-                currentFormId = data.form.id;
-                currentFormData = data;
+    function showFormSelectionModal(forms, courseId, formType) {
+        // Create a simple modal for form selection
+        let modalHtml = `
+            <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                <div class="bg-white rounded-lg p-6 max-w-md w-full">
+                    <h3 class="text-lg font-semibold mb-4">Select a Form</h3>
+                    <div class="space-y-3">
+        `;
+        
+        forms.forEach(form => {
+            modalHtml += `
+                <button onclick="selectForm(${form.id}, ${courseId}, '${formType}')" 
+                        class="w-full text-left p-3 border rounded hover:bg-gray-50">
+                    <div class="font-medium">${form.name}</div>
+                    <div class="text-sm text-gray-600">${form.description || 'No description'}</div>
+                </button>
+            `;
+        });
+        
+        modalHtml += `
+                    </div>
+                    <div class="mt-6 flex justify-end">
+                        <button onclick="closeModal()" class="px-4 py-2 text-gray-600 hover:text-gray-800">
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        const modalDiv = document.createElement('div');
+        modalDiv.innerHTML = modalHtml;
+        document.body.appendChild(modalDiv);
+        
+        window.selectForm = function(formId, courseId, formType) {
+            currentFormId = formId;
+            loadFormForCourse(courseId, formType, formId);
+            document.body.removeChild(modalDiv);
+        };
+        
+        window.closeModal = function() {
+            document.body.removeChild(modalDiv);
+        };
+    }
 
-                // Update form header
-                document.getElementById('form-title').textContent = data.form.name;
-                document.getElementById('form-description').textContent = data.form.description || '';
-                
-                // Find the selected course
-                const courseSelect = document.getElementById('course-select');
-                const selectedOption = courseSelect.options[courseSelect.selectedIndex];
-                const courseCode = selectedOption.text.split(' - ')[0];
-                const courseTitle = selectedOption.text.split(' - ')[1]?.split(' (')[0];
-                
-                document.getElementById('course-info').textContent = 
-                    `Course: ${courseCode} - ${courseTitle}`;
+    async function loadFormForCourse(courseId, formType, formId) {
+        try {
+            console.log('Loading form:', { courseId, formType, formId });
+            
+            currentCourseId = courseId;
+            currentFormType = formType;
+            currentFormId = formId;
+            
+            // Show loading state
+            const formContainer = document.getElementById('form-container');
+            const questionsContainer = document.getElementById('questions-container');
+            formContainer.classList.remove('hidden');
+            questionsContainer.innerHTML = '<div class="text-center py-8"><p class="text-gray-400">Loading form...</p></div>';
 
-                // Check if course is in assigned courses
-                const assignedCourse = data.assigned_courses?.find(c => c.id == courseId);
-                if (!assignedCourse) {
-                    questionsContainer.innerHTML = `
-                        <div class="text-center py-8 text-red-600">
-                            <i class="fas fa-exclamation-triangle text-2xl mb-3"></i>
-                            <p>You are not assigned to this course for ${formType.toUpperCase()} form submission.</p>
-                        </div>
-                    `;
-                    return;
-                }
+            // Get form data with specific form_id
+            const response = await fetch(`${API.faculty_dynamic_forms}?form_type=${formType}&form_id=${formId}&course_id=${courseId}`);
+            const data = await response.json();
 
-                // Check existing submission
-                if (assignedCourse.existing_submission) {
-                    const status = assignedCourse.existing_submission.status;
-                    if (status === 'submitted' || status === 'approved') {
-                        questionsContainer.innerHTML = `
-                            <div class="text-center py-8 text-blue-600">
-                                <i class="fas fa-info-circle text-2xl mb-3"></i>
-                                <p>You have already submitted this form for ${courseCode}.</p>
-                                <p class="text-sm mt-2">Status: ${status}</p>
-                                <button onclick="window.location.href='{% url 'dashboard' %}'" 
-                                        class="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
-                                    Return to Dashboard
-                                </button>
-                            </div>
-                        `;
-                        return;
-                    }
-                }
-
-                // Render questions
-                renderQuestions(data.questions, assignedCourse.existing_submission?.id);
-
-            } catch (error) {
-                console.error('Failed to load form:', error);
-                const questionsContainer = document.getElementById('questions-container');
+            if (!data.active) {
                 questionsContainer.innerHTML = `
                     <div class="text-center py-8 text-red-600">
                         <i class="fas fa-exclamation-triangle text-2xl mb-3"></i>
-                        <p>Failed to load form. Please try again.</p>
-                        <button onclick="location.reload()" class="mt-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">
-                            Reload Page
-                        </button>
+                        <p>${data.message || 'No active form available.'}</p>
                     </div>
                 `;
+                return;
             }
+
+            if (!data.forms || data.forms.length === 0) {
+                questionsContainer.innerHTML = `
+                    <div class="text-center py-8 text-red-600">
+                        <i class="fas fa-exclamation-triangle text-2xl mb-3"></i>
+                        <p>No form data found.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            currentFormData = data;
+
+            // Use the first form (should be the one we requested)
+            const form = data.forms[0];
+            
+            // Update form header
+            document.getElementById('form-title').textContent = form.name;
+            document.getElementById('form-description').textContent = form.description || '';
+            
+            // Find the selected course
+            const courseSelect = document.getElementById('course-select');
+            const selectedOption = courseSelect.options[courseSelect.selectedIndex];
+            const courseCode = selectedOption.text.split(' - ')[0];
+            const courseTitle = selectedOption.text.split(' - ')[1]?.split(' (')[0];
+            
+            document.getElementById('course-info').textContent = 
+                `Course: ${courseCode} - ${courseTitle} | Form Type: ${formType.toUpperCase()}`;
+
+            // Check if course is in assigned courses
+            const assignedCourse = data.assigned_courses?.find(c => c.id == courseId);
+            if (!assignedCourse) {
+                questionsContainer.innerHTML = `
+                    <div class="text-center py-8 text-red-600">
+                        <i class="fas fa-exclamation-triangle text-2xl mb-3"></i>
+                        <p>You are not assigned to this course for ${formType.toUpperCase()} form submission.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            // Render questions
+            renderQuestions(form.questions);
+
+        } catch (error) {
+            console.error('Failed to load form:', error);
+            const questionsContainer = document.getElementById('questions-container');
+            questionsContainer.innerHTML = `
+                <div class="text-center py-8 text-red-600">
+                    <i class="fas fa-exclamation-triangle text-2xl mb-3"></i>
+                    <p>Failed to load form. Please try again.</p>
+                    <p class="text-sm text-gray-500 mt-2">Error: ${error.message}</p>
+                    <button onclick="location.reload()" class="mt-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">
+                        Reload Page
+                    </button>
+                </div>
+            `;
         }
+    }
 
-        function renderQuestions(questions, existingSubmissionId = null) {
-            const container = document.getElementById('questions-container');
-            container.innerHTML = '';
+    function renderQuestions(questions) {
+        const container = document.getElementById('questions-container');
+        container.innerHTML = '';
 
-            let currentSection = null;
-            let questionCount = 0;
+        let currentSection = null;
+        let questionCount = 0;
 
-            questions.forEach((question, index) => {
-                // Handle section headers
-                if (question.question_type === 'section_header') {
-                    if (currentSection) {
-                        container.appendChild(currentSection);
-                    }
-                    currentSection = document.createElement('div');
-                    currentSection.className = 'form-section';
-                    
-                    const header = document.createElement('h3');
-                    header.className = 'section-header';
-                    header.textContent = question.question_text;
-                    currentSection.appendChild(header);
-                    
-                    return;
+        questions.forEach((question, index) => {
+            // Handle section headers
+            if (question.question_type === 'section_header') {
+                if (currentSection) {
+                    container.appendChild(currentSection);
                 }
-
-                // Create question container
-                if (!currentSection) {
-                    currentSection = document.createElement('div');
-                    currentSection.className = 'form-section';
-                }
-
-                const questionDiv = document.createElement('div');
-                questionDiv.className = 'mb-4';
-                questionDiv.id = `question-${question.id}`;
-
-                const label = document.createElement('label');
-                label.className = 'block text-sm font-medium text-gray-700 mb-2';
-                label.innerHTML = `${++questionCount}. ${question.question_text} ${question.required ? '<span class="text-red-500">*</span>' : ''}`;
+                currentSection = document.createElement('div');
+                currentSection.className = 'form-section';
                 
-                if (question.help_text) {
-                    const helpText = document.createElement('p');
-                    helpText.className = 'text-sm text-gray-500 mb-2';
-                    helpText.textContent = question.help_text;
-                    questionDiv.appendChild(helpText);
-                }
+                const header = document.createElement('h3');
+                header.className = 'section-header';
+                header.textContent = question.question_text;
+                currentSection.appendChild(header);
                 
-                questionDiv.appendChild(label);
+                return;
+            }
 
-                // Add input based on question type
-                let inputElement;
-                switch (question.question_type) {
-                    case 'text':
-                        inputElement = document.createElement('input');
-                        inputElement.type = 'text';
-                        inputElement.className = 'w-full border border-gray-300 rounded-lg p-2 mt-1';
-                        break;
+            // Create question container
+            if (!currentSection) {
+                currentSection = document.createElement('div');
+                currentSection.className = 'form-section';
+            }
 
-                    case 'textarea':
-                        inputElement = document.createElement('textarea');
-                        inputElement.rows = 4;
-                        inputElement.className = 'w-full border border-gray-300 rounded-lg p-2 mt-1';
-                        break;
+            const questionDiv = document.createElement('div');
+            questionDiv.className = 'mb-4';
+            questionDiv.id = `question-${question.id}`;
 
-                    case 'radio':
-                        const radioGroup = document.createElement('div');
-                        radioGroup.className = 'space-y-2 mt-2';
-                        
-                        const options = question.options ? question.options.split(',') : [];
-                        options.forEach((option, i) => {
-                            const optionDiv = document.createElement('div');
-                            optionDiv.className = 'flex items-center';
-                            
-                            const radio = document.createElement('input');
-                            radio.type = 'radio';
-                            radio.name = `question_${question.id}`;
-                            radio.value = option.trim();
-                            radio.id = `question_${question.id}_${i}`;
-                            radio.className = 'mr-2';
-                            
-                            const optionLabel = document.createElement('label');
-                            optionLabel.htmlFor = radio.id;
-                            optionLabel.textContent = option.trim();
-                            optionLabel.className = 'text-gray-700';
-                            
-                            optionDiv.appendChild(radio);
-                            optionDiv.appendChild(optionLabel);
-                            radioGroup.appendChild(optionDiv);
-                        });
-                        
-                        questionDiv.appendChild(radioGroup);
-                        inputElement = radioGroup;
-                        break;
+            const label = document.createElement('label');
+            label.className = 'block text-sm font-medium text-gray-700 mb-2';
+            label.innerHTML = `${++questionCount}. ${question.question_text} ${question.required ? '<span class="text-red-500">*</span>' : ''}`;
+            
+            if (question.help_text) {
+                const helpText = document.createElement('p');
+                helpText.className = 'text-sm text-gray-500 mb-2';
+                helpText.textContent = question.help_text;
+                questionDiv.appendChild(helpText);
+            }
+            
+            questionDiv.appendChild(label);
 
-                    case 'checkbox':
-                        const checkboxGroup = document.createElement('div');
-                        checkboxGroup.className = 'space-y-2 mt-2';
-                        
-                        const checkOptions = question.options ? question.options.split(',') : [];
-                        checkOptions.forEach((option, i) => {
-                            const optionDiv = document.createElement('div');
-                            optionDiv.className = 'flex items-center';
-                            
-                            const checkbox = document.createElement('input');
-                            checkbox.type = 'checkbox';
-                            checkbox.name = `question_${question.id}`;
-                            checkbox.value = option.trim();
-                            checkbox.id = `question_${question.id}_${i}`;
-                            checkbox.className = 'mr-2';
-                            
-                            const optionLabel = document.createElement('label');
-                            optionLabel.htmlFor = checkbox.id;
-                            optionLabel.textContent = option.trim();
-                            optionLabel.className = 'text-gray-700';
-                            
-                            optionDiv.appendChild(checkbox);
-                            optionDiv.appendChild(optionLabel);
-                            checkboxGroup.appendChild(optionDiv);
-                        });
-                        
-                        questionDiv.appendChild(checkboxGroup);
-                        inputElement = checkboxGroup;
-                        break;
-
-                    case 'select':
-                        inputElement = document.createElement('select');
-                        inputElement.className = 'w-full border border-gray-300 rounded-lg p-2 mt-1';
-                        
-                        const defaultOption = document.createElement('option');
-                        defaultOption.value = '';
-                        defaultOption.textContent = 'Select an option...';
-                        inputElement.appendChild(defaultOption);
-                        
-                        const selectOptions = question.options ? question.options.split(',') : [];
-                        selectOptions.forEach(option => {
-                            const opt = document.createElement('option');
-                            opt.value = option.trim();
-                            opt.textContent = option.trim();
-                            inputElement.appendChild(opt);
-                        });
-                        break;
-
-                    default:
-                        inputElement = document.createElement('input');
-                        inputElement.type = 'text';
-                        inputElement.className = 'w-full border border-gray-300 rounded-lg p-2 mt-1';
-                }
-
-                if (inputElement && inputElement.tagName !== 'DIV') {
+            // Add input based on question type
+            let inputElement;
+            switch (question.question_type) {
+                case 'text':
+                    inputElement = document.createElement('input');
+                    inputElement.type = 'text';
+                    inputElement.className = 'w-full border border-gray-300 rounded-lg p-2 mt-1';
                     inputElement.name = `question_${question.id}`;
                     inputElement.required = question.required;
-                    questionDiv.appendChild(inputElement);
-                }
+                    break;
 
-                currentSection.appendChild(questionDiv);
-            });
+                case 'textarea':
+                    inputElement = document.createElement('textarea');
+                    inputElement.rows = 4;
+                    inputElement.className = 'w-full border border-gray-300 rounded-lg p-2 mt-1';
+                    inputElement.name = `question_${question.id}`;
+                    inputElement.required = question.required;
+                    break;
 
-            // Add the last section
-            if (currentSection) {
-                container.appendChild(currentSection);
-            }
-        }
-
-        function hideForm() {
-            document.getElementById('form-container').classList.add('hidden');
-        }
-
-        async function saveForm(status) {
-            if (!currentCourseId || !currentFormId) {
-                alert('Please select a course first.');
-                return;
-            }
-
-            // Collect form answers
-            const answers = {};
-            let hasErrors = false;
-            
-            // Get all question inputs
-            const questionInputs = document.querySelectorAll('[name^="question_"]');
-            
-            questionInputs.forEach(input => {
-                const questionId = input.name.replace('question_', '');
-                
-                // Skip if it's a checkbox group (handled separately)
-                if (input.type === 'radio' || input.type === 'checkbox') {
-                    return;
-                }
-                
-                answers[questionId] = input.value;
-                
-                // Check required fields
-                if (input.required && !input.value.trim()) {
-                    input.classList.add('border-red-500');
-                    hasErrors = true;
-                } else {
-                    input.classList.remove('border-red-500');
-                }
-            });
-
-            // Handle radio buttons
-            document.querySelectorAll('[type="radio"]').forEach(radio => {
-                const name = radio.name;
-                const questionId = name.replace('question_', '');
-                
-                if (radio.checked) {
-                    answers[questionId] = radio.value;
-                }
-            });
-
-            // Handle checkboxes (multiple values)
-            document.querySelectorAll('[type="checkbox"]').forEach(checkbox => {
-                const name = checkbox.name;
-                const questionId = name.replace('question_', '');
-                
-                if (!answers[questionId]) {
-                    answers[questionId] = [];
-                }
-                
-                if (checkbox.checked) {
-                    if (Array.isArray(answers[questionId])) {
-                        answers[questionId].push(checkbox.value);
-                    }
-                }
-            });
-
-            // Check required radio groups
-            document.querySelectorAll('[type="radio"]').forEach(radio => {
-                const name = radio.name;
-                const questionId = name.replace('question_', '');
-                
-                if (radio.required && !answers[questionId]) {
-                    hasErrors = true;
-                    document.querySelectorAll(`[name="${name}"]`).forEach(r => {
-                        r.closest('div').classList.add('border', 'border-red-500', 'p-2', 'rounded');
+                case 'radio':
+                    const radioGroup = document.createElement('div');
+                    radioGroup.className = 'space-y-2 mt-2';
+                    
+                    const options = question.options ? question.options.split(',') : [];
+                    options.forEach((option, i) => {
+                        const optionDiv = document.createElement('div');
+                        optionDiv.className = 'flex items-center';
+                        
+                        const radio = document.createElement('input');
+                        radio.type = 'radio';
+                        radio.name = `question_${question.id}`;
+                        radio.value = option.trim();
+                        radio.id = `question_${question.id}_${i}`;
+                        radio.className = 'mr-2';
+                        if (question.required) radio.required = true;
+                        
+                        const optionLabel = document.createElement('label');
+                        optionLabel.htmlFor = radio.id;
+                        optionLabel.textContent = option.trim();
+                        optionLabel.className = 'text-gray-700';
+                        
+                        optionDiv.appendChild(radio);
+                        optionDiv.appendChild(optionLabel);
+                        radioGroup.appendChild(optionDiv);
                     });
-                }
+                    
+                    questionDiv.appendChild(radioGroup);
+                    inputElement = null; // Already added
+                    break;
+
+                case 'checkbox':
+                    const checkboxGroup = document.createElement('div');
+                    checkboxGroup.className = 'space-y-2 mt-2';
+                    
+                    const checkOptions = question.options ? question.options.split(',') : [];
+                    checkOptions.forEach((option, i) => {
+                        const optionDiv = document.createElement('div');
+                        optionDiv.className = 'flex items-center';
+                        
+                        const checkbox = document.createElement('input');
+                        checkbox.type = 'checkbox';
+                        checkbox.name = `question_${question.id}[]`;
+                        checkbox.value = option.trim();
+                        checkbox.id = `question_${question.id}_${i}`;
+                        checkbox.className = 'mr-2';
+                        
+                        const optionLabel = document.createElement('label');
+                        optionLabel.htmlFor = checkbox.id;
+                        optionLabel.textContent = option.trim();
+                        optionLabel.className = 'text-gray-700';
+                        
+                        optionDiv.appendChild(checkbox);
+                        optionDiv.appendChild(optionLabel);
+                        checkboxGroup.appendChild(optionDiv);
+                    });
+                    
+                    questionDiv.appendChild(checkboxGroup);
+                    inputElement = null; // Already added
+                    break;
+
+                case 'select':
+                    inputElement = document.createElement('select');
+                    inputElement.className = 'w-full border border-gray-300 rounded-lg p-2 mt-1';
+                    inputElement.name = `question_${question.id}`;
+                    inputElement.required = question.required;
+                    
+                    const defaultOption = document.createElement('option');
+                    defaultOption.value = '';
+                    defaultOption.textContent = 'Select an option...';
+                    inputElement.appendChild(defaultOption);
+                    
+                    const selectOptions = question.options ? question.options.split(',') : [];
+                    selectOptions.forEach(option => {
+                        const opt = document.createElement('option');
+                        opt.value = option.trim();
+                        opt.textContent = option.trim();
+                        inputElement.appendChild(opt);
+                    });
+                    break;
+
+                default:
+                    inputElement = document.createElement('input');
+                    inputElement.type = 'text';
+                    inputElement.className = 'w-full border border-gray-300 rounded-lg p-2 mt-1';
+                    inputElement.name = `question_${question.id}`;
+                    inputElement.required = question.required;
+            }
+
+            if (inputElement) {
+                questionDiv.appendChild(inputElement);
+            }
+
+            currentSection.appendChild(questionDiv);
+        });
+
+        // Add the last section
+        if (currentSection) {
+            container.appendChild(currentSection);
+        }
+    }
+
+    function hideForm() {
+        document.getElementById('form-container').classList.add('hidden');
+    }
+
+    async function saveForm(status) {
+        if (!currentCourseId || !currentFormId) {
+            alert('Please select a course first.');
+            return;
+        }
+
+        // Collect form answers
+        const answers = {};
+        let hasErrors = false;
+        
+        // Get all required questions
+        const requiredInputs = document.querySelectorAll('[required]');
+        
+        requiredInputs.forEach(input => {
+            if (!input.value && input.type !== 'checkbox' && input.type !== 'radio') {
+                input.classList.add('border-red-500');
+                hasErrors = true;
+            }
+        });
+
+        // Check radio groups
+        const radioGroups = {};
+        document.querySelectorAll('[type="radio"]').forEach(radio => {
+            const name = radio.name;
+            if (!radioGroups[name]) radioGroups[name] = [];
+            radioGroups[name].push(radio);
+        });
+
+        Object.keys(radioGroups).forEach(name => {
+            const group = radioGroups[name];
+            const anyChecked = group.some(radio => radio.checked);
+            if (group[0]?.required && !anyChecked) {
+                group.forEach(radio => {
+                    radio.closest('div').classList.add('border', 'border-red-500', 'p-2', 'rounded');
+                });
+                hasErrors = true;
+            }
+        });
+
+        if (hasErrors) {
+            alert('Please fill in all required fields.');
+            return;
+        }
+
+        // Collect answers
+        const textInputs = document.querySelectorAll('input[type="text"], textarea, select');
+        textInputs.forEach(input => {
+            const questionId = input.name.replace('question_', '');
+            answers[questionId] = input.value;
+        });
+
+        // Handle radio buttons
+        document.querySelectorAll('[type="radio"]:checked').forEach(radio => {
+            const questionId = radio.name.replace('question_', '');
+            answers[questionId] = radio.value;
+        });
+
+        // Handle checkboxes
+        const checkboxGroups = {};
+        document.querySelectorAll('[type="checkbox"]:checked').forEach(checkbox => {
+            const name = checkbox.name.replace('[]', '');
+            const questionId = name.replace('question_', '');
+            if (!checkboxGroups[questionId]) checkboxGroups[questionId] = [];
+            checkboxGroups[questionId].push(checkbox.value);
+        });
+
+        Object.keys(checkboxGroups).forEach(questionId => {
+            answers[questionId] = checkboxGroups[questionId];
+        });
+
+        try {
+            const response = await fetch(API.submit_dynamic_form, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCookie('csrftoken'),
+                },
+                body: JSON.stringify({
+                    course_id: parseInt(currentCourseId),
+                    form_id: parseInt(currentFormId),
+                    answers: answers,
+                    status: status
+                })
             });
 
-            if (hasErrors) {
-                alert('Please fill in all required fields.');
-                return;
+            const result = await response.json();
+            
+            if (response.ok) {
+                alert(`Form ${status === 'draft' ? 'saved as draft' : 'submitted'} successfully!`);
+                window.location.href = "{% url 'dashboard' %}";
+            } else {
+                alert(`Submission failed: ${result.error}`);
             }
-
-            try {
-                const response = await fetch(API.submit_dynamic_form, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': getCookie('csrftoken'),
-                    },
-                    body: JSON.stringify({
-                        course_id: currentCourseId,
-                        form_id: currentFormId,
-                        answers: answers,
-                        status: status
-                    })
-                });
-
-                const result = await response.json();
-                
-                if (response.ok) {
-                    alert(`Form ${status === 'draft' ? 'saved as draft' : 'submitted'} successfully!`);
-                    window.location.href = "{% url 'dashboard' %}";
-                } else {
-                    alert(`Submission failed: ${result.error}`);
-                }
-            } catch (error) {
-                console.error('Submission error:', error);
-                alert('Failed to submit form. Please try again.');
-            }
+        } catch (error) {
+            console.error('Submission error:', error);
+            alert('Failed to submit form. Please try again.');
         }
+    }
 
-        function getCookie(name) {
-            let cookieValue = null;
-            if (document.cookie && document.cookie !== '') {
-                const cookies = document.cookie.split(';');
-                for (let i = 0; i < cookies.length; i++) {
-                    const cookie = cookies[i].trim();
-                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                        break;
-                    }
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
                 }
             }
-            return cookieValue;
         }
-    </script>
+        return cookieValue;
+    }
+</script>
+
 </body>
 </html>

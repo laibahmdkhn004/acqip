@@ -1,6 +1,6 @@
 ﻿<!DOCTYPE html>
 <html lang="en">
-<head>
+  <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{% block title %}ACQIP - CUST{% endblock %}</title>
@@ -15,7 +15,8 @@
         padding: 0;
         box-sizing: border-box;
       }
-      html, body {
+      html,
+      body {
         width: 100%;
         overflow-x: hidden;
       }
@@ -26,7 +27,7 @@
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
       }
-      
+
       .avatar {
         width: 38px;
         height: 38px;
@@ -55,7 +56,8 @@
         margin-top: 0.5rem;
         background-color: white;
         min-width: 160px;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1),
+          0 4px 6px -2px rgba(0, 0, 0, 0.05);
         border-radius: 0.5rem;
         z-index: 1000;
         border: 1px solid #e5e7eb;
@@ -89,12 +91,15 @@
       }
     </style>
     {% block extra_css %}{% endblock %}
-</head>
-<body class="bg-gray-50 text-gray-800" style="margin: 0; padding: 0;">
+  </head>
+  <body class="bg-gray-50 text-gray-800" style="margin: 0; padding: 0">
     {% block header %}
     <!-- Header (purple) - Full width at the very top -->
-    <header class="bg-purple-700 text-white shadow -mt-6 mb-6" >
-      <div class="px-6 py-3 flex items-center justify-between" style="margin: 0;">
+    <header class="bg-purple-700 text-white shadow -mt-6 mb-6">
+      <div
+        class="px-6 py-3 flex items-center justify-between"
+        style="margin: 0"
+      >
         <div class="flex items-center gap-3">
           <a href="/" class="flex items-center gap-3">
             <img
@@ -131,19 +136,34 @@
                   {{ user.username|default:'User' }}
                 </div>
                 <div class="text-xs text-white/70">
-                  {{ user.get_role_display }}
-                  {% if user.department %}({{ user.department }}){% endif %}
+                  {{ user.get_role_display }} {% if user.department %}({{
+                  user.department }}){% endif %}
                 </div>
               </div>
-              <svg class="w-4 h-4 text-white/70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+              <svg
+                class="w-4 h-4 text-white/70"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M19 9l-7 7-7-7"
+                ></path>
               </svg>
             </div>
-            
+
             <!-- Dropdown Menu -->
             <div id="avatar-dropdown" class="dropdown-content">
               <a href="{% url 'dashboard' %}" class="dropdown-item">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg
+                  class="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
                   <path
                     stroke-linecap="round"
                     stroke-linejoin="round"
@@ -155,8 +175,18 @@
               </a>
               <div class="border-t border-gray-200 my-1"></div>
               <a href="{% url 'logout' %}" class="dropdown-item logout">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
+                <svg
+                  class="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                  ></path>
                 </svg>
                 Logout
               </a>
@@ -166,38 +196,43 @@
         </div>
       </div>
     </header>
-    {% endblock %}
-
-    {% block content %}
+    {% endblock %} {% block content %}
     <!-- Content will be overridden by child templates -->
     {% endblock %}
 
     <script>
       // Dropdown toggle function
       function toggleDropdown() {
-        const dropdown = document.getElementById('avatar-dropdown');
-        dropdown.classList.toggle('show');
+        const dropdown = document.getElementById("avatar-dropdown");
+        dropdown.classList.toggle("show");
       }
 
       // Close dropdown when clicking outside
-      document.addEventListener('click', function(event) {
-        const dropdown = document.getElementById('avatar-dropdown');
-        const trigger = document.getElementById('avatar-dropdown-trigger');
-        
-        if (trigger && !trigger.contains(event.target) && dropdown && !dropdown.contains(event.target)) {
-          dropdown.classList.remove('show');
+      document.addEventListener("click", function (event) {
+        const dropdown = document.getElementById("avatar-dropdown");
+        const trigger = document.getElementById("avatar-dropdown-trigger");
+
+        if (
+          trigger &&
+          !trigger.contains(event.target) &&
+          dropdown &&
+          !dropdown.contains(event.target)
+        ) {
+          dropdown.classList.remove("show");
         }
       });
 
       // Get CSRF token for API calls
       function getCookie(name) {
         let cookieValue = null;
-        if (document.cookie && document.cookie !== '') {
-          const cookies = document.cookie.split(';');
+        if (document.cookie && document.cookie !== "") {
+          const cookies = document.cookie.split(";");
           for (let i = 0; i < cookies.length; i++) {
             const cookie = cookies[i].trim();
-            if (cookie.substring(0, name.length + 1) === (name + '=')) {
-              cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+            if (cookie.substring(0, name.length + 1) === name + "=") {
+              cookieValue = decodeURIComponent(
+                cookie.substring(name.length + 1)
+              );
               break;
             }
           }
@@ -206,8 +241,8 @@
       }
 
       // Make CSRF token available for fetch requests
-      const csrftoken = getCookie('csrftoken');
+      const csrftoken = getCookie("csrftoken");
     </script>
     {% block extra_js %}{% endblock %}
-</body>
+  </body>
 </html>

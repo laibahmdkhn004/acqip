@@ -10,12 +10,15 @@ from .models import Course, DynamicForm, FormQuestion, DynamicFormSubmission, Co
 from django.db.models import Q, Count
 import json
 
+def landing_page(request):
+    """Landing page for role selection"""
+    return render(request, "accounts/landing.html")
+
 
 def home(request):
-    """Landing page with role selection before login"""
     if request.user.is_authenticated:
         return redirect("dashboard")
-    return render(request, "accounts/landing.html")
+    return redirect("login")
 
 def register(request):
     if request.method == "POST":
@@ -41,22 +44,26 @@ def logout_view(request):
     logout(request)
     return redirect("login")
 
+
 @login_required
 def dynamic_form(request):
     if request.user.role != User.ROLE_FACULTY:
         messages.error(request, "Only faculty members can submit forms.")
         return redirect('dashboard')
     
+    # Get form_id from URL if specified
+    form_id = request.GET.get('form_id')
+    
     # Check UNIVERSAL form availability (CCR/CRR only)
-    ccr_form = DynamicForm.objects.filter(
+    ccr_forms = DynamicForm.objects.filter(
         status=DynamicForm.STATUS_ACTIVE,
         form_type='ccr'
-    ).first()
+    ).order_by('-created_at')
     
-    crr_form = DynamicForm.objects.filter(
+    crr_forms = DynamicForm.objects.filter(
         status=DynamicForm.STATUS_ACTIVE,
         form_type='crr'
-    ).first()
+    ).order_by('-created_at')
     
     # Check if user is coordinator for ANY course
     is_coordinator_for_any = CourseFaculty.objects.filter(
@@ -89,15 +96,29 @@ def dynamic_form(request):
     if course_id:
         selected_course = next((c for c in courses_data if str(c['id']) == str(course_id)), None)
     
+    # If form_id is provided, get the specific form
+    selected_form = None
+    if form_id:
+        try:
+            selected_form = DynamicForm.objects.get(id=form_id)
+            form_type = selected_form.form_type
+        except DynamicForm.DoesNotExist:
+            pass
+    
     return render(request, 'accounts/dynamic_form.html', {
         'assigned_courses': courses_data,
         'selected_course': selected_course,
+        'selected_form': selected_form,
         'form_type': form_type,
-        'ccr_active': bool(ccr_form),
-        'crr_active': bool(crr_form),
+        'form_id': form_id,
+        'ccr_forms': list(ccr_forms.values('id', 'name', 'description')),
+        'crr_forms': list(crr_forms.values('id', 'name', 'description')),
+        'ccr_active': ccr_forms.exists(),
+        'crr_active': crr_forms.exists(),
         'is_coordinator_for_any': is_coordinator_for_any,
         'user_department': request.user.department
     })
+
 
 @login_required
 def dashboard(request):

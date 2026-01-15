@@ -78,6 +78,7 @@ class FormQuestionInline(admin.TabularInline):
 
 
 # admin.py - Update DynamicFormAdmin
+# admin.py - Update DynamicFormAdmin publish_form method
 @admin.register(DynamicForm)
 class DynamicFormAdmin(admin.ModelAdmin):
     list_display = ('name', 'form_type', 'status', 'question_count', 'created_at')
@@ -91,24 +92,21 @@ class DynamicFormAdmin(admin.ModelAdmin):
     question_count.short_description = 'Questions'
     
     def publish_form(self, request, queryset):
+        # REMOVED: Deactivating other forms of same type
         for form in queryset:
-            # Only publish CCR/CRR forms
+            # Allow both CCR and CRR forms to be active simultaneously
             if form.form_type in ['ccr', 'crr']:
-                # Deactivate other forms of the same type
-                DynamicForm.objects.filter(
-                    form_type=form.form_type
-                ).exclude(id=form.id).update(status='inactive')
-                
                 form.status = 'active'
                 form.save()
         self.message_user(request, f"{queryset.count()} form(s) published.")
-    publish_form.short_description = "Publish selected forms (only CCR/CRR)"
+    publish_form.short_description = "Publish selected forms"
     
     def unpublish_form(self, request, queryset):
         queryset.update(status='inactive')
         self.message_user(request, f"{queryset.count()} form(s) unpublished.")
     unpublish_form.short_description = "Unpublish selected forms"
 
+    
 @admin.register(FormQuestion)
 class FormQuestionAdmin(admin.ModelAdmin):
     form = FormQuestionForm

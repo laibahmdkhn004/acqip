@@ -313,12 +313,15 @@ def api_forms(request):
     forms = list(DynamicForm.objects.values('id', 'name', 'description', 'form_type', 'status'))
     return JsonResponse(forms, safe=False)
 
+
+
+# api_views.py - Update api_publish_form
 @login_required
 @user_passes_test(is_admin_or_crc)
 @csrf_exempt
 @require_http_methods(["POST"])
 def api_publish_form(request, form_id):
-    """Publish a form (set status to active) - Only for CCR/CRR forms"""
+    """Publish a form (set status to active) - Allow multiple forms to be active"""
     try:
         form = DynamicForm.objects.get(id=form_id)
         
@@ -326,11 +329,7 @@ def api_publish_form(request, form_id):
         if form.form_type not in ['ccr', 'crr']:
             return JsonResponse({'error': 'Cannot publish non-CCR/CRR forms'}, status=400)
         
-        # Set all other forms of the same type to inactive
-        DynamicForm.objects.filter(
-            form_type=form.form_type
-        ).exclude(id=form_id).update(status='inactive')
-        
+        # REMOVED: No longer deactivating other forms of the same type
         # Set this form to active
         form.status = 'active'
         form.save()
@@ -345,6 +344,9 @@ def api_publish_form(request, form_id):
         return JsonResponse({'error': 'Form not found'}, status=404)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
+
+
+
 
 @login_required
 @user_passes_test(is_admin_or_crc)
@@ -654,13 +656,13 @@ def api_faculty_dynamic_forms(request):
             if not is_coordinator_for_any:
                 return JsonResponse({'error': 'Only course coordinators can access CCR forms'}, status=403)
         
-        # Get active form of the appropriate type
-        active_form = DynamicForm.objects.filter(
+        # Get ALL active forms of the appropriate type
+        active_forms = DynamicForm.objects.filter(
             status=DynamicForm.STATUS_ACTIVE,
             form_type=form_type
-        ).first()
+        )
         
-        if not active_form:
+        if not active_forms.exists():
             return JsonResponse({
                 'active': False, 
                 'message': f'No active {form_type.upper()} form available'
@@ -677,39 +679,32 @@ def api_faculty_dynamic_forms(request):
             if form_type == 'ccr' and not assignment.is_coordinator:
                 continue
                 
-            # Check for existing submission for this course
-            existing_submission = DynamicFormSubmission.objects.filter(
-                faculty=request.user,
-                course=assignment.course,
-                dynamic_form=active_form
-            ).first()
-            
             assigned_courses.append({
                 'id': assignment.course.id,
                 'code': assignment.course.code,
                 'title': assignment.course.title,
                 'is_coordinator': assignment.is_coordinator,
                 'section': assignment.section,
-                'existing_submission': {
-                    'id': existing_submission.id if existing_submission else None,
-                    'status': existing_submission.status if existing_submission else None
-                } if existing_submission else None
             })
         
-        # Get questions for the form
-        questions = list(FormQuestion.objects.filter(form=active_form).order_by('order').values(
-            'id', 'question_text', 'question_type', 'required', 'options', 'config', 'help_text'
-        ))
+        # Get questions for ALL active forms
+        forms_with_questions = []
+        for form in active_forms:
+            questions = list(FormQuestion.objects.filter(form=form).order_by('order').values(
+                'id', 'question_text', 'question_type', 'required', 'options', 'config', 'help_text'
+            ))
+            
+            forms_with_questions.append({
+                'id': form.id,
+                'name': form.name,
+                'description': form.description,
+                'form_type': form.form_type,
+                'questions': questions
+            })
         
         return JsonResponse({
             'active': True,
-            'form': {
-                'id': active_form.id,
-                'name': active_form.name,
-                'description': active_form.description,
-                'form_type': active_form.form_type
-            },
-            'questions': questions,
+            'forms': forms_with_questions,  # Now returns array of forms
             'assigned_courses': assigned_courses
         })
         
@@ -717,11 +712,9 @@ def api_faculty_dynamic_forms(request):
         print(f"Error in api_faculty_dynamic_forms: {str(e)}")  # For debugging
         return JsonResponse({'error': str(e)}, status=400)
 
-
-
-
 # Check form availability for faculty
 # Check form availability for faculty (UNIVERSAL FORMS ONLY)
+
 @login_required
 @require_http_methods(["GET"])
 def api_form_availability(request):
@@ -730,16 +723,16 @@ def api_form_availability(request):
         return JsonResponse({'error': 'Access denied'}, status=403)
     
     try:
-        # Check active forms GLOBALLY (only CCR and CRR - universal forms)
-        ccr_active = DynamicForm.objects.filter(
+        # Get ALL active forms for CCR and CRR
+        ccr_forms = list(DynamicForm.objects.filter(
             status=DynamicForm.STATUS_ACTIVE,
             form_type='ccr'
-        ).exists()
+        ).values('id', 'name', 'description', 'created_at').order_by('-created_at'))
         
-        crr_active = DynamicForm.objects.filter(
+        crr_forms = list(DynamicForm.objects.filter(
             status=DynamicForm.STATUS_ACTIVE,
             form_type='crr'
-        ).exists()
+        ).values('id', 'name', 'description', 'created_at').order_by('-created_at'))
         
         # Check if user is coordinator for ANY course
         is_coordinator_for_any = CourseFaculty.objects.filter(
@@ -761,32 +754,32 @@ def api_form_availability(request):
                 'is_coordinator': assignment.is_coordinator,
                 'section': assignment.section,
                 'forms_available': {
-                    'ccr': ccr_active and assignment.is_coordinator,
-                    'crr': crr_active
+                    'ccr': ccr_forms if assignment.is_coordinator else [],
+                    'crr': crr_forms
                 }
             })
         
         return JsonResponse({
-            'global_availability': {
-                'ccr': ccr_active,
-                'crr': crr_active
+            'active_forms': {
+                'ccr': ccr_forms,
+                'crr': crr_forms
             },
-            'user_can_submit_ccr': ccr_active and is_coordinator_for_any,
-            'user_can_submit_crr': crr_active,
+            'user_can_submit_ccr': len(ccr_forms) > 0 and is_coordinator_for_any,
+            'user_can_submit_crr': len(crr_forms) > 0,
             'courses': courses_data,
             'status': 'success'
         })
     except Exception as e:
-        print(f"Error in api_form_availability: {str(e)}")  # For debugging
+        print(f"Error in api_form_availability: {str(e)}")
         return JsonResponse({
             'error': str(e),
             'status': 'error',
-            'global_availability': {'ccr': False, 'crr': False},
+            'active_forms': {'ccr': [], 'crr': []},
             'user_can_submit_ccr': False,
             'user_can_submit_crr': False,
             'courses': []
         }, status=400)
-    
+
 # Submit universal form
 @login_required
 @csrf_exempt
@@ -799,9 +792,12 @@ def api_submit_dynamic_form(request):
     try:
         data = json.loads(request.body)
         course_id = data.get('course_id')
-        form_id = data.get('form_id')
+        form_id = data.get('form_id')  # Now form_id is required since multiple forms
         answers = data.get('answers', {})
         status = data.get('status', 'draft')  # 'draft' or 'submitted'
+        
+        if not form_id:
+            return JsonResponse({'error': 'form_id is required. Multiple forms may be active.'}, status=400)
         
         # Validate course assignment
         try:
@@ -812,11 +808,15 @@ def api_submit_dynamic_form(request):
         except CourseFaculty.DoesNotExist:
             return JsonResponse({'error': 'Course not assigned to you'}, status=400)
         
-        # Get the UNIVERSAL form
+        # Get the SPECIFIC UNIVERSAL form
         try:
             form = DynamicForm.objects.get(id=form_id, form_type__in=['ccr', 'crr'])
         except DynamicForm.DoesNotExist:
             return JsonResponse({'error': 'Form not found or not a universal form'}, status=404)
+        
+        # Check if form is active
+        if form.status != 'active':
+            return JsonResponse({'error': 'Form is not active'}, status=400)
         
         # Check if form type matches coordinator status
         if form.form_type == 'ccr' and not course_assignment.is_coordinator:
@@ -889,10 +889,6 @@ def api_submit_dynamic_form(request):
         return JsonResponse({'error': 'Course not found'}, status=404)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
-
-
-
-
 
 
 # Faculty Users API
@@ -1380,6 +1376,8 @@ def api_crc_export_analytics(request):
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
 
+
+
 @login_required
 @csrf_exempt
 @require_http_methods(["POST"])
@@ -1439,10 +1437,11 @@ def api_save_course_outline(request):
                     'current_status': outline.status
                 }, status=400)
             
-            # If CRC requested revision, reset to draft when saving
+            # If CRC requested revision, allow saving as draft or submitted
             if outline.status == 'revision_requested':
-                status = 'draft'
-                outline.notes = ''  # Clear revision notes when faculty starts editing
+                # Clear notes when faculty starts editing (only if saving as draft)
+                if status == 'draft':
+                    outline.notes = ''
             
             outline.title = title
             outline.description = description
@@ -1492,6 +1491,7 @@ def api_save_course_outline(request):
         return JsonResponse({'error': 'Course outline not found'}, status=404)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
+
 
 @login_required
 @user_passes_test(is_admin_or_crc)
