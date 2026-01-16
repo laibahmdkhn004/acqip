@@ -457,7 +457,7 @@
 
             const label = document.createElement('label');
             label.className = 'block text-sm font-medium text-gray-700 mb-2';
-            label.innerHTML = `${++questionCount}. ${question.question_text} ${question.required ? '<span class="text-red-500">*</span>' : ''}`;
+            label.innerHTML = ` ${question.question_text} ${question.required ? '<span class="text-red-500">*</span>' : ''}`;
             
             if (question.help_text) {
                 const helpText = document.createElement('p');
