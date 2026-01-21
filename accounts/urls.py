@@ -123,4 +123,6 @@ path("dashboard/", views.dashboard, name="dashboard"),  # Your existing dashboar
     path("api/form-availability/", api_views.api_form_availability, name="api_form_availability"),
 path("api/crc/all-outlines/", api_views.api_get_all_outlines, name="api_get_all_outlines"),
 
-path("api/crc/compare-git-style/", api_views.api_compare_outlines_git_style, name="api_compare_outlines_git_style"),]
+path("api/crc/compare-git-style/", api_views.api_compare_outlines_git_style, name="api_compare_outlines_git_style"),
+path("api/departments/<int:department_id>/update/", api_views.api_department_update, name="api_department_update"),
+]
