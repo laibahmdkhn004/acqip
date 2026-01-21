@@ -1,5 +1,5 @@
 {% load static %}
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -140,8 +140,8 @@
       }
 
       View */ .diff-viewer {
-        font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo,
-          monospace;
+        font-family:
+          "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
         font-size: 13px;
         line-height: 1.6;
       }
@@ -243,8 +243,8 @@
 
       /* Monospace font for diff content */
       .font-mono {
-        font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo,
-          monospace;
+        font-family:
+          "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
       }
 
       /* Keep formatting but hide HTML tags */
@@ -267,7 +267,7 @@
               src="{% static 'images/logo.png' %}"
               alt="CUAST"
               class="h-10 w-10 rounded-md object-cover"
-              onerror="this.style.display='none'"
+              onerror="this.style.display = 'none'"
             />
             <div class="hidden sm:block">
               <div class="font-semibold">
@@ -558,7 +558,7 @@
             const cookie = cookies[i].trim();
             if (cookie.substring(0, name.length + 1) === name + "=") {
               cookieValue = decodeURIComponent(
-                cookie.substring(name.length + 1)
+                cookie.substring(name.length + 1),
               );
               break;
             }
@@ -604,10 +604,10 @@
                   type === "success"
                     ? '<i class="fas fa-check-circle mr-2"></i>'
                     : type === "error"
-                    ? '<i class="fas fa-exclamation-circle mr-2"></i>'
-                    : type === "warning"
-                    ? '<i class="fas fa-exclamation-triangle mr-2"></i>'
-                    : '<i class="fas fa-info-circle mr-2"></i>'
+                      ? '<i class="fas fa-exclamation-circle mr-2"></i>'
+                      : type === "warning"
+                        ? '<i class="fas fa-exclamation-triangle mr-2"></i>'
+                        : '<i class="fas fa-info-circle mr-2"></i>'
                 }
                 <span>${message}</span>
             `;
@@ -680,13 +680,13 @@
 
       function setupModals() {
         elements.closeModal.addEventListener("click", () =>
-          elements.modal.classList.add("hidden")
+          elements.modal.classList.add("hidden"),
         );
         elements.closeOutlineModal.addEventListener("click", () =>
-          elements.outlineModal.classList.add("hidden")
+          elements.outlineModal.classList.add("hidden"),
         );
         elements.closeAnalyticsModal.addEventListener("click", () =>
-          elements.analyticsModal.classList.add("hidden")
+          elements.analyticsModal.classList.add("hidden"),
         );
 
         [
@@ -771,7 +771,7 @@
                                         </button>
                                     </div>
                                 </div>
-                            `
+                            `,
                                     )
                                     .join("")
                                 : `
@@ -802,7 +802,7 @@
                                         </button>
                                     </div>
                                 </div>
-                            `
+                            `,
                                     )
                                     .join("")
                                 : `
@@ -835,7 +835,7 @@
         // Remove the message about deactivating other forms
         if (
           !confirm(
-            `Are you sure you want to publish this ${formType.toUpperCase()} form?`
+            `Are you sure you want to publish this ${formType.toUpperCase()} form?`,
           )
         ) {
           return;
@@ -899,7 +899,7 @@
                                                     <td class="px-4 py-3">
                                                         <div class="flex items-center">
                                                             <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(
-                                                              fac.username
+                                                              fac.username,
                                                             )}&background=ddd&color=555" class="h-10 w-10 rounded-full mr-3" />
                                                             <div>
                                                                 <div class="font-medium">${
@@ -932,13 +932,13 @@
                                                         <button onclick="viewFacultySubmissions(${
                                                           fac.id
                                                         }, '${
-                                                  fac.username
-                                                }')" class="text-green-600 hover:text-green-800 text-sm font-medium">
+                                                          fac.username
+                                                        }')" class="text-green-600 hover:text-green-800 text-sm font-medium">
                                                             <i class="fas fa-file-alt mr-1"></i> Submissions
                                                         </button>
                                                     </td>
                                                 </tr>
-                                            `
+                                            `,
                                               )
                                               .join("")}
                                         </tbody>
@@ -990,8 +990,8 @@
                                                     <h4 class="font-medium text-lg">${
                                                       course.course_code
                                                     } - ${
-                                          course.course_title
-                                        }</h4>
+                                                      course.course_title
+                                                    }</h4>
                                                     <p class="text-sm text-gray-600">${
                                                       course.department
                                                     }</p>
@@ -1039,16 +1039,16 @@
                                                                   "approved"
                                                                     ? "bg-green-100 text-green-800"
                                                                     : outline.status ===
-                                                                      "submitted"
-                                                                    ? "bg-yellow-100 text-yellow-800"
-                                                                    : "bg-gray-100 text-gray-800"
+                                                                        "submitted"
+                                                                      ? "bg-yellow-100 text-yellow-800"
+                                                                      : "bg-gray-100 text-gray-800"
                                                                 }">
                                                                     ${
                                                                       outline.status
                                                                     }
                                                                 </span>
                                                             </div>
-                                                        `
+                                                        `,
                                                           )
                                                           .join("")}
                                                     </div>
@@ -1057,7 +1057,7 @@
                                                 }
                                             </div>
                                         </div>
-                                    `
+                                    `,
                                       )
                                       .join("")}
                                 </div>
@@ -1091,7 +1091,7 @@
 
         try {
           const submissions = await fetchAPI(
-            API.crc_course_outline_submissions
+            API.crc_course_outline_submissions,
           );
 
           elements.contentArea.innerHTML = `
@@ -1110,7 +1110,7 @@
                                     ${submissions
                                       .map((submission) => {
                                         const submissionStr = JSON.stringify(
-                                          submission
+                                          submission,
                                         ).replace(/"/g, "&quot;");
                                         return `
                                         <div class="border border-gray-200 rounded-lg p-6 hover:shadow-md">
@@ -1119,8 +1119,9 @@
                                                     <h4 class="font-medium text-lg">${
                                                       submission.course__code
                                                     } - ${
-                                          submission.title || "Course Outline"
-                                        }</h4>
+                                                      submission.title ||
+                                                      "Course Outline"
+                                                    }</h4>
                                                     <div class="flex items-center gap-4 mt-2 text-sm text-gray-600">
                                                         <span><i class="fas fa-user mr-1"></i> ${
                                                           submission.faculty__username
@@ -1131,7 +1132,7 @@
                                                         <span><i class="fas fa-calendar mr-1"></i> ${
                                                           submission.submitted_at
                                                             ? new Date(
-                                                                submission.submitted_at
+                                                                submission.submitted_at,
                                                               ).toLocaleDateString()
                                                             : "Unknown"
                                                         }</span>
@@ -1221,10 +1222,10 @@
           const submissions = await fetchAPI(API.crc_form_submissions);
 
           const ccrCount = submissions.filter(
-            (s) => s.dynamic_form__form_type === "ccr"
+            (s) => s.dynamic_form__form_type === "ccr",
           ).length;
           const crrCount = submissions.filter(
-            (s) => s.dynamic_form__form_type === "crr"
+            (s) => s.dynamic_form__form_type === "crr",
           ).length;
 
           elements.contentArea.innerHTML = `
@@ -1261,7 +1262,7 @@
                                                 const submissionDate =
                                                   sub.submission_date
                                                     ? new Date(
-                                                        sub.submission_date
+                                                        sub.submission_date,
                                                       )
                                                     : null;
                                                 return `
@@ -1269,7 +1270,7 @@
                                                     <td class="px-4 py-3">
                                                         <div class="flex items-center">
                                                             <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(
-                                                              sub.faculty__username
+                                                              sub.faculty__username,
                                                             )}&background=ddd&color=555" class="h-8 w-8 rounded-full mr-2" />
                                                             <div>
                                                                 <div class="font-medium">${
@@ -1306,15 +1307,15 @@
                                                           "submitted"
                                                             ? "bg-yellow-100 text-yellow-800"
                                                             : sub.status ===
-                                                              "approved"
-                                                            ? "bg-green-100 text-green-800"
-                                                            : sub.status ===
-                                                              "revision_requested"
-                                                            ? "bg-red-100 text-red-800"
-                                                            : sub.status ===
-                                                              "draft"
-                                                            ? "bg-gray-100 text-gray-800"
-                                                            : "bg-gray-100 text-gray-800"
+                                                                "approved"
+                                                              ? "bg-green-100 text-green-800"
+                                                              : sub.status ===
+                                                                  "revision_requested"
+                                                                ? "bg-red-100 text-red-800"
+                                                                : sub.status ===
+                                                                    "draft"
+                                                                  ? "bg-gray-100 text-gray-800"
+                                                                  : "bg-gray-100 text-gray-800"
                                                         }">
                                                             ${sub.status}
                                                         </span>
@@ -1377,7 +1378,7 @@
 
           // Get recent submissions data for time series
           const recentSubmissions = await fetchAPI(
-            `${API.crc_form_submissions}?limit=50`
+            `${API.crc_form_submissions}?limit=50`,
           );
 
           // Process data for charts
@@ -1411,7 +1412,7 @@
                         <div class="flex items-center justify-between">
                             <div>
                                 <div class="text-3xl font-bold text-purple-900">${Math.round(
-                                  (analytics.total_submissions || 0) * 0.867
+                                  (analytics.total_submissions || 0) * 0.867,
                                 )}</div>
                                 <div class="text-sm text-gray-600">Avg. Completion Rate</div>
                             </div>
@@ -1428,7 +1429,7 @@
                         <div class="flex items-center justify-between">
                             <div>
                                 <div class="text-3xl font-bold text-green-900">${Math.round(
-                                  (analytics.total_submissions || 0) * 0.864
+                                  (analytics.total_submissions || 0) * 0.864,
                                 )}</div>
                                 <div class="text-sm text-gray-600">Avg CLO Achievement</div>
                             </div>
@@ -1455,8 +1456,8 @@
                         </div>
                         <div class="mt-2 text-xs text-green-600">
                             ${analytics.ccr_submissions || 0} CCR, ${
-            analytics.crr_submissions || 0
-          } CRR
+                              analytics.crr_submissions || 0
+                            } CRR
                         </div>
                     </div>
                 </div>
@@ -1487,37 +1488,37 @@
                             <div class="text-center">
                                 <div class="font-medium">CT_101</div>
                                 <div class="text-xs text-gray-500">${Math.round(
-                                  Math.random() * 100
+                                  Math.random() * 100,
                                 )}%</div>
                             </div>
                             <div class="text-center">
                                 <div class="font-medium">CT_102</div>
                                 <div class="text-xs text-gray-500">${Math.round(
-                                  Math.random() * 100
+                                  Math.random() * 100,
                                 )}%</div>
                             </div>
                             <div class="text-center">
                                 <div class="font-medium">CT_103</div>
                                 <div class="text-xs text-gray-500">${Math.round(
-                                  Math.random() * 100
+                                  Math.random() * 100,
                                 )}%</div>
                             </div>
                             <div class="text-center">
                                 <div class="font-medium">CT_104</div>
                                 <div class="text-xs text-gray-500">${Math.round(
-                                  Math.random() * 100
+                                  Math.random() * 100,
                                 )}%</div>
                             </div>
                             <div class="text-center">
                                 <div class="font-medium">CT_105</div>
                                 <div class="text-xs text-gray-500">${Math.round(
-                                  Math.random() * 100
+                                  Math.random() * 100,
                                 )}%</div>
                             </div>
                             <div class="text-center">
                                 <div class="font-medium">CT_106</div>
                                 <div class="text-xs text-gray-500">${Math.round(
-                                  Math.random() * 100
+                                  Math.random() * 100,
                                 )}%</div>
                             </div>
                         </div>
@@ -1557,37 +1558,37 @@
                             <div class="text-center">
                                 <div class="font-medium">CT_101</div>
                                 <div class="text-xs text-gray-500">${Math.round(
-                                  Math.random() * 40 + 60
+                                  Math.random() * 40 + 60,
                                 )}%</div>
                             </div>
                             <div class="text-center">
                                 <div class="font-medium">CT_102</div>
                                 <div class="text-xs text-gray-500">${Math.round(
-                                  Math.random() * 40 + 60
+                                  Math.random() * 40 + 60,
                                 )}%</div>
                             </div>
                             <div class="text-center">
                                 <div class="font-medium">CT_103</div>
                                 <div class="text-xs text-gray-500">${Math.round(
-                                  Math.random() * 40 + 60
+                                  Math.random() * 40 + 60,
                                 )}%</div>
                             </div>
                             <div class="text-center">
                                 <div class="font-medium">CT_104</div>
                                 <div class="text-xs text-gray-500">${Math.round(
-                                  Math.random() * 40 + 60
+                                  Math.random() * 40 + 60,
                                 )}%</div>
                             </div>
                             <div class="text-center">
                                 <div class="font-medium">CT_105</div>
                                 <div class="text-xs text-gray-500">${Math.round(
-                                  Math.random() * 40 + 60
+                                  Math.random() * 40 + 60,
                                 )}%</div>
                             </div>
                             <div class="text-center">
                                 <div class="font-medium">CT_106</div>
                                 <div class="text-xs text-gray-500">${Math.round(
-                                  Math.random() * 40 + 60
+                                  Math.random() * 40 + 60,
                                 )}%</div>
                             </div>
                         </div>
@@ -1964,7 +1965,7 @@
       async function applyAnalyticsFilters() {
         const formType = document.getElementById("analytics-form-type").value;
         const timePeriod = document.getElementById(
-          "analytics-time-period"
+          "analytics-time-period",
         ).value;
 
         showNotification("Applying filters...", "info");
@@ -1987,7 +1988,7 @@
             element.setAttribute(
               "href",
               "data:text/plain;charset=utf-8," +
-                encodeURIComponent("Analytics Report")
+                encodeURIComponent("Analytics Report"),
             );
             element.setAttribute("download", "analytics_report.pdf");
             element.style.display = "none";
@@ -2041,7 +2042,7 @@
                                                   .filter(
                                                     (f) =>
                                                       f.form_type === "ccr" ||
-                                                      f.form_type === "crr"
+                                                      f.form_type === "crr",
                                                   )
                                                   .map((form) => {
                                                     const formTypeDisplay =
@@ -2081,7 +2082,7 @@
                                                         </td>
                                                         <td class="px-4 py-3 text-gray-600">
                                                             ${new Date(
-                                                              form.created_at
+                                                              form.created_at,
                                                             ).toLocaleDateString()}
                                                         </td>
                                                         <td class="px-4 py-3">
@@ -2089,8 +2090,8 @@
                                                                 <button onclick="manageFormQuestions(${
                                                                   form.id
                                                                 }, '${
-                                                      form.name
-                                                    }')" class="text-blue-600 hover:text-blue-800" title="Manage Questions">
+                                                                  form.name
+                                                                }')" class="text-blue-600 hover:text-blue-800" title="Manage Questions">
                                                                     <i class="fas fa-list-ol"></i>
                                                                 </button>
                                                                 <button onclick="editDynamicForm(${
@@ -2101,8 +2102,8 @@
                                                                 <button onclick="deleteDynamicForm(${
                                                                   form.id
                                                                 }, '${
-                                                      form.name
-                                                    }')" class="text-red-600 hover:text-red-800" title="Delete">
+                                                                  form.name
+                                                                }')" class="text-red-600 hover:text-red-800" title="Delete">
                                                                     <i class="fas fa-trash"></i>
                                                                 </button>
                                                                 ${
@@ -2180,7 +2181,7 @@
                                             ${outline.course_code} v${outline.version} 
                                             (${outline.status})
                                         </option>
-                                    `
+                                    `,
                                       )
                                       .join("")}
                                 </select>
@@ -2196,7 +2197,7 @@
                                             ${outline.course_code} v${outline.version} 
                                             (${outline.status})
                                         </option>
-                                    `
+                                    `,
                                       )
                                       .join("")}
                                 </select>
@@ -2290,8 +2291,8 @@
                 <div class="flex items-center gap-4">
                     <div>
                         <span class="font-medium">${result.outline1.code} v${
-          result.outline1.version
-        }</span>
+                          result.outline1.version
+                        }</span>
                         <span class="text-sm text-gray-600 ml-2">→</span>
                         <span class="font-medium ml-2">${
                           result.outline2.code
@@ -2503,7 +2504,7 @@
 
         // Filter only changed lines (added or removed)
         const changedLines = result.line_changes.filter(
-          (change) => change.type === "added" || change.type === "removed"
+          (change) => change.type === "added" || change.type === "removed",
         );
 
         if (changedLines.length === 0) {
@@ -2709,7 +2710,7 @@
 
               // Find common words (simple approach)
               const commonWords = addedWords.filter(
-                (word) => removedWords.includes(word) && word.length > 3
+                (word) => removedWords.includes(word) && word.length > 3,
               );
 
               if (commonWords.length > 0) {
@@ -2744,7 +2745,7 @@
                             <span class="text-red-600 text-xs">−</span>
                         </div>
                         <span class="text-red-800 whitespace-pre-wrap break-words">${escapeHtml(
-                          change.old_line
+                          change.old_line,
                         )}</span>
                     </div>
                 </div>
@@ -2756,7 +2757,7 @@
                     <div class="w-10 pr-2 text-right text-gray-400 text-xs pt-1">${lineNum}</div>
                     <div class="flex-1">
                         <span class="text-gray-700 whitespace-pre-wrap break-words">${escapeHtml(
-                          change.old_line
+                          change.old_line,
                         )}</span>
                     </div>
                 </div>
@@ -2793,7 +2794,7 @@
                             <span class="text-green-600 text-xs">+</span>
                         </div>
                         <span class="text-green-800 whitespace-pre-wrap break-words">${escapeHtml(
-                          change.new_line
+                          change.new_line,
                         )}</span>
                     </div>
                 </div>
@@ -2805,7 +2806,7 @@
                     <div class="w-10 pr-2 text-right text-gray-400 text-xs pt-1">${lineNum}</div>
                     <div class="flex-1">
                         <span class="text-gray-700 whitespace-pre-wrap break-words">${escapeHtml(
-                          change.new_line
+                          change.new_line,
                         )}</span>
                     </div>
                 </div>
@@ -3095,7 +3096,7 @@
       async function saveEditedForm(formId) {
         const formName = document.getElementById("edit-form-name").value;
         const formDescription = document.getElementById(
-          "edit-form-description"
+          "edit-form-description",
         ).value;
         const formType = document.getElementById("edit-form-type").value;
 
@@ -3125,7 +3126,7 @@
       async function deleteDynamicForm(formId, formName) {
         if (
           !confirm(
-            `Are you sure you want to delete the form "${formName}"? This action cannot be undone.`
+            `Are you sure you want to delete the form "${formName}"? This action cannot be undone.`,
           )
         ) {
           return;
@@ -3138,7 +3139,7 @@
 
           showNotification(
             `Form "${formName}" deleted successfully`,
-            "success"
+            "success",
           );
           renderFormEditorPage();
         } catch (error) {
@@ -3219,7 +3220,7 @@
                                         </div>
                                     </div>
                                 </div>
-                            `
+                            `,
                                     )
                                     .join("")
                                 : `
@@ -3318,7 +3319,7 @@
         setTimeout(() => {
           // Re-fetch the form name to pass to manageFormQuestions
           const forms = allForms.filter(
-            (f) => f.form_type === "ccr" || f.form_type === "crr"
+            (f) => f.form_type === "ccr" || f.form_type === "crr",
           );
           const currentForm = forms.find((f) => f.id === formId);
           if (currentForm) {
@@ -3359,7 +3360,7 @@
           // Reopen the manage questions modal with updated list
           setTimeout(() => {
             const forms = allForms.filter(
-              (f) => f.form_type === "ccr" || f.form_type === "crr"
+              (f) => f.form_type === "ccr" || f.form_type === "crr",
             );
             const currentForm = forms.find((f) => f.id === formId);
             if (currentForm) {
@@ -3470,7 +3471,7 @@
                         
                         <div id="edit-options-container" class="${
                           ["select", "radio", "checkbox"].includes(
-                            question.question_type
+                            question.question_type,
                           )
                             ? ""
                             : "hidden"
@@ -3506,7 +3507,7 @@
             .getElementById("edit-question-type")
             .addEventListener("change", function () {
               const optionsContainer = document.getElementById(
-                "edit-options-container"
+                "edit-options-container",
               );
               const questionType = this.value;
               if (["select", "radio", "checkbox"].includes(questionType)) {
@@ -3528,7 +3529,7 @@
         const questionType =
           document.getElementById("edit-question-type").value;
         const questionRequired = document.getElementById(
-          "edit-question-required"
+          "edit-question-required",
         ).checked;
         const questionOptions =
           document.getElementById("edit-question-options")?.value || "";
@@ -3650,7 +3651,7 @@
           // Use the CRC endpoint to get outline content
           try {
             const outline = await fetchAPI(
-              API.crc_view_outline_content(submission.id)
+              API.crc_view_outline_content(submission.id),
             );
 
             // Display the outline with content
@@ -3684,8 +3685,8 @@
                                           outline.status === "submitted"
                                             ? "text-yellow-600"
                                             : outline.status === "approved"
-                                            ? "text-green-600"
-                                            : "text-red-600"
+                                              ? "text-green-600"
+                                              : "text-red-600"
                                         }">
                                             ${outline.status}
                                         </span>
@@ -3710,8 +3711,8 @@
                                           outline.content ||
                                           `<div class="prose max-w-none">
                                             <h3>${outline.course.code} - ${
-                                            outline.title
-                                          }</h3>
+                                              outline.title
+                                            }</h3>
                                             <p><strong>Faculty:</strong> ${
                                               outline.faculty.username
                                             }</p>
@@ -3808,8 +3809,8 @@
                                           submission.status === "submitted"
                                             ? "text-yellow-600"
                                             : submission.status === "approved"
-                                            ? "text-green-600"
-                                            : "text-red-600"
+                                              ? "text-green-600"
+                                              : "text-red-600"
                                         }">
                                             ${submission.status}
                                         </span>
@@ -3882,7 +3883,7 @@
       async function approveOutline(outlineId) {
         if (
           !confirm(
-            "Are you sure you want to approve this course outline? This will make it the current official outline."
+            "Are you sure you want to approve this course outline? This will make it the current official outline.",
           )
         ) {
           return;
@@ -3963,7 +3964,7 @@
       async function viewFormSubmissionDetails(submissionId) {
         try {
           const submission = await fetchAPI(
-            API.submission_details(submissionId)
+            API.submission_details(submissionId),
           );
 
           elements.modalTitle.textContent = "Form Submission Details";
@@ -3983,8 +3984,8 @@
                                     <span class="font-medium">${
                                       submission.course_code || "N/A"
                                     } - ${
-            submission.course_title || "Unknown"
-          }</span>
+                                      submission.course_title || "Unknown"
+                                    }</span>
                                 </div>
                                 <div class="flex mt-1">
                                     <span class="text-gray-600 w-24">Faculty:</span>
@@ -3998,9 +3999,9 @@
                                       submission.status === "approved"
                                         ? "text-green-600"
                                         : submission.status ===
-                                          "revision_requested"
-                                        ? "text-red-600"
-                                        : "text-yellow-600"
+                                            "revision_requested"
+                                          ? "text-red-600"
+                                          : "text-yellow-600"
                                     }">
                                         ${submission.status || "Unknown"}
                                     </span>
@@ -4031,11 +4032,11 @@
                                             "object"
                                           ) {
                                             answerDisplay = JSON.stringify(
-                                              answer.answer_data
+                                              answer.answer_data,
                                             );
                                           } else {
                                             answerDisplay = String(
-                                              answer.answer_data
+                                              answer.answer_data,
                                             );
                                           }
                                         }
@@ -4045,8 +4046,8 @@
                                             <h6 class="font-medium text-gray-900 mb-2">${
                                               index + 1
                                             }. ${
-                                          answer.question_text || "Question"
-                                        }</h6>
+                                              answer.question_text || "Question"
+                                            }</h6>
                                             <div class="text-sm text-gray-600">
                                                 ${
                                                   answerDisplay
@@ -4158,14 +4159,14 @@
           const submissions = await fetchAPI(url);
 
           const ccrCount = submissions.filter(
-            (s) => s.dynamic_form__form_type === "ccr"
+            (s) => s.dynamic_form__form_type === "ccr",
           ).length;
           const crrCount = submissions.filter(
-            (s) => s.dynamic_form__form_type === "crr"
+            (s) => s.dynamic_form__form_type === "crr",
           ).length;
 
           elements.contentArea.querySelector(
-            ".bg-white.rounded-lg.shadow.mt-4 .p-6"
+            ".bg-white.rounded-lg.shadow.mt-4 .p-6",
           ).innerHTML = `
                     ${
                       submissions.length > 0
@@ -4194,7 +4195,7 @@
                                             <td class="px-4 py-3">
                                                 <div class="flex items-center">
                                                     <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(
-                                                      sub.faculty__username
+                                                      sub.faculty__username,
                                                     )}&background=ddd&color=555" class="h-8 w-8 rounded-full mr-2" />
                                                     <div>
                                                         <div class="font-medium">${
@@ -4230,13 +4231,13 @@
                                                   sub.status === "submitted"
                                                     ? "bg-yellow-100 text-yellow-800"
                                                     : sub.status === "approved"
-                                                    ? "bg-green-100 text-green-800"
-                                                    : sub.status ===
-                                                      "revision_requested"
-                                                    ? "bg-red-100 text-red-800"
-                                                    : sub.status === "draft"
-                                                    ? "bg-gray-100 text-gray-800"
-                                                    : "bg-gray-100 text-gray-800"
+                                                      ? "bg-green-100 text-green-800"
+                                                      : sub.status ===
+                                                          "revision_requested"
+                                                        ? "bg-red-100 text-red-800"
+                                                        : sub.status === "draft"
+                                                          ? "bg-gray-100 text-gray-800"
+                                                          : "bg-gray-100 text-gray-800"
                                                 }">
                                                     ${sub.status}
                                                 </span>
@@ -4276,11 +4277,11 @@
 
           // Update counts in header
           const headerDiv = elements.contentArea.querySelector(
-            ".px-6.py-4.border-b"
+            ".px-6.py-4.border-b",
           );
           if (headerDiv) {
             const countsSpan = headerDiv.querySelector(
-              ".flex.gap-4.mt-2.text-sm"
+              ".flex.gap-4.mt-2.text-sm",
             );
             if (countsSpan) {
               countsSpan.innerHTML = `
@@ -4307,7 +4308,7 @@
       async function viewFacultySubmissions(facultyId, facultyName) {
         try {
           const submissions = await fetchAPI(
-            `${API.crc_form_submissions}?faculty_id=${facultyId}`
+            `${API.crc_form_submissions}?faculty_id=${facultyId}`,
           );
 
           elements.modalTitle.textContent = `Submissions for ${facultyName}`;
@@ -4332,23 +4333,24 @@
                                                 <h6 class="font-medium">${
                                                   sub.course__code || "N/A"
                                                 } - ${
-                                      sub.course__title || "Unknown"
-                                    }</h6>
+                                                  sub.course__title || "Unknown"
+                                                }</h6>
                                                 <div class="text-sm text-gray-600">
                                                     ${
                                                       sub.dynamic_form__name ||
                                                       "Unknown"
                                                     } (${
-                                      sub.dynamic_form__form_type || "N/A"
-                                    })
+                                                      sub.dynamic_form__form_type ||
+                                                      "N/A"
+                                                    })
                                                 </div>
                                             </div>
                                             <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                                               sub.status === "approved"
                                                 ? "bg-green-100 text-green-800"
                                                 : sub.status === "submitted"
-                                                ? "bg-yellow-100 text-yellow-800"
-                                                : "bg-red-100 text-red-800"
+                                                  ? "bg-yellow-100 text-yellow-800"
+                                                  : "bg-red-100 text-red-800"
                                             }">
                                                 ${sub.status || "Unknown"}
                                             </span>
@@ -4361,7 +4363,7 @@
                                             </button>
                                         </div>
                                     </div>
-                                `
+                                `,
                                   )
                                   .join("")}
                             </div>
@@ -4501,8 +4503,8 @@
                                                           outline.title ||
                                                           "Course Outline"
                                                         } (v${
-                                              outline.version
-                                            })</h6>
+                                                          outline.version
+                                                        })</h6>
                                                         <div class="text-sm text-gray-600 mt-1">
                                                             <div>Faculty: ${
                                                               outline.faculty__username
@@ -4513,15 +4515,15 @@
                                                                   "approved"
                                                                     ? "bg-green-100 text-green-800"
                                                                     : outline.status ===
-                                                                      "submitted"
-                                                                    ? "bg-yellow-100 text-yellow-800"
-                                                                    : outline.status ===
-                                                                      "revision_requested"
-                                                                    ? "bg-red-100 text-red-800"
-                                                                    : outline.status ===
-                                                                      "draft"
-                                                                    ? "bg-gray-100 text-gray-800"
-                                                                    : "bg-gray-100 text-gray-800"
+                                                                        "submitted"
+                                                                      ? "bg-yellow-100 text-yellow-800"
+                                                                      : outline.status ===
+                                                                          "revision_requested"
+                                                                        ? "bg-red-100 text-red-800"
+                                                                        : outline.status ===
+                                                                            "draft"
+                                                                          ? "bg-gray-100 text-gray-800"
+                                                                          : "bg-gray-100 text-gray-800"
                                                                 }">
                                                                     ${
                                                                       outline.status
@@ -4531,7 +4533,7 @@
                                                             <div>Created: ${
                                                               outline.created_at
                                                                 ? new Date(
-                                                                    outline.created_at
+                                                                    outline.created_at,
                                                                   ).toLocaleDateString()
                                                                 : "Unknown"
                                                             }</div>
@@ -4553,7 +4555,7 @@
                                                     </button>
                                                 </div>
                                             </div>
-                                        `
+                                        `,
                                           )
                                           .join("")}
                                     </div>
@@ -4582,7 +4584,7 @@
       async function viewOutlineVersion(outlineId) {
         try {
           const outline = await fetchAPI(
-            API.crc_view_outline_content(outlineId)
+            API.crc_view_outline_content(outlineId),
           );
 
           elements.outlineModalTitle.textContent = `Course Outline: ${outline.course.code} v${outline.version}`;
@@ -4615,11 +4617,11 @@
                                       outline.status === "submitted"
                                         ? "text-yellow-600"
                                         : outline.status === "approved"
-                                        ? "text-green-600"
-                                        : outline.status ===
-                                          "revision_requested"
-                                        ? "text-red-600"
-                                        : "text-gray-600"
+                                          ? "text-green-600"
+                                          : outline.status ===
+                                              "revision_requested"
+                                            ? "text-red-600"
+                                            : "text-gray-600"
                                     }">
                                         ${outline.status}
                                     </span>
@@ -4639,8 +4641,8 @@
                                       outline.content ||
                                       `<div class="prose max-w-none">
                                         <h3>${outline.course.code} - ${
-                                        outline.title
-                                      }</h3>
+                                          outline.title
+                                        }</h3>
                                         <p><strong>Faculty:</strong> ${
                                           outline.faculty.username
                                         }</p>
@@ -4680,28 +4682,28 @@
       function exportAnalytics() {
         showNotification(
           "Analytics export feature will be implemented soon",
-          "info"
+          "info",
         );
       }
 
       function generateCQIReport() {
         showNotification(
           "CQI Report generation feature will be implemented soon",
-          "info"
+          "info",
         );
       }
 
       function exportCQIReport() {
         showNotification(
           "CQI Report export feature will be implemented soon",
-          "info"
+          "info",
         );
       }
 
       function exportFacultyReport() {
         showNotification(
           "Faculty report export feature will be implemented soon",
-          "info"
+          "info",
         );
       }
 
