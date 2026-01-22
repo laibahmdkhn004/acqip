@@ -556,3 +556,6 @@ def course_outline_editor(request):
     except Exception as e:
         messages.error(request, f"Error: {str(e)}")
         return redirect('faculty_dashboard')
+    
+
+    

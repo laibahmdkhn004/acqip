@@ -46,49 +46,75 @@ def api_departments_create(request):
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
 
-# Department Detail
+
 @login_required
 @user_passes_test(is_admin)
-@require_http_methods(["GET"])
+@csrf_exempt
+@require_http_methods(["GET", "PUT"])
 def api_department_detail(request, department_id):
+    """Get or update department details"""
     try:
         department = Department.objects.get(id=department_id)
         
-        courses = Course.objects.filter(department=department).values(
-            'id', 'title', 'code', 'description', 'credits'
-        )
+        if request.method == 'GET':
+            courses = Course.objects.filter(department=department).values(
+                'id', 'title', 'code', 'description', 'credits'
+            )
+            
+            courses_list = []
+            for course in courses:
+                course_data = dict(course)
+                course_faculty = CourseFaculty.objects.filter(course_id=course['id']).select_related('faculty')
+                faculty_data = []
+                for cf in course_faculty:
+                    faculty_data.append({
+                        'id': cf.faculty.id,
+                        'username': cf.faculty.username,
+                        'email': cf.faculty.email,
+                        'is_coordinator': cf.is_coordinator,
+                        'section': cf.section
+                    })
+                course_data['faculty'] = faculty_data
+                courses_list.append(course_data)
+            
+            return JsonResponse({
+                'department': {
+                    'id': department.id,
+                    'name': department.name,
+                    'code': department.code,
+                    'description': department.description
+                },
+                'courses': courses_list,
+                'total_courses': len(courses_list),
+                'total_faculty': CourseFaculty.objects.filter(course__department=department).values('faculty').distinct().count()
+            })
         
-        courses_list = []
-        for course in courses:
-            course_data = dict(course)
-            course_faculty = CourseFaculty.objects.filter(course_id=course['id']).select_related('faculty')
-            faculty_data = []
-            for cf in course_faculty:
-                faculty_data.append({
-                    'id': cf.faculty.id,
-                    'username': cf.faculty.username,
-                    'email': cf.faculty.email,
-                    'is_coordinator': cf.is_coordinator,
-                    'section': cf.section
-                })
-            course_data['faculty'] = faculty_data
-            courses_list.append(course_data)
-        
-        return JsonResponse({
-            'department': {
+        elif request.method == 'PUT':
+            # Update department
+            data = json.loads(request.body)
+            
+            # Update fields
+            if 'name' in data:
+                department.name = data['name']
+            if 'code' in data:
+                department.code = data['code']
+            if 'description' in data:
+                department.description = data['description']
+            
+            department.save()
+            
+            return JsonResponse({
                 'id': department.id,
                 'name': department.name,
                 'code': department.code,
                 'description': department.description
-            },
-            'courses': courses_list,
-            'total_courses': len(courses_list),
-            'total_faculty': CourseFaculty.objects.filter(course__department=department).values('faculty').distinct().count()
-        })
+            })
+            
     except Department.DoesNotExist:
         return JsonResponse({'error': 'Department not found'}, status=404)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
+
 
 # Course API Views
 @login_required
@@ -2591,3 +2617,27 @@ def api_compare_outlines_git_style(request):
             'success': False,
             'error': str(e)
         })
+
+        # Department Update API
+@login_required
+@user_passes_test(is_admin)
+@csrf_exempt
+@require_http_methods(["PUT"])
+def api_department_update(request, department_id):
+    try:
+        data = json.loads(request.body)
+        department = Department.objects.get(id=department_id)
+        department.name = data.get('name', department.name)
+        department.code = data.get('code', department.code)
+        department.description = data.get('description', department.description)
+        department.save()
+        return JsonResponse({
+            'id': department.id,
+            'name': department.name,
+            'code': department.code,
+            'description': department.description
+        })
+    except Department.DoesNotExist:
+        return JsonResponse({'error': 'Department not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
