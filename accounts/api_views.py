@@ -1,3 +1,4 @@
+import re
 from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
@@ -6,6 +7,9 @@ from django.contrib.auth.decorators import login_required, user_passes_test
 from .models import Course, User, Department, DynamicForm, FormQuestion, DynamicFormSubmission, FormAnswer, CourseFaculty, CourseOutline, AnalyticsCache
 from django.db.models import Count, Q, F
 from datetime import datetime, timedelta
+import difflib
+from django.utils.html import escape
+from django.utils.html import strip_tags
 
 def is_admin(user):
     return user.is_authenticated and user.role == User.ROLE_ADMIN
@@ -42,49 +46,75 @@ def api_departments_create(request):
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
 
-# Department Detail
+
 @login_required
 @user_passes_test(is_admin)
-@require_http_methods(["GET"])
+@csrf_exempt
+@require_http_methods(["GET", "PUT"])
 def api_department_detail(request, department_id):
+    """Get or update department details"""
     try:
         department = Department.objects.get(id=department_id)
         
-        courses = Course.objects.filter(department=department).values(
-            'id', 'title', 'code', 'description', 'credits'
-        )
+        if request.method == 'GET':
+            courses = Course.objects.filter(department=department).values(
+                'id', 'title', 'code', 'description', 'credits'
+            )
+            
+            courses_list = []
+            for course in courses:
+                course_data = dict(course)
+                course_faculty = CourseFaculty.objects.filter(course_id=course['id']).select_related('faculty')
+                faculty_data = []
+                for cf in course_faculty:
+                    faculty_data.append({
+                        'id': cf.faculty.id,
+                        'username': cf.faculty.username,
+                        'email': cf.faculty.email,
+                        'is_coordinator': cf.is_coordinator,
+                        'section': cf.section
+                    })
+                course_data['faculty'] = faculty_data
+                courses_list.append(course_data)
+            
+            return JsonResponse({
+                'department': {
+                    'id': department.id,
+                    'name': department.name,
+                    'code': department.code,
+                    'description': department.description
+                },
+                'courses': courses_list,
+                'total_courses': len(courses_list),
+                'total_faculty': CourseFaculty.objects.filter(course__department=department).values('faculty').distinct().count()
+            })
         
-        courses_list = []
-        for course in courses:
-            course_data = dict(course)
-            course_faculty = CourseFaculty.objects.filter(course_id=course['id']).select_related('faculty')
-            faculty_data = []
-            for cf in course_faculty:
-                faculty_data.append({
-                    'id': cf.faculty.id,
-                    'username': cf.faculty.username,
-                    'email': cf.faculty.email,
-                    'is_coordinator': cf.is_coordinator,
-                    'section': cf.section
-                })
-            course_data['faculty'] = faculty_data
-            courses_list.append(course_data)
-        
-        return JsonResponse({
-            'department': {
+        elif request.method == 'PUT':
+            # Update department
+            data = json.loads(request.body)
+            
+            # Update fields
+            if 'name' in data:
+                department.name = data['name']
+            if 'code' in data:
+                department.code = data['code']
+            if 'description' in data:
+                department.description = data['description']
+            
+            department.save()
+            
+            return JsonResponse({
                 'id': department.id,
                 'name': department.name,
                 'code': department.code,
                 'description': department.description
-            },
-            'courses': courses_list,
-            'total_courses': len(courses_list),
-            'total_faculty': CourseFaculty.objects.filter(course__department=department).values('faculty').distinct().count()
-        })
+            })
+            
     except Department.DoesNotExist:
         return JsonResponse({'error': 'Department not found'}, status=404)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
+
 
 # Course API Views
 @login_required
@@ -2282,5 +2312,332 @@ def api_faculty_form_availability(request):
             except CourseFaculty.DoesNotExist:
                 return JsonResponse({'error': 'Course not assigned to you'}, status=400)
                 
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+
+
+@login_required
+@user_passes_test(is_admin_or_crc)
+@require_http_methods(["GET"])
+def api_get_all_outlines(request):
+    """Get ALL outlines - both approved and submitted"""
+    try:
+        outlines = CourseOutline.objects.filter(
+            status__in=['submitted', 'approved']
+        ).select_related('course', 'faculty').order_by('-created_at')
+        
+        outlines_list = []
+        for outline in outlines:
+            outlines_list.append({
+                'id': outline.id,
+                'course_code': outline.course.code,
+                'course_title': outline.course.title,
+                'faculty': outline.faculty.username,
+                'version': outline.version,
+                'title': outline.title,
+                'status': outline.status,
+                'created_at': outline.created_at.strftime('%Y-%m-%d') if outline.created_at else None
+            })
+        
+        return JsonResponse(outlines_list, safe=False)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+
+@login_required
+@user_passes_test(is_admin_or_crc)
+@csrf_exempt
+@require_http_methods(["POST"])
+def api_compare_outlines_git_style(request):
+    """GitHub-style diff comparison between two outlines - HIDES HTML TAGS"""
+    try:
+        data = json.loads(request.body)
+        outline1_id = data.get('outline1_id')
+        outline2_id = data.get('outline2_id')
+        
+        # Get outlines
+        outline1 = CourseOutline.objects.get(id=outline1_id)
+        outline2 = CourseOutline.objects.get(id=outline2_id)
+        
+        # Function to remove HTML tags and clean text
+        def clean_html(text):
+            """Remove HTML tags and clean text"""
+            if not text:
+                return ""
+            
+            # First, strip HTML tags
+            text = strip_tags(str(text))
+            
+            # Remove multiple spaces
+            text = re.sub(r'\s+', ' ', text)
+            
+            # Remove common HTML entities
+            html_entities = {
+                '&nbsp;': ' ',
+                '&amp;': '&',
+                '&lt;': '<',
+                '&gt;': '>',
+                '&quot;': '"',
+                '&#39;': "'",
+                '&ldquo;': '"',
+                '&rdquo;': '"',
+                '&lsquo;': "'",
+                '&rsquo;': "'"
+            }
+            
+            for entity, replacement in html_entities.items():
+                text = text.replace(entity, replacement)
+            
+            return text.strip()
+        
+        # Convert content to clean text for comparison
+        def content_to_clean_text(content):
+            """Convert content to clean plain text for comparison"""
+            if not content:
+                return ""
+            
+            # If content is JSON string, try to parse it
+            if isinstance(content, str):
+                try:
+                    content = json.loads(content)
+                except:
+                    # Clean HTML from string
+                    return clean_html(content)
+            
+            # If it's a dict, extract all text
+            if isinstance(content, dict):
+                text_lines = []
+                
+                # Add course info
+                if 'course_info' in content:
+                    text_lines.append("=== COURSE INFORMATION ===")
+                    for key, value in content['course_info'].items():
+                        if value:
+                            clean_value = clean_html(str(value))
+                            if clean_value:
+                                text_lines.append(f"{key.replace('_', ' ').title()}: {clean_value}")
+                    text_lines.append("")
+                
+                # Add sections
+                if 'sections' in content:
+                    for section in content['sections']:
+                        section_title = section.get('title', 'Untitled')
+                        section_type = section.get('type', '')
+                        
+                        # Clean section title
+                        clean_title = clean_html(section_title)
+                        if clean_title:
+                            text_lines.append(f"### {clean_title} ###")
+                        
+                        # Add content if present
+                        if section.get('content'):
+                            clean_content = clean_html(section['content'])
+                            if clean_content:
+                                # Split into lines if it's long
+                                lines = clean_content.split('\n')
+                                for line in lines:
+                                    if line.strip():
+                                        text_lines.append(line.strip())
+                        
+                        # Add rows for tables
+                        if section.get('rows'):
+                            for row in section['rows']:
+                                if isinstance(row, dict):
+                                    row_values = []
+                                    for v in row.values():
+                                        if v:
+                                            clean_v = clean_html(str(v))
+                                            if clean_v:
+                                                row_values.append(clean_v)
+                                    if row_values:
+                                        text_lines.append(f"  {' | '.join(row_values)}")
+                                elif isinstance(row, (list, tuple)):
+                                    row_values = []
+                                    for v in row:
+                                        if v:
+                                            clean_v = clean_html(str(v))
+                                            if clean_v:
+                                                row_values.append(clean_v)
+                                    if row_values:
+                                        text_lines.append(f"  {' | '.join(row_values)}")
+                                elif row:
+                                    clean_row = clean_html(str(row))
+                                    if clean_row:
+                                        text_lines.append(f"  {clean_row}")
+                        
+                        text_lines.append("")
+                
+                return "\n".join([line for line in text_lines if line.strip()])
+            else:
+                # Return cleaned plain string
+                return clean_html(str(content))
+        
+        # Get clean text for comparison
+        text1 = content_to_clean_text(outline1.content)
+        text2 = content_to_clean_text(outline2.content)
+        
+        # Split into lines
+        lines1 = text1.splitlines()
+        lines2 = text2.splitlines()
+        
+        # Filter out empty lines (keep only lines with content)
+        lines1 = [line for line in lines1 if line.strip()]
+        lines2 = [line for line in lines2 if line.strip()]
+        
+        # Generate diff using Python's difflib
+        diff = list(difflib.unified_diff(
+            lines1, 
+            lines2,
+            fromfile=f"{outline1.course.code} v{outline1.version}",
+            tofile=f"{outline2.course.code} v{outline2.version}",
+            lineterm=""
+        ))
+        
+        # Get detailed diff for side-by-side view
+        differ = difflib.Differ()
+        line_by_line_diff = list(differ.compare(lines1, lines2))
+        
+        # Process line-by-line diff
+        line_changes = []
+        line_number1 = 1
+        line_number2 = 1
+        
+        for line in line_by_line_diff:
+            line_type = line[0]
+            line_content = line[2:]
+            
+            # Skip empty lines in diff
+            if not line_content.strip() and line_type == ' ':
+                continue
+                
+            if line_type == ' ':  # Unchanged
+                line_changes.append({
+                    'type': 'unchanged',
+                    'old_line': line_content,
+                    'new_line': line_content,
+                    'old_line_num': line_number1,
+                    'new_line_num': line_number2
+                })
+                line_number1 += 1
+                line_number2 += 1
+            elif line_type == '-':  # Removed
+                line_changes.append({
+                    'type': 'removed',
+                    'old_line': line_content,
+                    'new_line': '',
+                    'old_line_num': line_number1,
+                    'new_line_num': None
+                })
+                line_number1 += 1
+            elif line_type == '+':  # Added
+                line_changes.append({
+                    'type': 'added',
+                    'old_line': '',
+                    'new_line': line_content,
+                    'old_line_num': None,
+                    'new_line_num': line_number2
+                })
+                line_number2 += 1
+            elif line_type == '?':  # Change details (skip)
+                continue
+        
+        # Calculate statistics
+        total_lines_old = len(lines1)
+        total_lines_new = len(lines2)
+        
+        # Calculate similarity
+        matcher = difflib.SequenceMatcher(None, text1, text2)
+        similarity = matcher.ratio() * 100
+        
+        # Get section changes
+        section_changes = {}
+        current_section = "General"
+        
+        for change in line_changes:
+            line = change.get('old_line') or change.get('new_line') or ''
+            
+            # Check if this is a section header
+            if line.startswith('###'):
+                current_section = line.replace('###', '').strip()
+                if current_section not in section_changes:
+                    section_changes[current_section] = {'added': 0, 'removed': 0}
+            elif change['type'] in ['added', 'removed']:
+                if current_section not in section_changes:
+                    section_changes[current_section] = {'added': 0, 'removed': 0}
+                
+                if change['type'] == 'added':
+                    section_changes[current_section]['added'] += 1
+                else:
+                    section_changes[current_section]['removed'] += 1
+        
+        # Count added/removed lines
+        added_lines = sum(1 for c in line_changes if c['type'] == 'added')
+        removed_lines = sum(1 for c in line_changes if c['type'] == 'removed')
+        
+        return JsonResponse({
+            'success': True,
+            'diff': diff,
+            'line_changes': line_changes,
+            'statistics': {
+                'similarity': round(similarity, 1),
+                'total_lines_old': total_lines_old,
+                'total_lines_new': total_lines_new,
+                'added_lines': added_lines,
+                'removed_lines': removed_lines,
+                'total_changes': added_lines + removed_lines,
+                'change_percentage': round(((added_lines + removed_lines) / max(total_lines_old, total_lines_new)) * 100, 1) if max(total_lines_old, total_lines_new) > 0 else 0
+            },
+            'outline1': {
+                'id': outline1.id,
+                'code': outline1.course.code,
+                'title': outline1.title,
+                'faculty': outline1.faculty.username,
+                'status': outline1.status,
+                'version': outline1.version,
+                'text': text1
+            },
+            'outline2': {
+                'id': outline2.id,
+                'code': outline2.course.code,
+                'title': outline2.title,
+                'faculty': outline2.faculty.username,
+                'status': outline2.status,
+                'version': outline2.version,
+                'text': text2
+            },
+            'section_changes': section_changes
+        })
+        
+    except Exception as e:
+        import traceback
+        print(f"Error in diff comparison: {str(e)}")
+        print(traceback.format_exc())
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        })
+
+        # Department Update API
+@login_required
+@user_passes_test(is_admin)
+@csrf_exempt
+@require_http_methods(["PUT"])
+def api_department_update(request, department_id):
+    try:
+        data = json.loads(request.body)
+        department = Department.objects.get(id=department_id)
+        department.name = data.get('name', department.name)
+        department.code = data.get('code', department.code)
+        department.description = data.get('description', department.description)
+        department.save()
+        return JsonResponse({
+            'id': department.id,
+            'name': department.name,
+            'code': department.code,
+            'description': department.description
+        })
+    except Department.DoesNotExist:
+        return JsonResponse({'error': 'Department not found'}, status=404)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
