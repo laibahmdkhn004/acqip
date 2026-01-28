@@ -4,8 +4,9 @@ from . import api_views
 
 urlpatterns = [
     # root route
-   path("", views.landing_page, name="home"),  # Landing page as home
-path("dashboard/", views.dashboard, name="dashboard"),  # Your existing dashboard
+    path("", views.landing_page, name="home"),  # Landing page as home
+    path("dashboard/", views.dashboard, name="dashboard"),  # Your existing dashboard
+    
     # authentication
     path("register/", views.register, name="register"),
     path("login/", views.CustomLoginView.as_view(), name="login"),
@@ -91,12 +92,7 @@ path("dashboard/", views.dashboard, name="dashboard"),  # Your existing dashboar
     path("api/crc/update-course-outline/", api_views.api_crc_update_course_outline, name="api_crc_update_course_outline"),
     path("api/crc/course-outline-submissions/", api_views.api_crc_course_outline_submissions, name="api_crc_course_outline_submissions"),
     path("api/crc/form-submissions/", api_views.api_crc_form_submissions, name="api_crc_form_submissions"),
-    path("api/crc/analytics/", api_views.api_crc_analytics, name="api_crc_analytics"),
-    path("api/crc/export-analytics/", api_views.api_crc_export_analytics, name="api_crc_export_analytics"),
-    
-    # CRC Comparison API
-    path("api/crc/compare-outlines/", api_views.api_crc_compare_outlines, name="api_crc_compare_outlines"),
-    
+   
     # Form Publishing APIs
     path("api/publish-form/<int:form_id>/", api_views.api_publish_form, name="api_publish_form"),
     path("api/unpublish-form/<int:form_id>/", api_views.api_unpublish_form, name="api_unpublish_form"),
@@ -121,8 +117,32 @@ path("dashboard/", views.dashboard, name="dashboard"),  # Your existing dashboar
     
     # Form availability endpoint
     path("api/form-availability/", api_views.api_form_availability, name="api_form_availability"),
-path("api/crc/all-outlines/", api_views.api_get_all_outlines, name="api_get_all_outlines"),
+    
+    # Department update endpoint
+    path("api/departments/<int:department_id>/update/", api_views.api_department_update, name="api_department_update"),
 
-path("api/crc/compare-git-style/", api_views.api_compare_outlines_git_style, name="api_compare_outlines_git_style"),
-path("api/departments/<int:department_id>/update/", api_views.api_department_update, name="api_department_update"),
+# Add these to your urlpatterns in urls.py:
+
+# Analysis URLs
+path("api/analysis/form-submissions-over-time/", 
+     api_views.api_analysis_form_submissions_over_time, 
+     name="api_analysis_form_submissions_over_time"),
+path("api/analysis/form-status-distribution/", 
+     api_views.api_analysis_form_status_distribution, 
+     name="api_analysis_form_status_distribution"),
+path("api/analysis/clo-achievement/", 
+     api_views.api_analysis_clo_achievement, 
+     name="api_analysis_clo_achievement"),
+path("api/analysis/courses-with-outlines/", 
+     api_views.api_analysis_courses_with_outlines, 
+     name="api_analysis_courses_with_outlines"),
+path("api/analysis/course-outline-versions/<int:course_id>/", 
+     api_views.api_analysis_course_outline_versions, 
+     name="api_analysis_course_outline_versions"),
+path("api/analysis/compare-outlines/", 
+     api_views.api_analysis_compare_outlines, 
+     name="api_analysis_compare_outlines"),
+path("api/analysis/generate-cqi-report/", 
+     api_views.api_analysis_generate_cqi_report, 
+     name="api_analysis_generate_cqi_report"),
 ]

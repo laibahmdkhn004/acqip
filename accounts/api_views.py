@@ -4,12 +4,10 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 import json
 from django.contrib.auth.decorators import login_required, user_passes_test
-from .models import Course, User, Department, DynamicForm, FormQuestion, DynamicFormSubmission, FormAnswer, CourseFaculty, CourseOutline, AnalyticsCache
+from .models import Course, User, Department, DynamicForm, FormQuestion, DynamicFormSubmission, FormAnswer, CourseFaculty, CourseOutline
 from django.db.models import Count, Q, F
 from datetime import datetime, timedelta
-import difflib
-from django.utils.html import escape
-from django.utils.html import strip_tags
+
 
 def is_admin(user):
     return user.is_authenticated and user.role == User.ROLE_ADMIN
@@ -1269,145 +1267,6 @@ def api_crc_form_submissions(request):
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
 
-
-
-
-
-
-@login_required
-@user_passes_test(is_admin_or_crc)
-@require_http_methods(["GET"])
-def api_crc_analytics(request):
-    """Generate analytics for form submissions"""
-    try:
-        form_id = request.GET.get('form_id')
-        course_id = request.GET.get('course_id')
-        question_id = request.GET.get('question_id')
-        
-        # Get analytics from cache or generate new
-        cache_key = f"analytics_{form_id}_{course_id}_{question_id}"
-        
-        # Try to get from cache
-        cached = AnalyticsCache.objects.filter(
-            form_id=form_id if form_id else None,
-            course_id=course_id if course_id else None,
-            analytics_type='summary'
-        ).first()
-        
-        if cached:
-            return JsonResponse(cached.data)
-        
-        # Generate new analytics
-        submissions = DynamicFormSubmission.objects.all()
-        
-        if form_id:
-            submissions = submissions.filter(dynamic_form_id=form_id)
-        if course_id:
-            submissions = submissions.filter(course_id=course_id)
-        
-        # Basic statistics
-        total_submissions = submissions.count()
-        ccr_submissions = submissions.filter(dynamic_form__form_type='ccr').count()
-        crr_submissions = submissions.filter(dynamic_form__form_type='crr').count()
-        
-        # Status distribution
-        status_counts = submissions.values('status').annotate(count=Count('id'))
-        
-        # Faculty distribution
-        faculty_counts = submissions.values('faculty__username').annotate(count=Count('id'))
-        
-        # Course distribution
-        course_counts = submissions.values('course__code', 'course__title').annotate(count=Count('id'))
-        
-        analytics_data = {
-            'total_submissions': total_submissions,
-            'ccr_submissions': ccr_submissions,
-            'crr_submissions': crr_submissions,
-            'status_distribution': list(status_counts),
-            'faculty_distribution': list(faculty_counts),
-            'course_distribution': list(course_counts),
-            'generated_at': datetime.now().isoformat()
-        }
-        
-        # If question_id is specified, get question-wise analytics
-        if question_id:
-            try:
-                question = FormQuestion.objects.get(id=question_id)
-                answers = FormAnswer.objects.filter(
-                    question=question,
-                    submission__in=submissions
-                )
-                
-                if question.question_type in ['select', 'radio', 'checkbox']:
-                    # For multiple choice questions
-                    option_counts = {}
-                    for answer in answers:
-                        if answer.answer_data:
-                            for option in answer.answer_data:
-                                option_counts[option] = option_counts.get(option, 0) + 1
-                        elif answer.answer_text:
-                            option_counts[answer.answer_text] = option_counts.get(answer.answer_text, 0) + 1
-                    
-                    question_analytics = {
-                        'question_text': question.question_text,
-                        'question_type': question.question_type,
-                        'total_responses': len(answers),
-                        'option_counts': option_counts,
-                        'most_frequent': max(option_counts, key=option_counts.get) if option_counts else None
-                    }
-                else:
-                    # For text questions
-                    text_responses = [answer.answer_text for answer in answers if answer.answer_text]
-                    question_analytics = {
-                        'question_text': question.question_text,
-                        'question_type': question.question_type,
-                        'total_responses': len(answers),
-                        'text_responses_sample': text_responses[:10],
-                        'total_text_responses': len(text_responses)
-                    }
-                
-                analytics_data['question_analytics'] = question_analytics
-                
-            except FormQuestion.DoesNotExist:
-                pass
-        
-        # Cache the analytics
-        AnalyticsCache.objects.create(
-            form_id=form_id if form_id else None,
-            course_id=course_id if course_id else None,
-            analytics_type='summary',
-            data=analytics_data
-        )
-        
-        return JsonResponse(analytics_data)
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=400)
-
-@login_required
-@user_passes_test(is_admin_or_crc)
-@require_http_methods(["GET"])
-def api_crc_export_analytics(request):
-    """Export analytics as PDF (simplified - returns JSON for now)"""
-    try:
-        form_id = request.GET.get('form_id')
-        
-        # Get analytics data
-        analytics_response = api_crc_analytics(request)
-        analytics_data = json.loads(analytics_response.content)
-        
-        # In a real implementation, you would generate a PDF here
-        # For now, return JSON with a message about PDF generation
-        return JsonResponse({
-            'message': 'PDF export functionality would be implemented here',
-            'analytics_data': analytics_data,
-            'export_format': 'pdf',
-            'exported_at': datetime.now().isoformat()
-        })
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=400)
-
-
-
 @login_required
 @csrf_exempt
 @require_http_methods(["POST"])
@@ -1726,12 +1585,6 @@ def api_crc_dashboard_stats(request):
         })
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
-    
-
-
-
-
-
 
 
 # Submission Approval APIs
@@ -1872,10 +1725,6 @@ def api_faculty_submissions(request):
         return JsonResponse(submissions_list, safe=False)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
-
-
-
-
 
 # Faculty Course Outlines API
 @login_required
@@ -2148,101 +1997,6 @@ def api_faculty_course_outline_structure(request):
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
 
-# Compare Outlines API
-@login_required
-@user_passes_test(is_admin_or_crc)
-@require_http_methods(["GET"])
-def api_crc_compare_outlines(request):
-    """Compare old and new course outlines"""
-    try:
-        course_id = request.GET.get('course_id')
-        new_outline_id = request.GET.get('new_outline_id')
-        
-        if not course_id or not new_outline_id:
-            return JsonResponse({'error': 'course_id and new_outline_id are required'}, status=400)
-        
-        # Get new outline
-        new_outline = CourseOutline.objects.get(id=new_outline_id)
-        
-        # Get current/old outline for comparison
-        old_outline = CourseOutline.objects.filter(
-            course_id=course_id,
-            is_current=True,
-            status='approved'
-        ).exclude(id=new_outline_id).order_by('-version').first()
-        
-        comparison_data = {
-            'course': {
-                'id': new_outline.course.id,
-                'code': new_outline.course.code,
-                'title': new_outline.course.title
-            },
-            'new_outline': {
-                'id': new_outline.id,
-                'version': new_outline.version,
-                'title': new_outline.title,
-                'faculty': new_outline.faculty.username,
-                'submitted_at': new_outline.submitted_at.isoformat() if new_outline.submitted_at else None
-            },
-            'old_outline': None,
-            'comparison': {
-                'major_changes': [],
-                'minor_changes': [],
-                'summary': 'No previous outline found for comparison'
-            }
-        }
-        
-        if old_outline:
-            comparison_data['old_outline'] = {
-                'id': old_outline.id,
-                'version': old_outline.version,
-                'title': old_outline.title,
-                'approved_at': old_outline.approved_at.isoformat() if old_outline.approved_at else None
-            }
-            
-            # Simple comparison
-            old_content = old_outline.content or {}
-            new_content = new_outline.content or {}
-            
-            major_changes = []
-            minor_changes = []
-            
-            # Compare course info
-            old_info = old_content.get('course_info', {})
-            new_info = new_content.get('course_info', {})
-            
-            for key in ['course_name', 'course_code', 'credits']:
-                if old_info.get(key) != new_info.get(key):
-                    major_changes.append(f"Course {key.replace('_', ' ').title()} changed: '{old_info.get(key)}' → '{new_info.get(key)}'")
-            
-            # Compare sections
-            old_sections = old_content.get('sections', [])
-            new_sections = new_content.get('sections', [])
-            
-            for i, new_section in enumerate(new_sections):
-                if i < len(old_sections):
-                    old_section = old_sections[i]
-                    if new_section.get('content') != old_section.get('content'):
-                        if new_section.get('id') in ['calendar_activities', 'assessment', 'learning_outcomes']:
-                            major_changes.append(f"Changes in {new_section.get('title', 'Section')}")
-                        else:
-                            minor_changes.append(f"Updates in {new_section.get('title', 'Section')}")
-                else:
-                    # New section added
-                    major_changes.append(f"New section added: {new_section.get('title', 'Untitled')}")
-            
-            comparison_data['comparison'] = {
-                'major_changes': major_changes,
-                'minor_changes': minor_changes,
-                'summary': f"Found {len(major_changes)} major and {len(minor_changes)} minor changes"
-            }
-        
-        return JsonResponse(comparison_data)
-        
-    except CourseOutline.DoesNotExist:
-        return JsonResponse({'error': 'Course outline not found'}, status=404)
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=400)
 
 @login_required
 @require_http_methods(["GET"])
@@ -2316,7 +2070,6 @@ def api_faculty_form_availability(request):
         return JsonResponse({'error': str(e)}, status=400)
 
 
-
 @login_required
 @user_passes_test(is_admin_or_crc)
 @require_http_methods(["GET"])
@@ -2346,280 +2099,6 @@ def api_get_all_outlines(request):
 
 
 @login_required
-@user_passes_test(is_admin_or_crc)
-@csrf_exempt
-@require_http_methods(["POST"])
-def api_compare_outlines_git_style(request):
-    """GitHub-style diff comparison between two outlines - HIDES HTML TAGS"""
-    try:
-        data = json.loads(request.body)
-        outline1_id = data.get('outline1_id')
-        outline2_id = data.get('outline2_id')
-        
-        # Get outlines
-        outline1 = CourseOutline.objects.get(id=outline1_id)
-        outline2 = CourseOutline.objects.get(id=outline2_id)
-        
-        # Function to remove HTML tags and clean text
-        def clean_html(text):
-            """Remove HTML tags and clean text"""
-            if not text:
-                return ""
-            
-            # First, strip HTML tags
-            text = strip_tags(str(text))
-            
-            # Remove multiple spaces
-            text = re.sub(r'\s+', ' ', text)
-            
-            # Remove common HTML entities
-            html_entities = {
-                '&nbsp;': ' ',
-                '&amp;': '&',
-                '&lt;': '<',
-                '&gt;': '>',
-                '&quot;': '"',
-                '&#39;': "'",
-                '&ldquo;': '"',
-                '&rdquo;': '"',
-                '&lsquo;': "'",
-                '&rsquo;': "'"
-            }
-            
-            for entity, replacement in html_entities.items():
-                text = text.replace(entity, replacement)
-            
-            return text.strip()
-        
-        # Convert content to clean text for comparison
-        def content_to_clean_text(content):
-            """Convert content to clean plain text for comparison"""
-            if not content:
-                return ""
-            
-            # If content is JSON string, try to parse it
-            if isinstance(content, str):
-                try:
-                    content = json.loads(content)
-                except:
-                    # Clean HTML from string
-                    return clean_html(content)
-            
-            # If it's a dict, extract all text
-            if isinstance(content, dict):
-                text_lines = []
-                
-                # Add course info
-                if 'course_info' in content:
-                    text_lines.append("=== COURSE INFORMATION ===")
-                    for key, value in content['course_info'].items():
-                        if value:
-                            clean_value = clean_html(str(value))
-                            if clean_value:
-                                text_lines.append(f"{key.replace('_', ' ').title()}: {clean_value}")
-                    text_lines.append("")
-                
-                # Add sections
-                if 'sections' in content:
-                    for section in content['sections']:
-                        section_title = section.get('title', 'Untitled')
-                        section_type = section.get('type', '')
-                        
-                        # Clean section title
-                        clean_title = clean_html(section_title)
-                        if clean_title:
-                            text_lines.append(f"### {clean_title} ###")
-                        
-                        # Add content if present
-                        if section.get('content'):
-                            clean_content = clean_html(section['content'])
-                            if clean_content:
-                                # Split into lines if it's long
-                                lines = clean_content.split('\n')
-                                for line in lines:
-                                    if line.strip():
-                                        text_lines.append(line.strip())
-                        
-                        # Add rows for tables
-                        if section.get('rows'):
-                            for row in section['rows']:
-                                if isinstance(row, dict):
-                                    row_values = []
-                                    for v in row.values():
-                                        if v:
-                                            clean_v = clean_html(str(v))
-                                            if clean_v:
-                                                row_values.append(clean_v)
-                                    if row_values:
-                                        text_lines.append(f"  {' | '.join(row_values)}")
-                                elif isinstance(row, (list, tuple)):
-                                    row_values = []
-                                    for v in row:
-                                        if v:
-                                            clean_v = clean_html(str(v))
-                                            if clean_v:
-                                                row_values.append(clean_v)
-                                    if row_values:
-                                        text_lines.append(f"  {' | '.join(row_values)}")
-                                elif row:
-                                    clean_row = clean_html(str(row))
-                                    if clean_row:
-                                        text_lines.append(f"  {clean_row}")
-                        
-                        text_lines.append("")
-                
-                return "\n".join([line for line in text_lines if line.strip()])
-            else:
-                # Return cleaned plain string
-                return clean_html(str(content))
-        
-        # Get clean text for comparison
-        text1 = content_to_clean_text(outline1.content)
-        text2 = content_to_clean_text(outline2.content)
-        
-        # Split into lines
-        lines1 = text1.splitlines()
-        lines2 = text2.splitlines()
-        
-        # Filter out empty lines (keep only lines with content)
-        lines1 = [line for line in lines1 if line.strip()]
-        lines2 = [line for line in lines2 if line.strip()]
-        
-        # Generate diff using Python's difflib
-        diff = list(difflib.unified_diff(
-            lines1, 
-            lines2,
-            fromfile=f"{outline1.course.code} v{outline1.version}",
-            tofile=f"{outline2.course.code} v{outline2.version}",
-            lineterm=""
-        ))
-        
-        # Get detailed diff for side-by-side view
-        differ = difflib.Differ()
-        line_by_line_diff = list(differ.compare(lines1, lines2))
-        
-        # Process line-by-line diff
-        line_changes = []
-        line_number1 = 1
-        line_number2 = 1
-        
-        for line in line_by_line_diff:
-            line_type = line[0]
-            line_content = line[2:]
-            
-            # Skip empty lines in diff
-            if not line_content.strip() and line_type == ' ':
-                continue
-                
-            if line_type == ' ':  # Unchanged
-                line_changes.append({
-                    'type': 'unchanged',
-                    'old_line': line_content,
-                    'new_line': line_content,
-                    'old_line_num': line_number1,
-                    'new_line_num': line_number2
-                })
-                line_number1 += 1
-                line_number2 += 1
-            elif line_type == '-':  # Removed
-                line_changes.append({
-                    'type': 'removed',
-                    'old_line': line_content,
-                    'new_line': '',
-                    'old_line_num': line_number1,
-                    'new_line_num': None
-                })
-                line_number1 += 1
-            elif line_type == '+':  # Added
-                line_changes.append({
-                    'type': 'added',
-                    'old_line': '',
-                    'new_line': line_content,
-                    'old_line_num': None,
-                    'new_line_num': line_number2
-                })
-                line_number2 += 1
-            elif line_type == '?':  # Change details (skip)
-                continue
-        
-        # Calculate statistics
-        total_lines_old = len(lines1)
-        total_lines_new = len(lines2)
-        
-        # Calculate similarity
-        matcher = difflib.SequenceMatcher(None, text1, text2)
-        similarity = matcher.ratio() * 100
-        
-        # Get section changes
-        section_changes = {}
-        current_section = "General"
-        
-        for change in line_changes:
-            line = change.get('old_line') or change.get('new_line') or ''
-            
-            # Check if this is a section header
-            if line.startswith('###'):
-                current_section = line.replace('###', '').strip()
-                if current_section not in section_changes:
-                    section_changes[current_section] = {'added': 0, 'removed': 0}
-            elif change['type'] in ['added', 'removed']:
-                if current_section not in section_changes:
-                    section_changes[current_section] = {'added': 0, 'removed': 0}
-                
-                if change['type'] == 'added':
-                    section_changes[current_section]['added'] += 1
-                else:
-                    section_changes[current_section]['removed'] += 1
-        
-        # Count added/removed lines
-        added_lines = sum(1 for c in line_changes if c['type'] == 'added')
-        removed_lines = sum(1 for c in line_changes if c['type'] == 'removed')
-        
-        return JsonResponse({
-            'success': True,
-            'diff': diff,
-            'line_changes': line_changes,
-            'statistics': {
-                'similarity': round(similarity, 1),
-                'total_lines_old': total_lines_old,
-                'total_lines_new': total_lines_new,
-                'added_lines': added_lines,
-                'removed_lines': removed_lines,
-                'total_changes': added_lines + removed_lines,
-                'change_percentage': round(((added_lines + removed_lines) / max(total_lines_old, total_lines_new)) * 100, 1) if max(total_lines_old, total_lines_new) > 0 else 0
-            },
-            'outline1': {
-                'id': outline1.id,
-                'code': outline1.course.code,
-                'title': outline1.title,
-                'faculty': outline1.faculty.username,
-                'status': outline1.status,
-                'version': outline1.version,
-                'text': text1
-            },
-            'outline2': {
-                'id': outline2.id,
-                'code': outline2.course.code,
-                'title': outline2.title,
-                'faculty': outline2.faculty.username,
-                'status': outline2.status,
-                'version': outline2.version,
-                'text': text2
-            },
-            'section_changes': section_changes
-        })
-        
-    except Exception as e:
-        import traceback
-        print(f"Error in diff comparison: {str(e)}")
-        print(traceback.format_exc())
-        return JsonResponse({
-            'success': False,
-            'error': str(e)
-        })
-
-        # Department Update API
-@login_required
 @user_passes_test(is_admin)
 @csrf_exempt
 @require_http_methods(["PUT"])
@@ -2639,5 +2118,423 @@ def api_department_update(request, department_id):
         })
     except Department.DoesNotExist:
         return JsonResponse({'error': 'Department not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+
+# Analysis APIs
+@login_required
+@user_passes_test(is_admin_or_crc)
+@require_http_methods(["GET"])
+def api_analysis_form_submissions_over_time(request):
+    """Get form submissions over time (last 8 weeks) for line chart"""
+    try:
+        import datetime
+        from django.db.models.functions import TruncWeek
+        from django.db.models import Count
+        
+        # Get submissions from last 8 weeks
+        eight_weeks_ago = datetime.datetime.now() - datetime.timedelta(weeks=8)
+        
+        # Get submissions grouped by week
+        submissions_by_week = DynamicFormSubmission.objects.filter(
+            submission_date__gte=eight_weeks_ago,
+            dynamic_form__form_type__in=['ccr', 'crr']
+        ).annotate(
+            week=TruncWeek('submission_date')
+        ).values('week', 'dynamic_form__form_type').annotate(
+            count=Count('id')
+        ).order_by('week')
+        
+        # Format data for chart
+        weeks = []
+        ccr_data = []
+        crr_data = []
+        
+        # Initialize with zeros for last 8 weeks
+        for i in range(8):
+            week_start = (datetime.datetime.now() - datetime.timedelta(weeks=i)).date()
+            week_start = week_start - datetime.timedelta(days=week_start.weekday())
+            weeks.insert(0, week_start.strftime('%Y-%m-%d'))
+            ccr_data.insert(0, 0)
+            crr_data.insert(0, 0)
+        
+        # Fill in actual data
+        for entry in submissions_by_week:
+            week_str = entry['week'].strftime('%Y-%m-%d')
+            if week_str in weeks:
+                idx = weeks.index(week_str)
+                if entry['dynamic_form__form_type'] == 'ccr':
+                    ccr_data[idx] = entry['count']
+                else:
+                    crr_data[idx] = entry['count']
+        
+        return JsonResponse({
+            'weeks': weeks,
+            'ccr_submissions': ccr_data,
+            'crr_submissions': crr_data,
+            'total_submissions': sum(ccr_data) + sum(crr_data)
+        })
+        
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+@login_required
+@user_passes_test(is_admin_or_crc)
+@require_http_methods(["GET"])
+def api_analysis_form_status_distribution(request):
+    """Get form status distribution for pie chart"""
+    try:
+        # Get status counts for CCR and CRR forms separately
+        ccr_status = DynamicFormSubmission.objects.filter(
+            dynamic_form__form_type='ccr'
+        ).values('status').annotate(
+            count=Count('id')
+        ).order_by('status')
+        
+        crr_status = DynamicFormSubmission.objects.filter(
+            dynamic_form__form_type='crr'
+        ).values('status').annotate(
+            count=Count('id')
+        ).order_by('status')
+        
+        # Format data
+        status_labels = ['Submitted', 'Approved', 'Revision Requested', 'Draft']
+        ccr_counts = {item['status']: item['count'] for item in ccr_status}
+        crr_counts = {item['status']: item['count'] for item in crr_status}
+        
+        ccr_data = []
+        crr_data = []
+        
+        for status in ['submitted', 'approved', 'revision_requested', 'draft']:
+            ccr_data.append(ccr_counts.get(status, 0))
+            crr_data.append(crr_counts.get(status, 0))
+        
+        return JsonResponse({
+            'labels': status_labels,
+            'ccr_data': ccr_data,
+            'crr_data': crr_data,
+            'total_ccr': sum(ccr_data),
+            'total_crr': sum(crr_data)
+        })
+        
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+@login_required
+@user_passes_test(is_admin_or_crc)
+@require_http_methods(["GET"])
+def api_analysis_clo_achievement(request):
+    """Get CLO achievement rate analysis from form answers"""
+    try:
+        # This would analyze form answers to calculate CLO achievement rates
+        # For now, we'll use mock data based on form submissions
+        
+        # Get all form submissions with answers
+        submissions = DynamicFormSubmission.objects.filter(
+            dynamic_form__form_type__in=['ccr', 'crr']
+        ).select_related('dynamic_form').prefetch_related('answers')
+        
+        clo_achievement = {
+            'clo1': {'achieved': 0, 'total': 0, 'rate': 0},
+            'clo2': {'achieved': 0, 'total': 0, 'rate': 0},
+            'clo3': {'achieved': 0, 'total': 0, 'rate': 0},
+            'clo4': {'achieved': 0, 'total': 0, 'rate': 0}
+        }
+        
+        # Analyze answers for CLO-related questions
+        for submission in submissions:
+            answers = submission.answers.filter(
+                question__question_text__icontains='CLO'
+            )
+            
+            for answer in answers:
+                # Extract CLO number from question text
+                import re
+                clo_match = re.search(r'CLO\s*(\d+)', answer.question.question_text, re.IGNORECASE)
+                if clo_match:
+                    clo_num = clo_match.group(1)
+                    clo_key = f'clo{clo_num}'
+                    
+                    if clo_key in clo_achievement:
+                        clo_achievement[clo_key]['total'] += 1
+                        
+                        # Check if answer indicates achievement
+                        answer_text = answer.answer_text.lower() if answer.answer_text else ''
+                        answer_data = str(answer.answer_data).lower() if answer.answer_data else ''
+                        
+                        # Simple heuristics for achievement
+                        achievement_keywords = ['yes', 'achieved', 'completed', 'satisfactory', 'good', 'excellent', 'pass']
+                        if any(keyword in answer_text for keyword in achievement_keywords) or \
+                           any(keyword in answer_data for keyword in achievement_keywords):
+                            clo_achievement[clo_key]['achieved'] += 1
+        
+        # Calculate rates
+        for clo in clo_achievement.values():
+            if clo['total'] > 0:
+                clo['rate'] = round((clo['achieved'] / clo['total']) * 100, 1)
+        
+        return JsonResponse({
+            'clo_labels': ['CLO 1', 'CLO 2', 'CLO 3', 'CLO 4'],
+            'achievement_rates': [
+                clo_achievement['clo1']['rate'],
+                clo_achievement['clo2']['rate'],
+                clo_achievement['clo3']['rate'],
+                clo_achievement['clo4']['rate']
+            ],
+            'total_assessments': sum(clo['total'] for clo in clo_achievement.values()),
+            'average_rate': round(
+                sum(clo['rate'] for clo in clo_achievement.values()) / 4, 1
+            ) if any(clo['total'] > 0 for clo in clo_achievement.values()) else 0
+        })
+        
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+# Outline Comparison APIs
+@login_required
+@user_passes_test(is_admin_or_crc)
+@require_http_methods(["GET"])
+def api_analysis_courses_with_outlines(request):
+    """Get all courses that have outlines"""
+    try:
+        courses_with_outlines = Course.objects.filter(
+            outlines__isnull=False
+        ).distinct().values('id', 'code', 'title', 'department__name')
+        
+        return JsonResponse(list(courses_with_outlines), safe=False)
+        
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+@login_required
+@user_passes_test(is_admin_or_crc)
+@require_http_methods(["GET"])
+def api_analysis_course_outline_versions(request, course_id):
+    """Get all outline versions for a course"""
+    try:
+        outlines = CourseOutline.objects.filter(
+            course_id=course_id
+        ).values('id', 'version', 'title', 'status', 'created_at', 'faculty__username')
+        
+        return JsonResponse(list(outlines), safe=False)
+        
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+@login_required
+@user_passes_test(is_admin_or_crc)
+@csrf_exempt
+@require_http_methods(["POST"])
+def api_analysis_compare_outlines(request):
+    """Compare two outline versions"""
+    try:
+        import difflib
+        from html import escape
+        
+        data = json.loads(request.body)
+        outline1_id = data.get('outline1_id')
+        outline2_id = data.get('outline2_id')
+        
+        if not outline1_id or not outline2_id:
+            return JsonResponse({'error': 'Both outline IDs are required'}, status=400)
+        
+        outline1 = CourseOutline.objects.get(id=outline1_id)
+        outline2 = CourseOutline.objects.get(id=outline2_id)
+        
+        # Get content for comparison
+        content1 = outline1.content or ""
+        content2 = outline2.content or ""
+        
+        # Simple text comparison using difflib
+        d = difflib.Differ()
+        diff = list(d.compare(
+            content1.splitlines(keepends=True),
+            content2.splitlines(keepends=True)
+        ))
+        
+        # Categorize changes
+        added = []
+        deleted = []
+        modified = []
+        
+        for line in diff:
+            if line.startswith('+ ') and not line.startswith('+  '):
+                added.append(escape(line[2:]))
+            elif line.startswith('- ') and not line.startswith('-  '):
+                deleted.append(escape(line[2:]))
+            elif line.startswith('? '):
+                modified.append(escape(line[2:]))
+        
+        # Calculate similarity percentage
+        similarity = difflib.SequenceMatcher(
+            None, 
+            content1, 
+            content2
+        ).ratio() * 100
+        
+        return JsonResponse({
+            'outline1': {
+                'id': outline1.id,
+                'version': outline1.version,
+                'title': outline1.title,
+                'faculty': outline1.faculty.username,
+                'created_at': outline1.created_at.strftime('%Y-%m-%d')
+            },
+            'outline2': {
+                'id': outline2.id,
+                'version': outline2.version,
+                'title': outline2.title,
+                'faculty': outline2.faculty.username,
+                'created_at': outline2.created_at.strftime('%Y-%m-%d')
+            },
+            'comparison': {
+                'similarity_percentage': round(similarity, 2),
+                'lines_added': len(added),
+                'lines_deleted': len(deleted),
+                'lines_modified': len(modified),
+                'added_lines': added,
+                'deleted_lines': deleted,
+                'modified_lines': modified
+            }
+        })
+        
+    except CourseOutline.DoesNotExist:
+        return JsonResponse({'error': 'One or both outlines not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+# CQI Report APIs (NLP-based)
+@login_required
+@user_passes_test(is_admin_or_crc)
+@csrf_exempt
+@require_http_methods(["POST"])
+def api_analysis_generate_cqi_report(request):
+    """Generate CQI report using NLP analysis"""
+    try:
+        import re
+        from collections import Counter
+        from datetime import datetime, timedelta
+        
+        data = json.loads(request.body)
+        report_type = data.get('report_type', 'comprehensive')  # 'comprehensive', 'forms', 'outlines'
+        time_period = data.get('time_period', 'last_month')  # 'last_month', 'last_quarter', 'all_time'
+        
+        # Calculate date range
+        end_date = datetime.now()
+        if time_period == 'last_month':
+            start_date = end_date - timedelta(days=30)
+        elif time_period == 'last_quarter':
+            start_date = end_date - timedelta(days=90)
+        else:
+            start_date = datetime.min
+        
+        # Get data for analysis
+        form_submissions = DynamicFormSubmission.objects.filter(
+            submission_date__range=(start_date, end_date),
+            dynamic_form__form_type__in=['ccr', 'crr']
+        ).select_related('faculty', 'course', 'dynamic_form').prefetch_related('answers')
+        
+        course_outlines = CourseOutline.objects.filter(
+            submitted_at__range=(start_date, end_date)
+        ).select_related('faculty', 'course')
+        
+        # Extract text data for NLP analysis
+        all_text_data = []
+        
+        # Collect form answers
+        for submission in form_submissions:
+            for answer in submission.answers.all():
+                if answer.answer_text:
+                    all_text_data.append(answer.answer_text)
+        
+        # Collect outline content
+        for outline in course_outlines:
+            if outline.content:
+                all_text_data.append(outline.content)
+        
+        # Simple NLP analysis (you can replace this with more sophisticated NLP)
+        common_issues = []
+        suggestions = []
+        strengths = []
+        
+        # Analyze text for common patterns
+        text_combined = ' '.join(all_text_data).lower()
+        
+        # Look for common issues
+        issue_patterns = {
+            'Time Management': ['not enough time', 'time constraint', 'rushed', 'schedule issue'],
+            'Resources': ['lack of resources', 'no textbook', 'limited access', 'equipment issue'],
+            'Assessment': ['difficult exam', 'unclear grading', 'assessment issue', 'rubric problem'],
+            'Content Coverage': ['too much content', 'syllabus overload', 'coverage issue'],
+            'Student Engagement': ['low participation', 'student disengagement', 'attendance issue'],
+        }
+        
+        for issue, keywords in issue_patterns.items():
+            count = sum(text_combined.count(keyword) for keyword in keywords)
+            if count > 0:
+                common_issues.append({
+                    'issue': issue,
+                    'frequency': count,
+                    'examples': [kw for kw in keywords if kw in text_combined][:3]
+                })
+        
+        # Look for strengths
+        strength_patterns = {
+            'Good Resources': ['excellent resources', 'good materials', 'helpful content', 'useful tools'],
+            'Effective Assessment': ['fair assessment', 'clear rubric', 'helpful feedback', 'good evaluation'],
+            'Student Engagement': ['active participation', 'good discussion', 'engaged students', 'high attendance'],
+            'Content Quality': ['excellent content', 'well organized', 'clear structure', 'comprehensive'],
+        }
+        
+        for strength, keywords in strength_patterns.items():
+            count = sum(text_combined.count(keyword) for keyword in keywords)
+            if count > 0:
+                strengths.append({
+                    'strength': strength,
+                    'frequency': count,
+                    'examples': [kw for kw in keywords if kw in text_combined][:3]
+                })
+        
+        # Generate suggestions based on analysis
+        if common_issues:
+            suggestions = [
+                "Consider allocating more time for complex topics based on faculty feedback.",
+                "Review resource availability and consider additional learning materials.",
+                "Provide clearer assessment rubrics and expectations to students.",
+                "Consider revising content coverage to better match available time."
+            ]
+        
+        # Generate summary statistics
+        stats = {
+            'total_form_submissions': form_submissions.count(),
+            'total_course_outlines': course_outlines.count(),
+            'time_period': time_period,
+            'start_date': start_date.strftime('%Y-%m-%d'),
+            'end_date': end_date.strftime('%Y-%m-%d'),
+            'top_faculty_contributors': list(
+                form_submissions.values('faculty__username')
+                .annotate(count=Count('id'))
+                .order_by('-count')[:5]
+                .values('faculty__username', 'count')
+            ),
+            'most_active_courses': list(
+                form_submissions.values('course__code', 'course__title')
+                .annotate(count=Count('id'))
+                .order_by('-count')[:5]
+                .values('course__code', 'course__title', 'count')
+            )
+        }
+        
+        return JsonResponse({
+            'report_type': report_type,
+            'generated_at': datetime.now().isoformat(),
+            'statistics': stats,
+            'common_issues': common_issues[:5],  # Top 5 issues
+            'key_strengths': strengths[:5],  # Top 5 strengths
+            'recommendations': suggestions,
+            'analysis_summary': f"Analysis of {len(all_text_data)} text entries from {stats['total_form_submissions']} form submissions and {stats['total_course_outlines']} course outlines."
+        })
+        
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
