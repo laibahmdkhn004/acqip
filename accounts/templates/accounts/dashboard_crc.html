@@ -249,27 +249,25 @@
             class="nav-item flex items-center gap-3 p-2 rounded-md hover:bg-gray-50 text-gray-700"
             ><i class="fas fa-file-alt"></i>Form Submissions</a
           >
+          <!-- Add these after the existing nav items in the sidebar -->
           <a
             href="#"
             data-page="analysis"
             class="nav-item flex items-center gap-3 p-2 rounded-md hover:bg-gray-50 text-gray-700"
+            ><i class="fas fa-chart-bar"></i>Analysis</a
           >
-            <i class="fas fa-chart-line"></i>Analysis Dashboard
-          </a>
           <a
             href="#"
             data-page="outline-comparison"
             class="nav-item flex items-center gap-3 p-2 rounded-md hover:bg-gray-50 text-gray-700"
+            ><i class="fas fa-code-compare"></i>Outline Comparison</a
           >
-            <i class="fas fa-code-compare"></i>Outline Comparison
-          </a>
           <a
             href="#"
             data-page="cqi-report"
             class="nav-item flex items-center gap-3 p-2 rounded-md hover:bg-gray-50 text-gray-700"
+            ><i class="fas fa-file-contract"></i>CQI Report</a
           >
-            <i class="fas fa-file-contract"></i>CQI Report Generator
-          </a>
         </nav>
         <div class="mt-6 px-4 text-xs text-gray-500">© 2025 ACQIP</div>
       </aside>
@@ -406,18 +404,20 @@
         form_question_delete: (id) => `/api/questions/${id}/delete/`,
         get_course_outline: "{% url 'api_get_course_outline' %}",
         save_course_outline: "{% url 'api_save_course_outline' %}",
-        analysis_form_submissions_over_time:
-          "{% url 'api_analysis_form_submissions_over_time' %}",
-        analysis_form_status_distribution:
-          "{% url 'api_analysis_form_status_distribution' %}",
+        //new
+        analysis_submissions_over_time:
+          "{% url 'api_analysis_submissions_over_time' %}",
+        analysis_form_status: "{% url 'api_analysis_form_status' %}",
         analysis_clo_achievement: "{% url 'api_analysis_clo_achievement' %}",
-        analysis_courses_with_outlines:
-          "{% url 'api_analysis_courses_with_outlines' %}",
-        analysis_course_outline_versions: (courseId) =>
-          `/api/analysis/course-outline-versions/${courseId}/`,
-        analysis_compare_outlines: "{% url 'api_analysis_compare_outlines' %}",
-        analysis_generate_cqi_report:
-          "{% url 'api_analysis_generate_cqi_report' %}",
+        compare_outlines: "{% url 'api_compare_outlines' %}",
+        generate_cqi_report: "{% url 'api_generate_cqi_report' %}",
+        analysis_submissions_over_time:
+          "{% url 'api_analysis_submissions_over_time' %}",
+        analysis_form_status: "{% url 'api_analysis_form_status' %}",
+        analysis_clo_achievement: "{% url 'api_analysis_clo_achievement' %}",
+        analysis_detailed_clo: (cloNumber) =>
+          `/api/crc/analysis/detailed-clo/${cloNumber}/`,
+        analysis_clo_trends: "{% url 'api_analysis_clo_trends' %}",
       };
 
       // State Management
@@ -602,6 +602,7 @@
           "outline-submissions": renderOutlineSubmissionsPage,
           "form-submissions": renderFormSubmissionsPage,
           "form-editor": renderFormEditorPage,
+          //new
           analysis: renderAnalysisPage,
           "outline-comparison": renderOutlineComparisonPage,
           "cqi-report": renderCQIReportPage,
@@ -1578,164 +1579,187 @@
         try {
           const questions = await fetchAPI(API.form_questions(formId));
 
+          // Question type display mapping
+          const questionTypeDisplay = {
+            text: "Text Input",
+            textarea: "Text Area",
+            checkbox: "Checkbox",
+            select: "Dropdown",
+            radio: "Radio Buttons",
+            section_header: "Section Header",
+            file: "File Upload",
+            clo_percentage: "CLO Percentage",
+          };
+
           elements.outlineModalTitle.textContent = `Manage Questions: ${formName}`;
           elements.outlineModalBody.innerHTML = `
-                          <div class="space-y-6">
-                              <div class="bg-blue-50 p-4 rounded-lg">
-                                  <div class="flex justify-between items-center">
-                                      <div>
-                                          <h4 class="font-medium text-blue-900">Form Questions</h4>
-                                          <p class="text-sm text-blue-700">Add, edit, and reorder questions for this form</p>
-                                      </div>
-                                      <button onclick="addNewQuestion(${formId})" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2">
-                                          <i class="fas fa-plus"></i>
-                                          Add Question
-                                      </button>
-                                  </div>
-                              </div>
+            <div class="space-y-6">
+                <div class="bg-blue-50 p-4 rounded-lg">
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <h4 class="font-medium text-blue-900">Form Questions</h4>
+                            <p class="text-sm text-blue-700">Add, edit, and reorder questions for this form</p>
+                        </div>
+                        <button onclick="addNewQuestion(${formId})" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2">
+                            <i class="fas fa-plus"></i>
+                            Add Question
+                        </button>
+                    </div>
+                </div>
 
-                              <div id="questions-list" class="space-y-4">
-                                  ${
-                                    questions.length > 0
-                                      ? questions
-                                          .map(
-                                            (question, index) => `
-                                      <div class="border border-gray-200 rounded-lg p-4" data-question-id="${
-                                        question.id
-                                      }">
-                                          <div class="flex justify-between items-start">
-                                              <div class="flex-1">
-                                                  <div class="flex items-center gap-3">
-                                                      <div class="bg-gray-100 text-gray-800 rounded-full h-8 w-8 flex items-center justify-center text-sm font-medium">
-                                                          ${index + 1}
-                                                      </div>
-                                                      <div>
-                                                          <h5 class="font-medium">${
-                                                            question.question_text
-                                                          }</h5>
-                                                          <div class="flex items-center gap-3 mt-1 text-sm text-gray-600">
-                                                              <span class="px-2 py-1 bg-gray-100 rounded">${
-                                                                question.question_type
-                                                              }</span>
-                                                              <span class="${
-                                                                question.required
-                                                                  ? "text-red-600"
-                                                                  : "text-gray-500"
-                                                              }">
-                                                                  ${
-                                                                    question.required
-                                                                      ? "Required"
-                                                                      : "Optional"
-                                                                  }
-                                                              </span>
-                                                          </div>
-                                                      </div>
-                                                  </div>
-                                              </div>
+                <div id="questions-list" class="space-y-4">
+                    ${
+                      questions.length > 0
+                        ? questions
+                            .map((question, index) => {
+                              // Get display name for question type
+                              const displayType =
+                                questionTypeDisplay[question.question_type] ||
+                                question.question_type
+                                  .replace("_", " ")
+                                  .toLowerCase()
+                                  .replace(/\b\w/g, (l) => l.toUpperCase());
 
-                                              <div class="flex gap-2">
-                                                  <button onclick="editQuestion(${
-                                                    question.id
-                                                  }, ${formId})" class="text-blue-600 hover:text-blue-800 p-2">
-                                                      <i class="fas fa-edit"></i>
-                                                  </button>
-                                                  <button onclick="deleteQuestion(${
-                                                    question.id
-                                                  }, ${formId})" class="text-red-600 hover:text-red-800 p-2">
-                                                      <i class="fas fa-trash"></i>
-                                                  </button>
-                                              </div>
-                                          </div>
-                                      </div>
-                                  `,
-                                          )
-                                          .join("")
-                                      : `
-                                      <div class="text-center py-12">
-                                          <i class="fas fa-question-circle text-gray-400 text-5xl mb-4"></i>
-                                          <p class="text-gray-500">No questions added yet</p>
-                                      </div>
-                                  `
-                                  }
-                              </div>
+                              return `
+                                    <div class="border border-gray-200 rounded-lg p-4" data-question-id="${question.id}">
+                                        <div class="flex justify-between items-start">
+                                            <div class="flex-1">
+                                                <div class="flex items-center gap-3">
+                                                    <div class="bg-gray-100 text-gray-800 rounded-full h-8 w-8 flex items-center justify-center text-sm font-medium">
+                                                        ${index + 1}
+                                                    </div>
+                                                    <div>
+                                                        <h5 class="font-medium">${question.question_text}</h5>
+                                                        <div class="flex items-center gap-3 mt-1 text-sm text-gray-600">
+                                                            <span class="px-2 py-1 bg-gray-100 rounded">${displayType}</span>
+                                                            <span class="${question.required ? "text-red-600" : "text-gray-500"}">
+                                                                ${question.required ? "Required" : "Optional"}
+                                                            </span>
+                                                        </div>
+                                                        ${question.help_text ? `<p class="text-xs text-gray-500 mt-1">${question.help_text}</p>` : ""}
+                                                    </div>
+                                                </div>
+                                            </div>
 
-                              <div class="pt-4 border-t flex justify-end gap-3">
-                                  <button onclick="elements.outlineModal.classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
-                                      Close
-                                  </button>
-                              </div>
-                          </div>
-                      `;
+                                            <div class="flex gap-2">
+                                                <button onclick="editQuestion(${question.id}, ${formId})" 
+                                                        class="text-blue-600 hover:text-blue-800 p-2"
+                                                        title="Edit Question">
+                                                    <i class="fas fa-edit"></i>
+                                                </button>
+                                                <button onclick="deleteQuestion(${question.id}, ${formId})" 
+                                                        class="text-red-600 hover:text-red-800 p-2"
+                                                        title="Delete Question">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>`;
+                            })
+                            .join("")
+                        : `
+                            <div class="text-center py-12">
+                                <i class="fas fa-question-circle text-gray-400 text-5xl mb-4"></i>
+                                <p class="text-gray-500">No questions added yet</p>
+                                <button onclick="addNewQuestion(${formId})" 
+                                        class="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                                    Add Your First Question
+                                </button>
+                            </div>
+                        `
+                    }
+                </div>
+
+                <div class="pt-4 border-t flex justify-end gap-3">
+                    <button onclick="closeAllModals()" 
+                            class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                        Close
+                    </button>
+                </div>
+            </div>
+        `;
 
           elements.outlineModal.classList.remove("hidden");
+          document.body.classList.add("overflow-hidden");
         } catch (error) {
-          showNotification("Error loading questions", "error");
+          console.error("Error loading questions:", error);
+          showNotification(
+            "Error loading questions: " + error.message,
+            "error",
+          );
         }
       }
 
       function addNewQuestion(formId) {
-        // Close the outline modal first
-        elements.outlineModal.classList.add("hidden");
+        closeAllModals();
 
         elements.modalTitle.textContent = "Add New Question";
         elements.modalBody.innerHTML = `
-              <div class="space-y-4">
-                  <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-1">Question Text *</label>
-                      <textarea id="question-text" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Enter your question" required></textarea>
-                  </div>
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Question Text *</label>
+                <textarea id="question-text" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Enter your question" required></textarea>
+            </div>
 
-                  <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-1">Question Type *</label>
-                      <select id="question-type" class="w-full border border-gray-300 rounded-lg px-3 py-2">
-                         <option value="section_header">Section Header</option>
-                          <option value="text">Text Input</option>
-                          <option value="textarea">Text Area</option>
-                          <option value="checkbox">Checkbox</option>
-                          <option value="select">Dropdown</option>
-                          <option value="radio">Radio Buttons</option>
-                          <option value="file">File Upload</option>
-                      </select>
-                  </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Question Type *</label>
+                <select id="question-type" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                    <option value="section_header">Section Header</option>
+                    <option value="text">Text Input</option>
+                    <option value="textarea">Text Area</option>
+                    <option value="checkbox">Checkbox</option>
+                    <option value="select">Dropdown</option>
+                    <option value="radio">Radio Buttons</option>
+                    <option value="file">File Upload</option>
+                    <option value="clo_percentage">CLO Percentage (All 4 CLOs)</option>
+                </select>
+            </div>
 
-                  <div id="options-container" class="hidden">
-                      <label class="block text-sm font-medium text-gray-700 mb-1">Options (comma separated)</label>
-                      <input type="text" id="question-options" class="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Option 1, Option 2, Option 3">
-                  </div>
+            <div id="options-container" class="hidden">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Options (comma separated)</label>
+                <input type="text" id="question-options" class="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Option 1, Option 2, Option 3">
+            </div>
 
-                  <div class="flex items-center">
-                      <input type="checkbox" id="question-required" class="h-4 w-4 text-blue-600 border-gray-300 rounded" checked>
-                      <label for="question-required" class="ml-2 block text-sm text-gray-700">
-                          Required question
-                      </label>
-                  </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Help Text (Optional)</label>
+                <textarea id="question-help" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Additional guidance for this question"></textarea>
+            </div>
 
-                  <div class="pt-4 border-t flex justify-end gap-3">
-                      <button type="button" onclick="closeAddQuestionAndShowManageQuestions(${formId})" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
-                          Cancel
-                      </button>
-                      <button onclick="saveNewQuestion(${formId})" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-                          Add Question
-                      </button>
-                  </div>
-              </div>
-          `;
+            <div class="flex items-center">
+                <input type="checkbox" id="question-required" class="h-4 w-4 text-blue-600 border-gray-300 rounded" checked>
+                <label for="question-required" class="ml-2 block text-sm text-gray-700">
+                    Required question
+                </label>
+            </div>
 
-        // Show/hide options based on question type
-        document
-          .getElementById("question-type")
-          .addEventListener("change", function () {
-            const optionsContainer =
-              document.getElementById("options-container");
-            const questionType = this.value;
-            if (["select", "radio", "checkbox"].includes(questionType)) {
-              optionsContainer.classList.remove("hidden");
-            } else {
-              optionsContainer.classList.add("hidden");
-            }
-          });
+            <div class="pt-4 border-t flex justify-end gap-3">
+                <button type="button" onclick="closeAllModals()" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                    Cancel
+                </button>
+                <button onclick="saveNewQuestion(${formId})" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                    Add Question
+                </button>
+            </div>
+        </div>
+    `;
+
+        // Add event listener for question type change
+        const questionTypeSelect = document.getElementById("question-type");
+        questionTypeSelect.addEventListener("change", function () {
+          toggleQuestionOptions(this.value, "options-container");
+        });
 
         elements.modal.classList.remove("hidden");
+        document.body.classList.add("overflow-hidden");
+      }
+
+      function toggleQuestionOptions(questionType, containerId) {
+        const container = document.getElementById(containerId);
+        if (["select", "radio", "checkbox"].includes(questionType)) {
+          container.classList.remove("hidden");
+        } else {
+          container.classList.add("hidden");
+        }
       }
 
       // Add this helper function
@@ -1756,60 +1780,90 @@
       }
 
       async function saveNewQuestion(formId) {
-        const questionText = document.getElementById("question-text").value;
+        const questionText = document
+          .getElementById("question-text")
+          .value.trim();
         const questionType = document.getElementById("question-type").value;
         const questionRequired =
           document.getElementById("question-required").checked;
         const questionOptions =
-          document.getElementById("question-options")?.value || "";
+          document.getElementById("question-options")?.value.trim() || "";
+        const questionHelp =
+          document.getElementById("question-help")?.value.trim() || "";
 
-        if (!questionText.trim()) {
+        if (!questionText) {
           showNotification("Question text is required", "error");
           return;
         }
 
+        // Get the current number of questions to set the order
         try {
-          await fetchAPI(API.form_questions_create(formId), {
+          const existingQuestions = await fetchAPI(API.form_questions(formId));
+          const nextOrder =
+            existingQuestions.length > 0
+              ? Math.max(...existingQuestions.map((q) => q.order || 0)) + 1
+              : 0;
+
+          // For CLO percentage type, we don't need options
+          const finalOptions =
+            questionType === "clo_percentage" ? "" : questionOptions;
+
+          const response = await fetchAPI(API.form_questions_create(formId), {
             method: "POST",
             body: JSON.stringify({
               question_text: questionText,
               question_type: questionType,
               required: questionRequired,
-              order: 0,
-              options: questionOptions,
+              order: nextOrder, // Add order field
+              options: finalOptions,
+              help_text: questionHelp,
             }),
           });
 
-          elements.modal.classList.add("hidden");
+          closeAllModals();
           showNotification("Question added successfully", "success");
 
-          // Reopen the manage questions modal with updated list
-          setTimeout(() => {
-            const forms = allForms.filter(
-              (f) => f.form_type === "ccr" || f.form_type === "crr",
-            );
-            const currentForm = forms.find((f) => f.id === formId);
-            if (currentForm) {
-              manageFormQuestions(formId, currentForm.name);
-            }
-          }, 100);
+          // Directly refresh the questions list
+          await refreshQuestionsList(formId);
         } catch (error) {
-          showNotification("Error adding question", "error");
+          console.error("Error adding question:", error);
+          showNotification("Error adding question: " + error.message, "error");
+        }
+      }
+
+      // Add this helper function
+      async function refreshQuestionsList(formId) {
+        try {
+          // Get the form name first
+          const forms = allForms.filter(
+            (f) => f.form_type === "ccr" || f.form_type === "crr",
+          );
+          const currentForm = forms.find((f) => f.id === formId);
+
+          if (currentForm) {
+            // Close any open modal first
+            elements.modal.classList.add("hidden");
+            elements.outlineModal.classList.add("hidden");
+
+            // Reopen manage questions with fresh data
+            setTimeout(() => {
+              manageFormQuestions(formId, currentForm.name);
+            }, 100);
+          }
+        } catch (error) {
+          console.error("Error refreshing questions list:", error);
         }
       }
 
       function closeAllModals() {
-        document.querySelectorAll(".modal").forEach((modal) => {
+        document.querySelectorAll(".modal-overlay").forEach((modal) => {
           modal.classList.add("hidden");
         });
-
-        // Optional: reset body scroll lock if you use it
         document.body.classList.remove("overflow-hidden");
       }
 
       async function editQuestion(questionId, formId) {
         try {
-          // 🔹 Close any other open modals first
           closeAllModals();
 
           const questions = await fetchAPI(API.form_questions(formId));
@@ -1823,148 +1877,137 @@
           elements.modalTitle.textContent = "Edit Question";
           elements.modalBody.innerHTML = `
             <div class="space-y-4">
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">
-                  Question Text *
-                </label>
-                <textarea id="edit-question-text" rows="3"
-                  class="w-full border border-gray-300 rounded-lg px-3 py-2">${
-                    question.question_text
-                  }</textarea>
-              </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                        Question Text *
+                    </label>
+                    <textarea id="edit-question-text" rows="3"
+                        class="w-full border border-gray-300 rounded-lg px-3 py-2">${escapeHtml(question.question_text)}</textarea>
+                </div>
 
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">
-                  Question Type *
-                </label>
-                <select id="edit-question-type"
-                  class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                        Question Type *
+                    </label>
+                    <select id="edit-question-type"
+                        class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                        <option value="section_header" ${question.question_type === "section_header" ? "selected" : ""}>Section Header</option>
+                        <option value="text" ${question.question_type === "text" ? "selected" : ""}>Text Input</option>
+                        <option value="textarea" ${question.question_type === "textarea" ? "selected" : ""}>Text Area</option>
+                        <option value="checkbox" ${question.question_type === "checkbox" ? "selected" : ""}>Checkbox</option>
+                        <option value="select" ${question.question_type === "select" ? "selected" : ""}>Dropdown</option>
+                        <option value="radio" ${question.question_type === "radio" ? "selected" : ""}>Radio Buttons</option>
+                        <option value="file" ${question.question_type === "file" ? "selected" : ""}>File Upload</option>
+                        <option value="clo_percentage" ${question.question_type === "clo_percentage" ? "selected" : ""}>CLO Percentage (All 4 CLOs)</option>
+                    </select>
+                </div>
 
-                  <option value="section-header" ${
-                    question.question_type === "section-header"
-                      ? "selected"
-                      : ""
-                  }>Section Header</option>
+                <div id="edit-options-container" 
+                    class="${["select", "radio", "checkbox"].includes(question.question_type) ? "" : "hidden"}">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                        Options (comma separated)
+                    </label>
+                    <input type="text" id="edit-question-options"
+                        value="${escapeHtml(question.options || "")}"
+                        class="w-full border border-gray-300 rounded-lg px-3 py-2"
+                        placeholder="Option 1, Option 2, Option 3">
+                </div>
 
-                  <option value="text" ${
-                    question.question_type === "text" ? "selected" : ""
-                  }>Text Input</option>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                        Order *
+                    </label>
+                    <input type="number" id="edit-question-order"
+                        value="${question.order || 0}"
+                        min="0"
+                        class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                </div>
 
-                  <option value="textarea" ${
-                    question.question_type === "textarea" ? "selected" : ""
-                  }>Text Area</option>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                        Help Text (Optional)
+                    </label>
+                    <textarea id="edit-question-help" rows="2"
+                        class="w-full border border-gray-300 rounded-lg px-3 py-2">${escapeHtml(question.help_text || "")}</textarea>
+                </div>
 
-                  <option value="checkbox" ${
-                    question.question_type === "checkbox" ? "selected" : ""
-                  }>Checkbox</option>
+                <div class="flex items-center">
+                    <input type="checkbox" id="edit-question-required"
+                        class="h-4 w-4 text-blue-600 border-gray-300 rounded"
+                        ${question.required ? "checked" : ""}>
+                    <label for="edit-question-required"
+                        class="ml-2 block text-sm text-gray-700">
+                        Required question
+                    </label>
+                </div>
 
-                  <option value="select" ${
-                    question.question_type === "select" ? "selected" : ""
-                  }>Dropdown</option>
+                <div class="pt-4 border-t flex justify-end gap-3">
+                    <button type="button"
+                        onclick="closeAllModals()"
+                        class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                        Cancel
+                    </button>
 
-                  <option value="radio" ${
-                    question.question_type === "radio" ? "selected" : ""
-                  }>Radio Buttons</option>
-
-                  <option value="file" ${
-                    question.question_type === "file" ? "selected" : ""
-                  }>File Upload</option>
-                </select>
-              </div>
-
-              <div id="edit-options-container"
-                class="${
-                  ["select", "radio", "checkbox"].includes(
-                    question.question_type,
-                  )
-                    ? ""
-                    : "hidden"
-                }">
-                <label class="block text-sm font-medium text-gray-700 mb-1">
-                  Options (comma separated)
-                </label>
-                <input type="text" id="edit-question-options"
-                  value="${question.options || ""}"
-                  class="w-full border border-gray-300 rounded-lg px-3 py-2"
-                  placeholder="Option 1, Option 2, Option 3">
-              </div>
-
-              <div class="flex items-center">
-                <input type="checkbox" id="edit-question-required"
-                  class="h-4 w-4 text-blue-600 border-gray-300 rounded"
-                  ${question.required ? "checked" : ""}>
-                <label for="edit-question-required"
-
-                class="ml-2 block text-sm text-gray-700">
-                  Required question
-                </label>
-              </div>
-
-              <div class="pt-4 border-t flex justify-end gap-3">
-                <button type="button"
-                  onclick="elements.modal.classList.add('hidden')"
-                  class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
-                  Cancel
-                </button>
-
-                <button
-                  onclick="saveEditedQuestion(${questionId}, ${formId})"
-                  class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-                  Save Changes
-                </button>
-              </div>
+                    <button
+                        onclick="saveEditedQuestion(${questionId}, ${formId})"
+                        class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                        Save Changes
+                    </button>
+                </div>
             </div>
-          `;
+        `;
 
-          // 🔹 Show/hide options based on question type
-          document
-            .getElementById("edit-question-type")
-            .addEventListener("change", function () {
-              const optionsContainer = document.getElementById(
-                "edit-options-container",
-              );
-              const questionType = this.value;
+          // Add event listener for question type change
+          const questionTypeSelect =
+            document.getElementById("edit-question-type");
+          questionTypeSelect.addEventListener("change", function () {
+            toggleQuestionOptions(this.value, "edit-options-container");
+          });
 
-              if (["select", "radio", "checkbox"].includes(questionType)) {
-                optionsContainer.classList.remove("hidden");
-              } else {
-                optionsContainer.classList.add("hidden");
-              }
-            });
-
-          // 🔹 Now open this modal
           elements.modal.classList.remove("hidden");
-
-          // Optional: lock body scroll when modal is open
           document.body.classList.add("overflow-hidden");
         } catch (error) {
-          showNotification("Error loading question", "error");
+          showNotification("Error loading question: " + error.message, "error");
         }
+      }
 
-        elements.modal.classList.add("active");
-
-        // And add to closeModal event listener:
-        elements.closeModal.addEventListener("click", () => {
-          elements.modal.classList.add("hidden");
-          elements.modal.classList.remove("active");
+      function escapeHtml(text) {
+        const map = {
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#039;",
+        };
+        return text.replace(/[&<>"']/g, function (m) {
+          return map[m];
         });
       }
 
       async function saveEditedQuestion(questionId, formId) {
-        const questionText =
-          document.getElementById("edit-question-text").value;
+        const questionText = document
+          .getElementById("edit-question-text")
+          .value.trim();
         const questionType =
           document.getElementById("edit-question-type").value;
         const questionRequired = document.getElementById(
           "edit-question-required",
         ).checked;
         const questionOptions =
-          document.getElementById("edit-question-options")?.value || "";
+          document.getElementById("edit-question-options")?.value.trim() || "";
+        const questionHelp =
+          document.getElementById("edit-question-help")?.value.trim() || "";
+        const questionOrder =
+          parseInt(document.getElementById("edit-question-order").value) || 0;
 
-        if (!questionText.trim()) {
+        if (!questionText) {
           showNotification("Question text is required", "error");
           return;
         }
+
+        // For CLO percentage type, we don't need options
+        const finalOptions =
+          questionType === "clo_percentage" ? "" : questionOptions;
 
         try {
           await fetchAPI(API.form_question_update(questionId), {
@@ -1973,18 +2016,22 @@
               question_text: questionText,
               question_type: questionType,
               required: questionRequired,
-              options: questionOptions,
+              order: questionOrder,
+              options: finalOptions,
+              help_text: questionHelp,
             }),
           });
 
-          elements.modal.classList.add("hidden");
+          closeAllModals();
           showNotification("Question updated successfully", "success");
-          const currentFormName = document
-            .querySelector("#outline-modal-title")
-            .textContent.replace("Manage Questions: ", "");
-          manageFormQuestions(formId, currentFormName);
+
+          // Refresh the questions list
+          await refreshQuestionsList(formId);
         } catch (error) {
-          showNotification("Error updating question", "error");
+          showNotification(
+            "Error updating question: " + error.message,
+            "error",
+          );
         }
       }
 
@@ -1999,12 +2046,14 @@
           });
 
           showNotification("Question deleted successfully", "success");
-          const currentFormName = document
-            .querySelector("#outline-modal-title")
-            .textContent.replace("Manage Questions: ", "");
-          manageFormQuestions(formId, currentFormName);
+
+          // Refresh the questions list
+          await refreshQuestionsList(formId);
         } catch (error) {
-          showNotification("Error deleting question", "error");
+          showNotification(
+            "Error deleting question: " + error.message,
+            "error",
+          );
         }
       }
 
@@ -3096,174 +3145,165 @@
       }
 
       //ai api
-
-      // Analysis Page
+      // New Analysis Page Renderer
+      // Update the Analysis Page
       async function renderAnalysisPage() {
         elements.pageTitle.textContent = "Analysis Dashboard";
         elements.pageSubtitle.textContent =
-          "Visual analytics and insights from form submissions and outlines";
-
-        elements.headerActions.innerHTML = `
-        <button onclick="refreshAnalysisCharts()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2">
-            <i class="fas fa-sync-alt"></i>
-            Refresh Charts
-        </button>
-    `;
+          "Analytics and insights for quality improvement";
 
         elements.contentArea.innerHTML = `
         <div class="space-y-6">
-            <!-- Summary Cards -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div class="bg-white rounded-lg shadow p-6">
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <h3 class="text-sm font-medium text-gray-500">Total Submissions</h3>
-                            <p id="total-submissions-count" class="text-2xl font-semibold mt-2">Loading...</p>
-                        </div>
-                        <div class="p-3 bg-blue-100 rounded-lg">
-                            <i class="fas fa-file-alt text-blue-600 text-xl"></i>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="bg-white rounded-lg shadow p-6">
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <h3 class="text-sm font-medium text-gray-500">Average CLO Achievement</h3>
-                            <p id="average-clo-rate" class="text-2xl font-semibold mt-2">Loading...</p>
-                        </div>
-                        <div class="p-3 bg-green-100 rounded-lg">
-                            <i class="fas fa-chart-bar text-green-600 text-xl"></i>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="bg-white rounded-lg shadow p-6">
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <h3 class="text-sm font-medium text-gray-500">Active Forms</h3>
-                            <p id="active-forms-count" class="text-2xl font-semibold mt-2">Loading...</p>
-                        </div>
-                        <div class="p-3 bg-purple-100 rounded-lg">
-                            <i class="fas fa-edit text-purple-600 text-xl"></i>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Charts Grid -->
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <!-- Line Chart: Submissions Over Time -->
-                <div class="bg-white rounded-lg shadow p-6">
-                    <h3 class="font-medium text-lg mb-4">Form Submissions Over Time (Last 8 Weeks)</h3>
+                    <h3 class="font-medium text-lg mb-4">Form Submissions Over Time</h3>
                     <div class="h-64">
-                        <canvas id="submissionsOverTimeChart"></canvas>
+                        <canvas id="submissionsChart"></canvas>
                     </div>
                 </div>
                 
-                <!-- Pie Chart: Form Status Distribution -->
                 <div class="bg-white rounded-lg shadow p-6">
                     <h3 class="font-medium text-lg mb-4">Form Status Distribution</h3>
                     <div class="h-64">
-                        <canvas id="formStatusChart"></canvas>
+                        <canvas id="statusChart"></canvas>
+                    </div>
+                </div>
+                
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h3 class="font-medium text-lg mb-4">CLO Achievement Rates</h3>
+                    <div class="h-64">
+                        <canvas id="cloChart"></canvas>
+                    </div>
+                    <div class="mt-4 text-center">
+                        <button onclick="showCLODetails()" class="text-sm text-blue-600 hover:text-blue-800">
+                            View Detailed Analysis →
+                        </button>
                     </div>
                 </div>
             </div>
             
-            <!-- CLO Achievement Chart -->
             <div class="bg-white rounded-lg shadow p-6">
-                <h3 class="font-medium text-lg mb-4">CLO Achievement Rate Analysis</h3>
-                <div class="h-64">
-                    <canvas id="cloAchievementChart"></canvas>
-                </div>
-                <div class="mt-4 text-sm text-gray-600" id="clo-summary">
-                    Loading CLO analysis...
+                <h3 class="font-medium text-lg mb-4">CLO Achievement Details</h3>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-left" id="cloDetailsTable">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-4 py-3 font-medium text-gray-700">CLO</th>
+                                <th class="px-4 py-3 font-medium text-gray-700">Avg Score</th>
+                                <th class="px-4 py-3 font-medium text-gray-700">Achievement Rate</th>
+                                <th class="px-4 py-3 font-medium text-gray-700">Responses</th>
+                                <th class="px-4 py-3 font-medium text-gray-700">Achieved</th>
+                                <th class="px-4 py-3 font-medium text-gray-700">Status</th>
+                                <th class="px-4 py-3 font-medium text-gray-700">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cloDetailsBody">
+                            <!-- Will be populated by JavaScript -->
+                        </tbody>
+                    </table>
                 </div>
             </div>
             
-            <!-- Recent Activity -->
             <div class="bg-white rounded-lg shadow p-6">
-                <h3 class="font-medium text-lg mb-4">Recent Analysis Insights</h3>
-                <div id="analysis-insights" class="space-y-3">
-                    <div class="flex items-center justify-center h-32">
-                        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                <h3 class="font-medium text-lg mb-4">CLO Trends Over Time</h3>
+                <div class="h-64">
+                    <canvas id="cloTrendsChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="bg-white rounded-lg shadow p-6">
+                <h3 class="font-medium text-lg mb-4">Key Metrics</h3>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div class="bg-blue-50 p-4 rounded-lg">
+                        <div class="text-2xl font-bold text-blue-600" id="totalSubmissions">0</div>
+                        <div class="text-sm text-gray-600">Total Submissions</div>
+                    </div>
+                    <div class="bg-green-50 p-4 rounded-lg">
+                        <div class="text-2xl font-bold text-green-600" id="approvalRate">0%</div>
+                        <div class="text-sm text-gray-600">Approval Rate</div>
+                    </div>
+                    <div class="bg-yellow-50 p-4 rounded-lg">
+                        <div class="text-2xl font-bold text-yellow-600" id="pendingCount">0</div>
+                        <div class="text-sm text-gray-600">Pending Review</div>
+                    </div>
+                    <div class="bg-purple-50 p-4 rounded-lg">
+                        <div class="text-2xl font-bold text-purple-600" id="avgCloRate">0%</div>
+                        <div class="text-sm text-gray-600">Avg CLO Rate</div>
                     </div>
                 </div>
             </div>
         </div>
     `;
 
-        // Load all charts
-        await loadAllCharts();
+        // Load all charts and data
+        await loadAllAnalysisData();
       }
 
-      async function loadAllCharts() {
+      async function loadAllAnalysisData() {
         try {
-          // Load submissions over time chart
+          // Load submissions over time
           const submissionsData = await fetchAPI(
-            API.analysis_form_submissions_over_time,
+            API.analysis_submissions_over_time,
           );
-          createSubmissionsOverTimeChart(submissionsData);
+          renderSubmissionsChart(submissionsData);
 
-          // Load form status distribution
-          const statusData = await fetchAPI(
-            API.analysis_form_status_distribution,
-          );
-          createFormStatusChart(statusData);
+          // Load form status data
+          const statusData = await fetchAPI(API.analysis_form_status);
+          renderStatusChart(statusData);
 
           // Load CLO achievement data
           const cloData = await fetchAPI(API.analysis_clo_achievement);
-          createCLOAchievementChart(cloData);
+          renderCLOChart(cloData);
+          populateCLODetails(cloData);
 
-          // Update summary cards
-          document.getElementById("total-submissions-count").textContent =
-            submissionsData.total_submissions || 0;
+          // Load CLO trends
+          const trendData = await fetchAPI(API.analysis_clo_trends);
+          renderCLOTrendsChart(trendData);
 
-          document.getElementById("average-clo-rate").textContent =
-            cloData.average_rate ? `${cloData.average_rate}%` : "N/A";
-
-          // Update active forms count
-          const forms = await fetchAPI(API.dynamic_forms);
-          const activeForms = forms.filter((f) => f.status === "active");
-          document.getElementById("active-forms-count").textContent =
-            activeForms.length;
-
-          // Generate insights
-          generateAnalysisInsights(submissionsData, statusData, cloData);
+          // Update metrics
+          updateMetrics(submissionsData, statusData, cloData);
         } catch (error) {
-          console.error("Error loading charts:", error);
+          console.error("Error loading analysis data:", error);
           showNotification("Error loading analysis data", "error");
         }
       }
 
-      function createSubmissionsOverTimeChart(data) {
-        const ctx = document.getElementById("submissionsOverTimeChart");
-        if (!ctx) return;
-
-        // Format week labels
-        const formattedWeeks = data.weeks.map((week) => {
-          const date = new Date(week);
-          return `${date.getDate()}/${date.getMonth() + 1}`;
-        });
+      function renderCLOChart(data) {
+        const ctx = document.getElementById("cloChart").getContext("2d");
 
         new Chart(ctx, {
-          type: "line",
+          type: "bar",
           data: {
-            labels: formattedWeeks,
+            labels: data.clos,
             datasets: [
               {
-                label: "CCR Submissions",
-                data: data.ccr_submissions,
-                borderColor: "rgb(59, 130, 246)",
-                backgroundColor: "rgba(59, 130, 246, 0.1)",
-                tension: 0.4,
+                label: "Achievement Rate (%)",
+                data: data.achievement_rates,
+                backgroundColor: [
+                  "rgba(59, 130, 246, 0.7)",
+                  "rgba(16, 185, 129, 0.7)",
+                  "rgba(245, 158, 11, 0.7)",
+                  "rgba(239, 68, 68, 0.7)",
+                ],
+                borderColor: [
+                  "rgb(59, 130, 246)",
+                  "rgb(16, 185, 129)",
+                  "rgb(245, 158, 11)",
+                  "rgb(239, 68, 68)",
+                ],
+                borderWidth: 1,
+                yAxisID: "y",
               },
               {
-                label: "CRR Submissions",
-                data: data.crr_submissions,
-                borderColor: "rgb(16, 185, 129)",
-                backgroundColor: "rgba(16, 185, 129, 0.1)",
+                label: "Average Score",
+                data: data.average_scores,
+                type: "line",
+                borderColor: "rgba(139, 92, 246, 1)",
+                backgroundColor: "rgba(139, 92, 246, 0.1)",
+                borderWidth: 2,
+                fill: false,
                 tension: 0.4,
+                yAxisID: "y1",
               },
             ],
           },
@@ -3275,22 +3315,49 @@
                 position: "top",
               },
               tooltip: {
-                mode: "index",
-                intersect: false,
+                callbacks: {
+                  label: function (context) {
+                    let label = context.dataset.label || "";
+                    if (label) {
+                      label += ": ";
+                    }
+                    if (context.datasetIndex === 0) {
+                      label += `${context.raw}%`;
+                    } else {
+                      label += context.raw;
+                    }
+                    return label;
+                  },
+                },
               },
             },
             scales: {
               y: {
-                beginAtZero: true,
+                type: "linear",
+                display: true,
+                position: "left",
                 title: {
                   display: true,
-                  text: "Number of Submissions",
+                  text: "Achievement Rate (%)",
+                },
+                min: 0,
+                max: 100,
+                grid: {
+                  drawOnChartArea: false,
                 },
               },
-              x: {
+              y1: {
+                type: "linear",
+                display: true,
+                position: "right",
                 title: {
                   display: true,
-                  text: "Week",
+                  text: "Average Score",
+                },
+                min: 0,
+                max: 100,
+                grid: {
+                  drawOnChartArea: false,
                 },
               },
             },
@@ -3298,88 +3365,116 @@
         });
       }
 
-      function createFormStatusChart(data) {
-        const ctx = document.getElementById("formStatusChart");
-        if (!ctx) return;
+      function populateCLODetails(data) {
+        const tbody = document.getElementById("cloDetailsBody");
+        tbody.innerHTML = "";
 
-        // Create stacked bar chart
+        data.clos.forEach((clo, index) => {
+          const achievementRate = data.achievement_rates[index];
+          const avgScore = data.average_scores[index];
+          const totalResponses = data.total_responses[index];
+          const achieved = data.achieved_counts[index];
+
+          // Determine status color
+          let statusColor, statusText;
+          if (achievementRate >= 80) {
+            statusColor = "bg-green-100 text-green-800";
+            statusText = "Excellent";
+          } else if (achievementRate >= 70) {
+            statusColor = "bg-blue-100 text-blue-800";
+            statusText = "Good";
+          } else if (achievementRate >= 60) {
+            statusColor = "bg-yellow-100 text-yellow-800";
+            statusText = "Satisfactory";
+          } else {
+            statusColor = "bg-red-100 text-red-800";
+            statusText = "Needs Improvement";
+          }
+
+          const row = document.createElement("tr");
+          row.className = "hover:bg-gray-50";
+          row.innerHTML = `
+            <td class="px-4 py-3 font-medium">${clo}</td>
+            <td class="px-4 py-3">
+                <div class="font-medium">${avgScore}</div>
+                <div class="text-xs text-gray-500">out of 100</div>
+            </td>
+            <td class="px-4 py-3">
+                <div class="flex items-center">
+                    <div class="w-full bg-gray-200 rounded-full h-2.5 mr-2">
+                        <div class="bg-blue-600 h-2.5 rounded-full" style="width: ${achievementRate}%"></div>
+                    </div>
+                    <span class="font-medium">${achievementRate}%</span>
+                </div>
+            </td>
+            <td class="px-4 py-3">
+                <span class="bg-gray-100 text-gray-800 px-2 py-1 rounded-full text-sm">${totalResponses}</span>
+            </td>
+            <td class="px-4 py-3">
+                <span class="bg-green-100 text-green-800 px-2 py-1 rounded-full text-sm">${achieved}</span>
+            </td>
+            <td class="px-4 py-3">
+                <span class="px-2 py-1 rounded-full text-xs font-medium ${statusColor}">
+                    ${statusText}
+                </span>
+            </td>
+            <td class="px-4 py-3">
+                <button onclick="viewCLODetails(${index + 1}, '${clo}')" 
+                        class="text-blue-600 hover:text-blue-800 text-sm font-medium">
+                    <i class="fas fa-chart-line mr-1"></i> Details
+                </button>
+            </td>
+        `;
+          tbody.appendChild(row);
+        });
+      }
+
+      function renderCLOTrendsChart(data) {
+        const ctx = document.getElementById("cloTrendsChart").getContext("2d");
+
         new Chart(ctx, {
-          type: "bar",
+          type: "line",
           data: {
-            labels: data.labels,
+            labels: data.quarters,
             datasets: [
               {
-                label: "CCR Forms",
-                data: data.ccr_data,
-                backgroundColor: "rgba(59, 130, 246, 0.7)",
+                label: "CLO1",
+                data: data.trends.CLO1,
                 borderColor: "rgb(59, 130, 246)",
-                borderWidth: 1,
+                backgroundColor: "rgba(59, 130, 246, 0.1)",
+                tension: 0.4,
               },
               {
-                label: "CRR Forms",
-                data: data.crr_data,
-                backgroundColor: "rgba(16, 185, 129, 0.7)",
+                label: "CLO2",
+                data: data.trends.CLO2,
                 borderColor: "rgb(16, 185, 129)",
-                borderWidth: 1,
+                backgroundColor: "rgba(16, 185, 129, 0.1)",
+                tension: 0.4,
+              },
+              {
+                label: "CLO3",
+                data: data.trends.CLO3,
+                borderColor: "rgb(245, 158, 11)",
+                backgroundColor: "rgba(245, 158, 11, 0.1)",
+                tension: 0.4,
+              },
+              {
+                label: "CLO4",
+                data: data.trends.CLO4,
+                borderColor: "rgb(239, 68, 68)",
+                backgroundColor: "rgba(239, 68, 68, 0.1)",
+                tension: 0.4,
               },
             ],
           },
           options: {
             responsive: true,
             maintainAspectRatio: false,
-            scales: {
-              x: {
-                stacked: true,
-              },
-              y: {
-                stacked: true,
-                beginAtZero: true,
-                title: {
-                  display: true,
-                  text: "Number of Forms",
-                },
-              },
-            },
             plugins: {
               legend: {
                 position: "top",
               },
             },
-          },
-        });
-      }
-
-      function createCLOAchievementChart(data) {
-        const ctx = document.getElementById("cloAchievementChart");
-        if (!ctx) return;
-
-        new Chart(ctx, {
-          type: "bar",
-          data: {
-            labels: data.clo_labels,
-            datasets: [
-              {
-                label: "Achievement Rate (%)",
-                data: data.achievement_rates,
-                backgroundColor: [
-                  "rgba(255, 99, 132, 0.7)",
-                  "rgba(54, 162, 235, 0.7)",
-                  "rgba(255, 206, 86, 0.7)",
-                  "rgba(75, 192, 192, 0.7)",
-                ],
-                borderColor: [
-                  "rgb(255, 99, 132)",
-                  "rgb(54, 162, 235)",
-                  "rgb(255, 206, 86)",
-                  "rgb(75, 192, 192)",
-                ],
-                borderWidth: 1,
-              },
-            ],
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
             scales: {
               y: {
                 beginAtZero: true,
@@ -3390,247 +3485,439 @@
                 },
               },
             },
+          },
+        });
+      }
+
+      async function viewCLODetails(cloNumber, cloName) {
+        try {
+          const details = await fetchAPI(API.analysis_detailed_clo(cloNumber));
+
+          elements.modalTitle.textContent = `Detailed Analysis: ${cloName}`;
+          elements.modalBody.innerHTML = `
+            <div class="space-y-6 max-h-[80vh] overflow-y-auto">
+                <div class="bg-blue-50 p-4 rounded-lg">
+                    <h4 class="font-medium text-blue-900 mb-2">Overall Statistics</h4>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div class="bg-white p-3 rounded-lg text-center">
+                            <div class="text-2xl font-bold text-blue-600">${details.overall_statistics.average_score}</div>
+                            <div class="text-sm text-gray-600">Average Score</div>
+                        </div>
+                        <div class="bg-white p-3 rounded-lg text-center">
+                            <div class="text-2xl font-bold text-green-600">${details.overall_statistics.achievement_rate}%</div>
+                            <div class="text-sm text-gray-600">Achievement Rate</div>
+                        </div>
+                        <div class="bg-white p-3 rounded-lg text-center">
+                            <div class="text-2xl font-bold text-purple-600">${details.overall_statistics.total_responses}</div>
+                            <div class="text-sm text-gray-600">Total Responses</div>
+                        </div>
+                        <div class="bg-white p-3 rounded-lg text-center">
+                            <div class="text-2xl font-bold text-yellow-600">${details.overall_statistics.achieved_responses}</div>
+                            <div class="text-sm text-gray-600">Achieved</div>
+                        </div>
+                    </div>
+                    <div class="mt-3 text-sm text-gray-600">
+                        Score Range: ${details.overall_statistics.score_range.min} - ${details.overall_statistics.score_range.max} 
+                        (Median: ${details.overall_statistics.score_range.median})
+                    </div>
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <h4 class="font-medium text-gray-900 mb-3">Top Courses by Achievement</h4>
+                        <div class="space-y-2">
+                            ${details.course_analysis
+                              .slice(0, 5)
+                              .map(
+                                (course) => `
+                                <div class="border border-gray-200 rounded-lg p-3">
+                                    <div class="flex justify-between items-center">
+                                        <div class="font-medium">${course.course_code}</div>
+                                        <span class="px-2 py-1 text-xs rounded ${course.achievement_rate >= 70 ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}">
+                                            ${course.achievement_rate}%
+                                        </span>
+                                    </div>
+                                    <div class="text-sm text-gray-600 mt-1">
+                                        Avg Score: ${course.average_score} | Responses: ${course.response_count}
+                                    </div>
+                                </div>
+                            `,
+                              )
+                              .join("")}
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <h4 class="font-medium text-gray-900 mb-3">Top Faculty by Achievement</h4>
+                        <div class="space-y-2">
+                            ${details.faculty_analysis
+                              .slice(0, 5)
+                              .map(
+                                (faculty) => `
+                                <div class="border border-gray-200 rounded-lg p-3">
+                                    <div class="flex justify-between items-center">
+                                        <div class="font-medium">${faculty.faculty}</div>
+                                        <span class="px-2 py-1 text-xs rounded ${faculty.achievement_rate >= 70 ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}">
+                                            ${faculty.achievement_rate}%
+                                        </span>
+                                    </div>
+                                    <div class="text-sm text-gray-600 mt-1">
+                                        Avg Score: ${faculty.average_score} | Responses: ${faculty.response_count}
+                                    </div>
+                                </div>
+                            `,
+                              )
+                              .join("")}
+                        </div>
+                    </div>
+                </div>
+                
+                <div>
+                    <h4 class="font-medium text-gray-900 mb-3">Recent Responses (${details.detailed_responses.length})</h4>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm text-left">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-3 py-2 font-medium text-gray-700">Course</th>
+                                    <th class="px-3 py-2 font-medium text-gray-700">Faculty</th>
+                                    <th class="px-3 py-2 font-medium text-gray-700">Score</th>
+                                    <th class="px-3 py-2 font-medium text-gray-700">Status</th>
+                                    <th class="px-3 py-2 font-medium text-gray-700">Form</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200">
+                                ${details.detailed_responses
+                                  .map(
+                                    (response) => `
+                                    <tr class="hover:bg-gray-50">
+                                        <td class="px-3 py-2">
+                                            <div class="font-medium">${response.course_code}</div>
+                                            <div class="text-xs text-gray-500">${response.course_title}</div>
+                                        </td>
+                                        <td class="px-3 py-2">${response.faculty}</td>
+                                        <td class="px-3 py-2">
+                                            <span class="px-2 py-1 rounded-full text-xs font-medium ${response.score >= 70 ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}">
+                                                ${response.score}
+                                            </span>
+                                        </td>
+                                        <td class="px-3 py-2">
+                                            <span class="px-2 py-1 rounded-full text-xs font-medium ${response.achieved ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}">
+                                                ${response.achieved ? "Achieved" : "Not Achieved"}
+                                            </span>
+                                        </td>
+                                        <td class="px-3 py-2">
+                                            <span class="px-2 py-1 rounded-full text-xs font-medium ${response.form_type === "ccr" ? "bg-blue-100 text-blue-800" : "bg-green-100 text-green-800"}">
+                                                ${response.form_type.toUpperCase()}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                `,
+                                  )
+                                  .join("")}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <div class="flex justify-end pt-4 border-t">
+                    <button onclick="elements.modal.classList.add('hidden')" 
+                            class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                        Close
+                    </button>
+                </div>
+            </div>
+        `;
+
+          elements.modal.classList.remove("hidden");
+        } catch (error) {
+          showNotification("Error loading CLO details", "error");
+        }
+      }
+
+      function showCLODetails() {
+        // Show modal with all CLO details
+        viewCLODetails(1, "CLO1");
+      }
+      async function loadAllCharts() {
+        try {
+          // Load submissions over time
+          const submissionsData = await fetchAPI(
+            API.analysis_submissions_over_time,
+          );
+          renderSubmissionsChart(submissionsData);
+
+          // Load form status data
+          const statusData = await fetchAPI(API.analysis_form_status);
+          renderStatusChart(statusData);
+
+          // Load CLO achievement data
+          const cloData = await fetchAPI(API.analysis_clo_achievement);
+          renderCLOChart(cloData);
+
+          // Update metrics
+          updateMetrics(submissionsData, statusData, cloData);
+        } catch (error) {
+          console.error("Error loading charts:", error);
+          showNotification("Error loading analysis data", "error");
+        }
+      }
+
+      function renderSubmissionsChart(data) {
+        const ctx = document
+          .getElementById("submissionsChart")
+          .getContext("2d");
+
+        new Chart(ctx, {
+          type: "line",
+          data: {
+            labels: data.weeks.map((w) => `Week ${w}`),
+            datasets: [
+              {
+                label: "CCR Submissions",
+                data: data.ccr_data,
+                borderColor: "#3b82f6",
+                backgroundColor: "rgba(59, 130, 246, 0.1)",
+                tension: 0.1,
+              },
+              {
+                label: "CRR Submissions",
+                data: data.crr_data,
+                borderColor: "#10b981",
+                backgroundColor: "rgba(16, 185, 129, 0.1)",
+                tension: 0.1,
+              },
+              {
+                label: "Total",
+                data: data.total_data,
+                borderColor: "#8b5cf6",
+                backgroundColor: "rgba(139, 92, 246, 0.1)",
+                tension: 0.1,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                position: "top",
+              },
+            },
+            scales: {
+              y: {
+                beginAtZero: true,
+                title: {
+                  display: true,
+                  text: "Number of Submissions",
+                },
+              },
+            },
+          },
+        });
+      }
+
+      function renderStatusChart(data) {
+        const ctx = document.getElementById("statusChart").getContext("2d");
+
+        new Chart(ctx, {
+          type: "pie",
+          data: {
+            labels: data.labels,
+            datasets: [
+              {
+                data: data.data,
+                backgroundColor: data.colors,
+                borderWidth: 1,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                position: "right",
+              },
+              tooltip: {
+                callbacks: {
+                  label: function (context) {
+                    const label = context.label || "";
+                    const value = context.raw || 0;
+                    const total = context.dataset.data.reduce(
+                      (a, b) => a + b,
+                      0,
+                    );
+                    const percentage = Math.round((value / total) * 100);
+                    return `${label}: ${value} (${percentage}%)`;
+                  },
+                },
+              },
+            },
+          },
+        });
+      }
+
+      function renderCLOChart(data) {
+        const ctx = document.getElementById("cloChart").getContext("2d");
+
+        new Chart(ctx, {
+          type: "bar",
+          data: {
+            labels: data.clos,
+            datasets: [
+              {
+                label: "Achievement Rate (%)",
+                data: data.achievement_rates,
+                backgroundColor: [
+                  "rgba(59, 130, 246, 0.7)",
+                  "rgba(16, 185, 129, 0.7)",
+                  "rgba(245, 158, 11, 0.7)",
+                  "rgba(239, 68, 68, 0.7)",
+                ],
+                borderColor: [
+                  "rgb(59, 130, 246)",
+                  "rgb(16, 185, 129)",
+                  "rgb(245, 158, 11)",
+                  "rgb(239, 68, 68)",
+                ],
+                borderWidth: 1,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
             plugins: {
               legend: {
                 display: false,
               },
             },
+            scales: {
+              y: {
+                beginAtZero: true,
+                max: 100,
+                title: {
+                  display: true,
+                  text: "Achievement Rate (%)",
+                },
+              },
+            },
           },
         });
-
-        // Update CLO summary
-        const cloSummary = document.getElementById("clo-summary");
-        cloSummary.innerHTML = `
-        <div class="grid grid-cols-2 gap-4">
-            <div>
-                <span class="font-medium">Total Assessments:</span> ${data.total_assessments}
-            </div>
-            <div>
-                <span class="font-medium">Average Rate:</span> ${data.average_rate}%
-            </div>
-        </div>
-    `;
       }
 
-      function generateAnalysisInsights(submissionsData, statusData, cloData) {
-        const insightsContainer = document.getElementById("analysis-insights");
-
-        const insights = [];
-
-        // Generate insights from submissions data
-        const totalCCR = submissionsData.ccr_submissions.reduce(
+      function updateMetrics(submissionsData, statusData, cloData) {
+        // Total submissions
+        const totalSubmissions = submissionsData.total_data.reduce(
           (a, b) => a + b,
           0,
         );
-        const totalCRR = submissionsData.crr_submissions.reduce(
-          (a, b) => a + b,
-          0,
+        document.getElementById("totalSubmissions").textContent =
+          totalSubmissions;
+
+        // Approval rate
+        const approvedIndex = statusData.labels.findIndex(
+          (l) => l.toLowerCase() === "approved",
         );
+        const approvedCount =
+          approvedIndex >= 0 ? statusData.data[approvedIndex] : 0;
+        const totalStatus = statusData.data.reduce((a, b) => a + b, 0);
+        const approvalRate =
+          totalStatus > 0 ? Math.round((approvedCount / totalStatus) * 100) : 0;
+        document.getElementById("approvalRate").textContent =
+          `${approvalRate}%`;
 
-        if (totalCCR > totalCRR) {
-          insights.push({
-            icon: "fa-users",
-            color: "text-blue-600",
-            bg: "bg-blue-100",
-            text: `Course Coordinators are more active with ${totalCCR} CCR submissions compared to ${totalCRR} CRR submissions.`,
-          });
-        }
+        // Pending count
+        const pendingIndex = statusData.labels.findIndex(
+          (l) => l.toLowerCase() === "submitted",
+        );
+        const pendingCount =
+          pendingIndex >= 0 ? statusData.data[pendingIndex] : 0;
+        document.getElementById("pendingCount").textContent = pendingCount;
 
-        // Generate insights from status data
-        const submittedCount = statusData.ccr_data[0] + statusData.crr_data[0];
-        const approvedCount = statusData.ccr_data[1] + statusData.crr_data[1];
-        const pendingRate =
-          submittedCount > 0
+        // Average CLO rate
+        const avgCloRate =
+          cloData.achievement_rates.length > 0
             ? Math.round(
-                (submittedCount / (submittedCount + approvedCount)) * 100,
+                cloData.achievement_rates.reduce((a, b) => a + b, 0) /
+                  cloData.achievement_rates.length,
               )
             : 0;
-
-        if (pendingRate > 50) {
-          insights.push({
-            icon: "fa-clock",
-            color: "text-yellow-600",
-            bg: "bg-yellow-100",
-            text: `${pendingRate}% of submissions are still pending review. Consider allocating more time for CRC meetings.`,
-          });
-        }
-
-        // Generate insights from CLO data
-        const lowCLOs = cloData.achievement_rates.filter((rate) => rate < 70);
-        if (lowCLOs.length > 0) {
-          insights.push({
-            icon: "fa-exclamation-triangle",
-            color: "text-red-600",
-            bg: "bg-red-100",
-            text: `${lowCLOs.length} CLO(s) have achievement rates below 70%. Review assessment methods for these outcomes.`,
-          });
-        }
-
-        // Display insights
-        if (insights.length > 0) {
-          insightsContainer.innerHTML = insights
-            .map(
-              (insight) => `
-            <div class="flex items-start gap-3 p-3 rounded-lg ${insight.bg}">
-                <div class="p-2 rounded ${insight.bg}">
-                    <i class="fas ${insight.icon} ${insight.color}"></i>
-                </div>
-                <div class="flex-1">
-                    <p class="text-sm">${insight.text}</p>
-                </div>
-            </div>
-        `,
-            )
-            .join("");
-        } else {
-          insightsContainer.innerHTML = `
-            <div class="text-center py-4 text-gray-500">
-                No significant insights detected in current data.
-            </div>
-        `;
-        }
-      }
-
-      function refreshAnalysisCharts() {
-        // Destroy existing charts
-        const charts = [
-          "submissionsOverTimeChart",
-          "formStatusChart",
-          "cloAchievementChart",
-        ];
-        charts.forEach((chartId) => {
-          const chart = Chart.getChart(chartId);
-          if (chart) chart.destroy();
-        });
-
-        // Reload charts
-        loadAllCharts();
-        showNotification("Charts refreshed successfully", "success");
+        document.getElementById("avgCloRate").textContent = `${avgCloRate}%`;
       }
 
       // Outline Comparison Page
       async function renderOutlineComparisonPage() {
-        elements.pageTitle.textContent = "Outline Comparison Tool";
+        elements.pageTitle.textContent = "Outline Comparison";
         elements.pageSubtitle.textContent =
           "Compare different versions of course outlines";
 
         elements.contentArea.innerHTML = `
         <div class="space-y-6">
-            <!-- Comparison Tool -->
             <div class="bg-white rounded-lg shadow p-6">
-                <h3 class="font-medium text-lg mb-6">Compare Outline Versions</h3>
+                <h3 class="font-medium text-lg mb-4">Compare Outline Versions</h3>
                 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                    <!-- Course Selection -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">
-                            Select Course
-                        </label>
-                        <select id="comparison-course-select" 
-                                class="w-full border border-gray-300 rounded-lg px-3 py-2"
-                                onchange="loadOutlineVersions(this.value)">
-                            <option value="">-- Select a Course --</option>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Select Course</label>
+                        <select id="compare-course-select" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                            <option value="">Select a course...</option>
                         </select>
                     </div>
-                    
-                    <!-- Version Selection -->
-                    <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">
-                                Version 1
-                            </label>
-                            <select id="comparison-version1" 
-                                    class="w-full border border-gray-300 rounded-lg px-3 py-2"
-                                    disabled>
-                                <option value="">-- Select Version --</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">
-                                Version 2
-                            </label>
-                            <select id="comparison-version2" 
-                                    class="w-full border border-gray-300 rounded-lg px-3 py-2"
-                                    disabled>
-                                <option value="">-- Select Version --</option>
-                            </select>
-                        </div>
+                    <div class="flex items-end">
+                        <button onclick="loadCourseOutlines()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                            Load Outlines
+                        </button>
                     </div>
                 </div>
                 
-                <!-- Compare Button -->
-                <div class="flex justify-center">
-                    <button id="compare-button" 
-                            onclick="compareSelectedOutlines()"
-                            class="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
-                            disabled>
-                        <i class="fas fa-code-compare"></i>
+                <div id="outline-selection" class="hidden">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">First Outline Version</label>
+                            <select id="outline1-select" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                                <option value="">Select first outline...</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Second Outline Version</label>
+                            <select id="outline2-select" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                                <option value="">Select second outline...</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <button onclick="compareOutlines()" 
+                            id="compare-button"
+                            disabled
+                            class="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed">
                         Compare Outlines
                     </button>
                 </div>
             </div>
             
-            <!-- Comparison Results -->
             <div id="comparison-results" class="hidden">
                 <div class="bg-white rounded-lg shadow p-6">
-                    <h3 class="font-medium text-lg mb-6">Comparison Results</h3>
-                    
-                    <!-- Summary Stats -->
-                    <div id="comparison-summary" class="mb-8"></div>
-                    
-                    <!-- Visual Comparison -->
-                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8">
-                        <div class="bg-green-50 border border-green-200 rounded-lg p-4">
-                            <h4 class="font-medium text-green-800 mb-2">Lines Added</h4>
-                            <div id="added-lines" class="text-sm text-green-700 max-h-48 overflow-y-auto"></div>
-                        </div>
-                        
-                        <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                            <h4 class="font-medium text-yellow-800 mb-2">Lines Modified</h4>
-                            <div id="modified-lines" class="text-sm text-yellow-700 max-h-48 overflow-y-auto"></div>
-                        </div>
-                        
-                        <div class="bg-red-50 border border-red-200 rounded-lg p-4">
-                            <h4 class="font-medium text-red-800 mb-2">Lines Deleted</h4>
-                            <div id="deleted-lines" class="text-sm text-red-700 max-h-48 overflow-y-auto"></div>
-                        </div>
-                    </div>
-                    
-                    <!-- Similarity Meter -->
-                    <div class="bg-gray-50 rounded-lg p-6">
-                        <h4 class="font-medium text-gray-900 mb-4">Similarity Analysis</h4>
-                        <div class="space-y-4">
-                            <div>
-                                <div class="flex justify-between text-sm text-gray-600 mb-1">
-                                    <span>Similarity Score</span>
-                                    <span id="similarity-percent">0%</span>
-                                </div>
-                                <div class="w-full bg-gray-200 rounded-full h-4">
-                                    <div id="similarity-bar" 
-                                         class="bg-blue-600 h-4 rounded-full transition-all duration-500"
-                                         style="width: 0%"></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                    <h3 class="font-medium text-lg mb-4">Comparison Results</h3>
+                    <div id="comparison-content"></div>
                 </div>
             </div>
         </div>
     `;
 
-        // Load courses with outlines
+        // Load courses for dropdown
         await loadCoursesForComparison();
       }
 
       async function loadCoursesForComparison() {
         try {
-          const courses = await fetchAPI(API.analysis_courses_with_outlines);
-          const select = document.getElementById("comparison-course-select");
+          const catalogue = await fetchAPI(API.crc_course_catalogue);
+          const select = document.getElementById("compare-course-select");
 
-          courses.forEach((course) => {
+          catalogue.forEach((course) => {
             const option = document.createElement("option");
-            option.value = course.id;
-            option.textContent = `${course.code} - ${course.title}`;
+            option.value = course.course_id;
+            option.textContent = `${course.course_code} - ${course.course_title}`;
             select.appendChild(option);
           });
         } catch (error) {
@@ -3638,64 +3925,80 @@
         }
       }
 
-      async function loadOutlineVersions(courseId) {
-        if (!courseId) return;
-
-        try {
-          const versions = await fetchAPI(
-            API.analysis_course_outline_versions(courseId),
-          );
-          const version1Select = document.getElementById("comparison-version1");
-          const version2Select = document.getElementById("comparison-version2");
-          const compareButton = document.getElementById("compare-button");
-
-          // Clear existing options
-          version1Select.innerHTML =
-            '<option value="">-- Select Version --</option>';
-          version2Select.innerHTML =
-            '<option value="">-- Select Version --</option>';
-
-          // Add version options
-          versions.forEach((version) => {
-            const option1 = document.createElement("option");
-            option1.value = version.id;
-            option1.textContent = `v${version.version} - ${version.title} (${new Date(version.created_at).toLocaleDateString()})`;
-
-            const option2 = option1.cloneNode(true);
-
-            version1Select.appendChild(option1);
-            version2Select.appendChild(option2);
-          });
-
-          // Enable selects
-          version1Select.disabled = versions.length === 0;
-          version2Select.disabled = versions.length === 0;
-
-          // Enable compare button if at least 2 versions
-          compareButton.disabled = versions.length < 2;
-        } catch (error) {
-          showNotification("Error loading outline versions", "error");
-        }
-      }
-
-      async function compareSelectedOutlines() {
-        const version1Id = document.getElementById("comparison-version1").value;
-        const version2Id = document.getElementById("comparison-version2").value;
-
-        if (!version1Id || !version2Id || version1Id === version2Id) {
-          showNotification(
-            "Please select two different versions to compare",
-            "error",
-          );
+      async function loadCourseOutlines() {
+        const courseId = document.getElementById("compare-course-select").value;
+        if (!courseId) {
+          showNotification("Please select a course first", "error");
           return;
         }
 
         try {
-          const comparison = await fetchAPI(API.analysis_compare_outlines, {
+          const catalogue = await fetchAPI(API.crc_course_catalogue);
+          const course = catalogue.find((c) => c.course_id == courseId);
+
+          if (!course || !course.outlines || course.outlines.length < 2) {
+            showNotification(
+              "Course must have at least 2 outlines to compare",
+              "error",
+            );
+            return;
+          }
+
+          // Populate outline selectors
+          const outline1Select = document.getElementById("outline1-select");
+          const outline2Select = document.getElementById("outline2-select");
+
+          outline1Select.innerHTML =
+            '<option value="">Select first outline...</option>';
+          outline2Select.innerHTML =
+            '<option value="">Select second outline...</option>';
+
+          course.outlines.forEach((outline) => {
+            const option1 = document.createElement("option");
+            option1.value = outline.id;
+            option1.textContent = `v${outline.version} - ${outline.title} (${outline.status})`;
+            outline1Select.appendChild(option1.cloneNode(true));
+
+            const option2 = option1.cloneNode(true);
+            outline2Select.appendChild(option2);
+          });
+
+          // Show selection section
+          document
+            .getElementById("outline-selection")
+            .classList.remove("hidden");
+
+          // Enable compare button when both selected
+          outline1Select.addEventListener("change", updateCompareButton);
+          outline2Select.addEventListener("change", updateCompareButton);
+        } catch (error) {
+          showNotification("Error loading outlines", "error");
+        }
+      }
+
+      function updateCompareButton() {
+        const outline1 = document.getElementById("outline1-select").value;
+        const outline2 = document.getElementById("outline2-select").value;
+        const button = document.getElementById("compare-button");
+
+        button.disabled = !outline1 || !outline2 || outline1 === outline2;
+      }
+
+      async function compareOutlines() {
+        const outline1Id = document.getElementById("outline1-select").value;
+        const outline2Id = document.getElementById("outline2-select").value;
+
+        if (!outline1Id || !outline2Id || outline1Id === outline2Id) {
+          showNotification("Please select two different outlines", "error");
+          return;
+        }
+
+        try {
+          const comparison = await fetchAPI(API.compare_outlines, {
             method: "POST",
             body: JSON.stringify({
-              outline1_id: version1Id,
-              outline2_id: version2Id,
+              outline1_id: outline1Id,
+              outline2_id: outline2Id,
             }),
           });
 
@@ -3706,479 +4009,414 @@
       }
 
       function displayComparisonResults(comparison) {
-        const resultsDiv = document.getElementById("comparison-results");
-        resultsDiv.classList.remove("hidden");
+        document
+          .getElementById("comparison-results")
+          .classList.remove("hidden");
 
-        // Update summary
-        const summaryDiv = document.getElementById("comparison-summary");
-        summaryDiv.innerHTML = `
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-            <div class="bg-white border border-gray-200 rounded-lg p-4">
-                <h4 class="font-medium text-gray-900 mb-2">Version ${comparison.outline1.version}</h4>
-                <p class="text-sm text-gray-600">${comparison.outline1.title}</p>
-                <p class="text-xs text-gray-500 mt-1">By ${comparison.outline1.faculty}</p>
-                <p class="text-xs text-gray-500">${comparison.outline1.created_at}</p>
-            </div>
-            
-            <div class="flex items-center justify-center">
-                <div class="text-center">
-                    <div class="text-3xl font-bold text-blue-600">${comparison.comparison.similarity_percentage}%</div>
-                    <div class="text-sm text-gray-600">Similarity</div>
+        let content = `
+        <div class="mb-6 p-4 bg-gray-50 rounded-lg">
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <h4 class="font-medium text-gray-900">Outline 1</h4>
+                    <p class="text-sm">Version ${comparison.outline1.version} - ${comparison.outline1.title}</p>
+                    <span class="px-2 py-1 text-xs rounded ${
+                      comparison.outline1.status === "approved"
+                        ? "bg-green-100 text-green-800"
+                        : comparison.outline1.status === "submitted"
+                          ? "bg-yellow-100 text-yellow-800"
+                          : "bg-gray-100 text-gray-800"
+                    }">
+                        ${comparison.outline1.status}
+                    </span>
                 </div>
-            </div>
-            
-            <div class="bg-white border border-gray-200 rounded-lg p-4">
-                <h4 class="font-medium text-gray-900 mb-2">Version ${comparison.outline2.version}</h4>
-                <p class="text-sm text-gray-600">${comparison.outline2.title}</p>
-                <p class="text-xs text-gray-500 mt-1">By ${comparison.outline2.faculty}</p>
-                <p class="text-xs text-gray-500">${comparison.outline2.created_at}</p>
+                <div>
+                    <h4 class="font-medium text-gray-900">Outline 2</h4>
+                    <p class="text-sm">Version ${comparison.outline2.version} - ${comparison.outline2.title}</p>
+                    <span class="px-2 py-1 text-xs rounded ${
+                      comparison.outline2.status === "approved"
+                        ? "bg-green-100 text-green-800"
+                        : comparison.outline2.status === "submitted"
+                          ? "bg-yellow-100 text-yellow-800"
+                          : "bg-gray-100 text-gray-800"
+                    }">
+                        ${comparison.outline2.status}
+                    </span>
+                </div>
             </div>
         </div>
         
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div class="text-center p-3 bg-green-50 rounded-lg">
-                <div class="text-2xl font-bold text-green-700">${comparison.comparison.lines_added}</div>
-                <div class="text-sm text-green-600">Lines Added</div>
-            </div>
-            <div class="text-center p-3 bg-yellow-50 rounded-lg">
-                <div class="text-2xl font-bold text-yellow-700">${comparison.comparison.lines_modified}</div>
-                <div class="text-sm text-yellow-600">Lines Modified</div>
-            </div>
-            <div class="text-center p-3 bg-red-50 rounded-lg">
-                <div class="text-2xl font-bold text-red-700">${comparison.comparison.lines_deleted}</div>
-                <div class="text-sm text-red-600">Lines Deleted</div>
-            </div>
-        </div>
+        <div class="space-y-4">
     `;
 
-        // Update lines display
-        document.getElementById("added-lines").innerHTML =
-          comparison.comparison.added_lines.length > 0
-            ? comparison.comparison.added_lines
-                .map(
-                  (line) =>
-                    `<div class="p-1 border-b border-green-200">+ ${line}</div>`,
-                )
-                .join("")
-            : '<div class="text-green-600 italic">No lines added</div>';
+        // Display differences
+        if (comparison.differences.added.length > 0) {
+          content += `
+            <div>
+                <h4 class="font-medium text-green-700 mb-2">Added Content (${comparison.differences.added.length})</h4>
+                <div class="bg-green-50 border border-green-200 rounded-lg p-4 space-y-2">
+        `;
+          comparison.differences.added.forEach((item) => {
+            content += `<div class="p-2 bg-white rounded border-l-4 border-green-500">
+                <div class="font-medium">${item.title || `Section ${item.id}`}</div>
+                <pre class="text-xs text-gray-600 mt-1 whitespace-pre-wrap">${JSON.stringify(item.content, null, 2)}</pre>
+            </div>`;
+          });
+          content += `</div></div>`;
+        }
 
-        document.getElementById("modified-lines").innerHTML =
-          comparison.comparison.modified_lines.length > 0
-            ? comparison.comparison.modified_lines
-                .map(
-                  (line) =>
-                    `<div class="p-1 border-b border-yellow-200">~ ${line}</div>`,
-                )
-                .join("")
-            : '<div class="text-yellow-600 italic">No lines modified</div>';
+        if (comparison.differences.modified.length > 0) {
+          content += `
+            <div>
+                <h4 class="font-medium text-yellow-700 mb-2">Modified Content (${comparison.differences.modified.length})</h4>
+                <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 space-y-2">
+        `;
+          comparison.differences.modified.forEach((item) => {
+            content += `<div class="p-2 bg-white rounded border-l-4 border-yellow-500">
+                <div class="font-medium">${item.title || `Section ${item.id}`}</div>
+                <div class="grid grid-cols-2 gap-4 mt-2">
+                    <div>
+                        <div class="text-xs font-medium text-gray-500">Old Version</div>
+                        <pre class="text-xs text-gray-600 mt-1 whitespace-pre-wrap">${JSON.stringify(item.old_content, null, 2)}</pre>
+                    </div>
+                    <div>
+                        <div class="text-xs font-medium text-gray-500">New Version</div>
+                        <pre class="text-xs text-gray-600 mt-1 whitespace-pre-wrap">${JSON.stringify(item.new_content, null, 2)}</pre>
+                    </div>
+                </div>
+            </div>`;
+          });
+          content += `</div></div>`;
+        }
 
-        document.getElementById("deleted-lines").innerHTML =
-          comparison.comparison.deleted_lines.length > 0
-            ? comparison.comparison.deleted_lines
-                .map(
-                  (line) =>
-                    `<div class="p-1 border-b border-red-200">- ${line}</div>`,
-                )
-                .join("")
-            : '<div class="text-red-600 italic">No lines deleted</div>';
+        if (comparison.differences.deleted.length > 0) {
+          content += `
+            <div>
+                <h4 class="font-medium text-red-700 mb-2">Deleted Content (${comparison.differences.deleted.length})</h4>
+                <div class="bg-red-50 border border-red-200 rounded-lg p-4 space-y-2">
+        `;
+          comparison.differences.deleted.forEach((item) => {
+            content += `<div class="p-2 bg-white rounded border-l-4 border-red-500">
+                <div class="font-medium">${item.title || `Section ${item.id}`}</div>
+                <pre class="text-xs text-gray-600 mt-1 whitespace-pre-wrap">${JSON.stringify(item.content, null, 2)}</pre>
+            </div>`;
+          });
+          content += `</div></div>`;
+        }
 
-        // Update similarity meter
-        document.getElementById("similarity-percent").textContent =
-          `${comparison.comparison.similarity_percentage}%`;
+        if (
+          comparison.differences.added.length === 0 &&
+          comparison.differences.modified.length === 0 &&
+          comparison.differences.deleted.length === 0
+        ) {
+          content += `<div class="text-center py-8 text-gray-500">No differences found between the two versions.</div>`;
+        }
 
-        const similarityBar = document.getElementById("similarity-bar");
-        similarityBar.style.width = `${comparison.comparison.similarity_percentage}%`;
+        content += `</div>`;
+
+        document.getElementById("comparison-content").innerHTML = content;
       }
 
       // CQI Report Page
       async function renderCQIReportPage() {
         elements.pageTitle.textContent = "CQI Report Generator";
         elements.pageSubtitle.textContent =
-          "Generate comprehensive CQI reports with NLP analysis";
+          "Generate comprehensive quality improvement reports";
 
         elements.contentArea.innerHTML = `
         <div class="space-y-6">
-            <!-- Report Configuration -->
             <div class="bg-white rounded-lg shadow p-6">
-                <h3 class="font-medium text-lg mb-6">Generate CQI Report</h3>
+                <h3 class="font-medium text-lg mb-4">Generate CQI Report</h3>
                 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                    <!-- Report Type -->
+                <div class="space-y-4">
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">
-                            Report Type
-                        </label>
-                        <select id="report-type" class="w-full border border-gray-300 rounded-lg px-3 py-2">
-                            <option value="comprehensive">Comprehensive Report</option>
-                            <option value="forms">Forms Analysis Only</option>
-                            <option value="outlines">Outlines Analysis Only</option>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Select Course (Optional)</label>
+                        <select id="report-course-select" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                            <option value="">All Courses (General Report)</option>
                         </select>
                     </div>
                     
-                    <!-- Time Period -->
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">
-                            Time Period
-                        </label>
-                        <select id="time-period" class="w-full border border-gray-300 rounded-lg px-3 py-2">
-                            <option value="last_month">Last Month</option>
-                            <option value="last_quarter">Last Quarter</option>
-                            <option value="all_time">All Time</option>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Time Period</label>
+                        <select id="report-period-select" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                            <option value="all">All Time</option>
+                            <option value="quarter">Last Quarter (90 days)</option>
+                            <option value="month">Last Month (30 days)</option>
+                            <option value="week">Last Week (7 days)</option>
                         </select>
                     </div>
-                </div>
-                
-                <!-- Generate Button -->
-                <div class="flex justify-center">
-                    <button onclick="generateCQIReport()"
-                            class="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2">
-                        <i class="fas fa-robot"></i>
-                        Generate CQI Report (NLP Analysis)
-                    </button>
-                </div>
-                
-                <div class="mt-4 text-sm text-gray-600 text-center">
-                    <i class="fas fa-info-circle mr-1"></i>
-                    Uses NLP to analyze form submissions and course outlines
-                </div>
-            </div>
-            
-            <!-- Report Results -->
-            <div id="report-results" class="hidden">
-                <div class="bg-white rounded-lg shadow">
-                    <!-- Report Header -->
-                    <div class="px-6 py-4 border-b bg-gray-50">
-                        <div class="flex justify-between items-center">
-                            <div>
-                                <h3 id="report-title" class="text-lg font-medium"></h3>
-                                <p id="report-subtitle" class="text-sm text-gray-600"></p>
-                            </div>
-                            <div class="flex gap-2">
-                                <button onclick="printReport()" 
-                                        class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-2">
-                                    <i class="fas fa-print"></i>
-                                    Print
-                                </button>
-                                <button onclick="exportReport()" 
-                                        class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2">
-                                    <i class="fas fa-download"></i>
-                                    Export PDF
-                                </button>
-                            </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Report Type</label>
+                        <div class="space-y-2">
+                            <label class="flex items-center">
+                                <input type="radio" name="report-type" value="summary" checked class="h-4 w-4 text-blue-600">
+                                <span class="ml-2 text-sm">Executive Summary</span>
+                            </label>
+                            <label class="flex items-center">
+                                <input type="radio" name="report-type" value="detailed" class="h-4 w-4 text-blue-600">
+                                <span class="ml-2 text-sm">Detailed Analysis</span>
+                            </label>
+                            <label class="flex items-center">
+                                <input type="radio" name="report-type" value="recommendations" class="h-4 w-4 text-blue-600">
+                                <span class="ml-2 text-sm">Recommendations Only</span>
+                            </label>
                         </div>
                     </div>
                     
-                    <!-- Report Content -->
-                    <div class="p-6 space-y-8" id="report-content">
-                        <!-- Content will be loaded here -->
+                    <div class="pt-4">
+                        <button onclick="generateCQIReport()" 
+                                id="generate-report-button"
+                                class="w-full px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center justify-center gap-2">
+                            <i class="fas fa-robot"></i>
+                            Generate AI-Powered Report
+                        </button>
+                        <p class="text-xs text-gray-500 mt-2 text-center">
+                            This will use Google Gemini AI to analyze data and generate insights
+                        </p>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="report-results" class="hidden">
+                <div class="bg-white rounded-lg shadow">
+                    <div class="px-6 py-4 border-b flex justify-between items-center">
+                        <h3 class="text-lg font-medium">CQI Report</h3>
+                        <div class="flex gap-2">
+                            <button onclick="printReport()" class="px-3 py-1 text-sm text-gray-600 hover:text-gray-800 border rounded-lg">
+                                <i class="fas fa-print mr-1"></i> Print
+                            </button>
+                            <button onclick="downloadReport()" class="px-3 py-1 text-sm text-gray-600 hover:text-gray-800 border rounded-lg">
+                                <i class="fas fa-download mr-1"></i> Download
+                            </button>
+                        </div>
+                    </div>
+                    <div class="p-6">
+                        <div id="report-content" class="prose max-w-none"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="report-loading" class="hidden">
+                <div class="bg-white rounded-lg shadow p-6">
+                    <div class="flex flex-col items-center justify-center py-12">
+                        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mb-4"></div>
+                        <p class="text-gray-600">Generating AI report...</p>
+                        <p class="text-sm text-gray-500 mt-2">This may take a few moments</p>
                     </div>
                 </div>
             </div>
         </div>
     `;
+
+        // Load courses for dropdown
+        await loadCoursesForReport();
       }
 
+      async function loadCoursesForReport() {
+        try {
+          const catalogue = await fetchAPI(API.crc_course_catalogue);
+          const select = document.getElementById("report-course-select");
+
+          catalogue.forEach((course) => {
+            const option = document.createElement("option");
+            option.value = course.course_id;
+            option.textContent = `${course.course_code} - ${course.course_title}`;
+            select.appendChild(option);
+          });
+        } catch (error) {
+          showNotification("Error loading courses", "error");
+        }
+      }
+
+      // Update the generateCQIReport function in your HTML/JS
+
       async function generateCQIReport() {
-        const reportType = document.getElementById("report-type").value;
-        const timePeriod = document.getElementById("time-period").value;
+        const courseId = document.getElementById("report-course-select").value;
+        const timePeriod = document.getElementById(
+          "report-period-select",
+        ).value;
+        const reportType = document.querySelector(
+          'input[name="report-type"]:checked',
+        ).value;
 
         // Show loading
-        const resultsDiv = document.getElementById("report-results");
-        resultsDiv.classList.remove("hidden");
-
-        document.getElementById("report-title").textContent =
-          "Generating Report...";
-        document.getElementById("report-subtitle").textContent =
-          "Analyzing data with NLP...";
-
-        document.getElementById("report-content").innerHTML = `
-        <div class="flex justify-center items-center h-64">
-            <div class="text-center">
-                <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto mb-4"></div>
-                <p class="text-gray-600">Analyzing form submissions and course outlines...</p>
-                <p class="text-sm text-gray-500 mt-2">Using NLP to extract insights and patterns</p>
-            </div>
-        </div>
-    `;
+        document.getElementById("report-results").classList.add("hidden");
+        document.getElementById("report-loading").classList.remove("hidden");
 
         try {
-          const report = await fetchAPI(API.analysis_generate_cqi_report, {
+          const response = await fetch("{% url 'api_generate_cqi_report' %}", {
             method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-CSRFToken": getCSRFToken(),
+            },
             body: JSON.stringify({
-              report_type: reportType,
+              course_id: courseId || null,
               time_period: timePeriod,
+              report_type: reportType,
             }),
           });
 
+          // Hide loading
+          document.getElementById("report-loading").classList.add("hidden");
+
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(
+              errorData.message ||
+                `HTTP ${response.status}: ${response.statusText}`,
+            );
+          }
+
+          const report = await response.json();
+
+          // Display report
           displayCQIReport(report);
         } catch (error) {
+          document.getElementById("report-loading").classList.add("hidden");
+          console.error("Report generation error:", error);
+
+          // Show error in results area
+          document.getElementById("report-results").classList.remove("hidden");
           document.getElementById("report-content").innerHTML = `
-            <div class="text-center py-12">
-                <i class="fas fa-exclamation-triangle text-red-500 text-4xl mb-4"></i>
-                <p class="text-gray-600">Error generating report: ${error.message}</p>
-                <button onclick="generateCQIReport()" class="mt-4 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
-                    Try Again
-                </button>
+            <div class="bg-red-50 border border-red-200 rounded-lg p-6">
+                <div class="flex items-center">
+                    <i class="fas fa-exclamation-triangle text-red-500 text-2xl mr-3"></i>
+                    <h4 class="text-lg font-medium text-red-800">Report Generation Failed</h4>
+                </div>
+                <p class="mt-2 text-red-700">${error.message || "An unknown error occurred"}</p>
+                <div class="mt-4">
+                    <button onclick="generateCQIReport()" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">
+                        <i class="fas fa-redo mr-2"></i> Try Again
+                    </button>
+                </div>
             </div>
         `;
         }
       }
 
       function displayCQIReport(report) {
-        const reportTypeMap = {
-          comprehensive: "Comprehensive CQI Report",
-          forms: "Forms Analysis Report",
-          outlines: "Course Outlines Report",
-        };
+        document.getElementById("report-results").classList.remove("hidden");
 
-        const timePeriodMap = {
-          last_month: "Last Month",
-          last_quarter: "Last Quarter",
-          all_time: "All Time",
-        };
-
-        document.getElementById("report-title").textContent =
-          reportTypeMap[report.report_type] || "CQI Report";
-
-        document.getElementById("report-subtitle").textContent =
-          `Generated on ${new Date(report.generated_at).toLocaleDateString()} | ` +
-          `Period: ${timePeriodMap[report.time_period]} | ` +
-          `${report.analysis_summary}`;
-
-        // Build report content
-        let reportContent = "";
-
-        // Executive Summary
-        reportContent += `
-        <section>
-            <h4 class="font-medium text-xl mb-4 border-b pb-2">Executive Summary</h4>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-                <div class="bg-blue-50 rounded-lg p-4">
-                    <div class="text-2xl font-bold text-blue-700">${report.statistics.total_form_submissions}</div>
-                    <div class="text-sm text-blue-600">Form Submissions</div>
-                </div>
-                <div class="bg-green-50 rounded-lg p-4">
-                    <div class="text-2xl font-bold text-green-700">${report.statistics.total_course_outlines}</div>
-                    <div class="text-sm text-green-600">Course Outlines</div>
-                </div>
-                <div class="bg-purple-50 rounded-lg p-4">
-                    <div class="text-2xl font-bold text-purple-700">${report.statistics.top_faculty_contributors.length}</div>
-                    <div class="text-sm text-purple-600">Active Faculty</div>
-                </div>
+        // Check if there's an error in the report
+        if (report.error) {
+          document.getElementById("report-content").innerHTML = `
+            <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
+                <h4 class="text-lg font-medium text-yellow-800">Report Generation Warning</h4>
+                <p class="mt-2 text-yellow-700">${report.error}</p>
+                ${report.fallback_report ? `<div class="mt-4 p-4 bg-white rounded"><pre class="whitespace-pre-wrap">${report.fallback_report}</pre></div>` : ""}
             </div>
-        </section>
-    `;
-
-        // Statistics
-        reportContent += `
-        <section>
-            <h4 class="font-medium text-xl mb-4 border-b pb-2">Key Statistics</h4>
-            <div class="space-y-4">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                        <h5 class="font-medium text-gray-900 mb-2">Top Faculty Contributors</h5>
-                        <div class="space-y-2">
-                            ${report.statistics.top_faculty_contributors
-                              .map(
-                                (faculty) => `
-                                <div class="flex justify-between items-center p-2 bg-gray-50 rounded">
-                                    <span>${faculty.faculty__username}</span>
-                                    <span class="bg-blue-100 text-blue-800 px-2 py-1 rounded text-sm">${faculty.count} submissions</span>
-                                </div>
-                            `,
-                              )
-                              .join("")}
-                        </div>
-                    </div>
-                    <div>
-                        <h5 class="font-medium text-gray-900 mb-2">Most Active Courses</h5>
-                        <div class="space-y-2">
-                            ${report.statistics.most_active_courses
-                              .map(
-                                (course) => `
-                                <div class="flex justify-between items-center p-2 bg-gray-50 rounded">
-                                    <span>${course.course__code}</span>
-                                    <span class="bg-green-100 text-green-800 px-2 py-1 rounded text-sm">${course.count} activities</span>
-                                </div>
-                            `,
-                              )
-                              .join("")}
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
-    `;
-
-        // NLP Analysis Results
-        if (report.common_issues && report.common_issues.length > 0) {
-          reportContent += `
-            <section>
-                <h4 class="font-medium text-xl mb-4 border-b pb-2">NLP Analysis: Common Issues Identified</h4>
-                <div class="space-y-3">
-                    ${report.common_issues
-                      .map(
-                        (issue) => `
-                        <div class="border border-red-200 bg-red-50 rounded-lg p-4">
-                            <div class="flex justify-between items-start mb-2">
-                                <h5 class="font-medium text-red-800">${issue.issue}</h5>
-                                <span class="bg-red-100 text-red-800 px-2 py-1 rounded text-sm">${issue.frequency} mentions</span>
-                            </div>
-                            ${
-                              issue.examples && issue.examples.length > 0
-                                ? `
-                                <div class="text-sm text-red-700">
-                                    <div class="font-medium mb-1">Examples:</div>
-                                    <ul class="list-disc pl-5 space-y-1">
-                                        ${issue.examples.map((example) => `<li>${example}</li>`).join("")}
-                                    </ul>
-                                </div>
-                            `
-                                : ""
-                            }
-                        </div>
-                    `,
-                      )
-                      .join("")}
-                </div>
-            </section>
         `;
+          return;
         }
 
-        // Key Strengths
-        if (report.key_strengths && report.key_strengths.length > 0) {
-          reportContent += `
-            <section>
-                <h4 class="font-medium text-xl mb-4 border-b pb-2">NLP Analysis: Key Strengths</h4>
-                <div class="space-y-3">
-                    ${report.key_strengths
-                      .map(
-                        (strength) => `
-                        <div class="border border-green-200 bg-green-50 rounded-lg p-4">
-                            <div class="flex justify-between items-start mb-2">
-                                <h5 class="font-medium text-green-800">${strength.strength}</h5>
-                                <span class="bg-green-100 text-green-800 px-2 py-1 rounded text-sm">${strength.frequency} mentions</span>
-                            </div>
-                            ${
-                              strength.examples && strength.examples.length > 0
-                                ? `
-                                <div class="text-sm text-green-700">
-                                    <div class="font-medium mb-1">Examples:</div>
-                                    <ul class="list-disc pl-5 space-y-1">
-                                        ${strength.examples.map((example) => `<li>${example}</li>`).join("")}
-                                    </ul>
-                                </div>
-                            `
-                                : ""
-                            }
-                        </div>
-                    `,
-                      )
-                      .join("")}
-                </div>
-            </section>
-        `;
-        }
+        // Format the report with proper styling
+        const formattedReport = formatReportForDisplay(report.report);
+        document.getElementById("report-content").innerHTML = formattedReport;
 
-        // Recommendations
-        if (report.recommendations && report.recommendations.length > 0) {
-          reportContent += `
-            <section>
-                <h4 class="font-medium text-xl mb-4 border-b pb-2">Recommendations</h4>
-                <div class="space-y-3">
-                    ${report.recommendations
-                      .map(
-                        (rec, index) => `
-                        <div class="flex items-start gap-3 p-3 bg-blue-50 rounded-lg">
-                            <div class="bg-blue-100 text-blue-800 rounded-full h-8 w-8 flex items-center justify-center text-sm font-medium">
-                                ${index + 1}
-                            </div>
-                            <div class="flex-1">
-                                <p class="text-blue-800">${rec}</p>
-                            </div>
-                        </div>
-                    `,
-                      )
-                      .join("")}
+        // Add metadata
+        const metadata = document.createElement("div");
+        metadata.className = "mt-6 pt-6 border-t text-sm text-gray-500";
+        metadata.innerHTML = `
+        <p><strong>Generated on:</strong> ${new Date(report.generated_at).toLocaleString()}</p>
+        <p><strong>Report Type:</strong> ${report.report_type || "summary"}</p>
+        <p><strong>Time Period:</strong> ${report.time_period}</p>
+        ${report.course_id ? `<p><strong>Course:</strong> Selected Course</p>` : `<p><strong>Course:</strong> All Courses</p>`}
+        ${
+          report.context_summary
+            ? `
+                <div class="mt-2 grid grid-cols-2 gap-2 text-xs">
+                    <span>Submissions: ${report.context_summary.total_submissions}</span>
+                    <span>Outlines: ${report.context_summary.outline_count}</span>
                 </div>
-            </section>
-        `;
+            `
+            : ""
         }
-
-        // Conclusion
-        reportContent += `
-        <section>
-            <h4 class="font-medium text-xl mb-4 border-b pb-2">Conclusion</h4>
-            <div class="bg-gray-50 rounded-lg p-6">
-                <p class="text-gray-700">
-                    This report was generated using NLP analysis of ${report.statistics.total_form_submissions} form submissions 
-                    and ${report.statistics.total_course_outlines} course outlines. The analysis covers the period from 
-                    ${report.statistics.start_date} to ${report.statistics.end_date}.
-                </p>
-                <div class="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded">
-                    <div class="flex items-center gap-2 text-yellow-800">
-                        <i class="fas fa-lightbulb"></i>
-                        <span class="font-medium">Next Steps:</span>
-                    </div>
-                    <ul class="mt-2 text-sm text-yellow-700 list-disc pl-5 space-y-1">
-                        <li>Review the identified issues with department heads</li>
-                        <li>Share strengths and best practices across faculty</li>
-                        <li>Implement recommendations in the next academic term</li>
-                        <li>Schedule follow-up review in 3 months</li>
-                    </ul>
-                </div>
-            </div>
-        </section>
+        <p class="text-xs text-gray-400 mt-2">Powered by DeepSeek AI</p>
     `;
+        document.getElementById("report-content").appendChild(metadata);
+      }
 
-        document.getElementById("report-content").innerHTML = reportContent;
+      function formatReportForDisplay(reportText) {
+        // Convert markdown-like formatting to HTML
+        let html = reportText
+          .replace(
+            /^# (.*$)/gim,
+            '<h1 class="text-2xl font-bold mt-6 mb-4">$1</h1>',
+          )
+          .replace(
+            /^## (.*$)/gim,
+            '<h2 class="text-xl font-bold mt-5 mb-3">$1</h2>',
+          )
+          .replace(
+            /^### (.*$)/gim,
+            '<h3 class="text-lg font-bold mt-4 mb-2">$1</h3>',
+          )
+          .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+          .replace(/\*(.*?)\*/g, "<em>$1</em>")
+          .replace(/\n\n/g, "</p><p>")
+          .replace(/\n/g, "<br>");
+
+        // Wrap in paragraphs
+        html = html.replace(/<p>(.*?)<\/p>/g, (match, content) => {
+          if (!content.startsWith("<h")) {
+            return `<p class="mb-4">${content}</p>`;
+          }
+          return match;
+        });
+
+        // Format lists
+        html = html.replace(/^\d+\.\s+(.*$)/gim, '<li class="ml-4">$1</li>');
+        html = html.replace(/^-\s+(.*$)/gim, '<li class="ml-4">$1</li>');
+        html = html.replace(
+          /(<li.*?>.*?<\/li>)/g,
+          '<ul class="list-disc pl-6 mb-4">$1</ul>',
+        );
+
+        return html;
       }
 
       function printReport() {
         const printContent =
-          document.getElementById("report-results").innerHTML;
-        const originalContent = document.body.innerHTML;
-
-        document.body.innerHTML = `
+          document.getElementById("report-content").innerHTML;
+        const printWindow = window.open("", "_blank");
+        printWindow.document.write(`
         <!DOCTYPE html>
         <html>
         <head>
-            <title>CQI Report</title>
+            <title>CQI Report - ${new Date().toLocaleDateString()}</title>
             <style>
-                body { font-family: Arial, sans-serif; margin: 20px; }
-                .report-section { margin-bottom: 30px; }
-                .stat-box { display: inline-block; margin: 10px; padding: 15px; border-radius: 5px; }
-                .issue-box { border: 1px solid #f87171; background: #fef2f2; padding: 10px; margin: 10px 0; }
-                .strength-box { border: 1px solid #10b981; background: #f0fdf4; padding: 10px; margin: 10px 0; }
-                .recommendation { background: #dbeafe; padding: 10px; margin: 10px 0; }
+                body { font-family: Arial, sans-serif; line-height: 1.6; padding: 20px; }
+                h1 { font-size: 24px; margin-top: 30px; margin-bottom: 20px; }
+                h2 { font-size: 20px; margin-top: 25px; margin-bottom: 15px; }
+                h3 { font-size: 18px; margin-top: 20px; margin-bottom: 10px; }
+                p { margin-bottom: 15px; }
+                ul { margin-bottom: 15px; padding-left: 20px; }
+                .metadata { margin-top: 30px; padding-top: 20px; border-top: 1px solid #ccc; font-size: 12px; color: #666; }
             </style>
         </head>
         <body>
             ${printContent}
         </body>
         </html>
-    `;
-
-        window.print();
-        document.body.innerHTML = originalContent;
-        window.location.reload();
+    `);
+        printWindow.document.close();
+        printWindow.print();
       }
 
-      function exportReport() {
-        showNotification("PDF export feature coming soon!", "info");
-        // In a real implementation, you would use a library like jsPDF or make a server API call
+      function downloadReport() {
+        const reportContent =
+          document.getElementById("report-content").innerText;
+        const blob = new Blob([reportContent], { type: "text/plain" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `cqi-report-${new Date().toISOString().split("T")[0]}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
       }
-
-      // Export new functions to window
-      window.renderAnalysisPage = renderAnalysisPage;
-      window.renderOutlineComparisonPage = renderOutlineComparisonPage;
-      window.renderCQIReportPage = renderCQIReportPage;
-      window.refreshAnalysisCharts = refreshAnalysisCharts;
-      window.loadOutlineVersions = loadOutlineVersions;
-      window.compareSelectedOutlines = compareSelectedOutlines;
-      window.generateCQIReport = generateCQIReport;
-      window.printReport = printReport;
-      window.exportReport = exportReport;
       // Export functions to global scope
       window.loadPage = loadPage;
       window.viewOutlineDetails = viewOutlineDetails;
@@ -4212,6 +4450,8 @@
       window.viewCourseOutlines = viewCourseOutlines;
       window.viewOutlineVersion = viewOutlineVersion;
       window.printOutline = printOutline;
+      window.viewCLODetails = viewCLODetails;
+      window.showCLODetails = showCLODetails;
     </script>
   </body>
 </html>
