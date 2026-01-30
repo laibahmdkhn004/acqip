@@ -123,26 +123,17 @@ urlpatterns = [
 
 # Add these to your urlpatterns in urls.py:
 
-# Analysis URLs
-path("api/analysis/form-submissions-over-time/", 
-     api_views.api_analysis_form_submissions_over_time, 
-     name="api_analysis_form_submissions_over_time"),
-path("api/analysis/form-status-distribution/", 
-     api_views.api_analysis_form_status_distribution, 
-     name="api_analysis_form_status_distribution"),
-path("api/analysis/clo-achievement/", 
-     api_views.api_analysis_clo_achievement, 
-     name="api_analysis_clo_achievement"),
-path("api/analysis/courses-with-outlines/", 
-     api_views.api_analysis_courses_with_outlines, 
-     name="api_analysis_courses_with_outlines"),
-path("api/analysis/course-outline-versions/<int:course_id>/", 
-     api_views.api_analysis_course_outline_versions, 
-     name="api_analysis_course_outline_versions"),
-path("api/analysis/compare-outlines/", 
-     api_views.api_analysis_compare_outlines, 
-     name="api_analysis_compare_outlines"),
-path("api/analysis/generate-cqi-report/", 
-     api_views.api_analysis_generate_cqi_report, 
-     name="api_analysis_generate_cqi_report"),
+    # New Analysis and Reporting URLs
+    path("api/crc/analysis/submissions-over-time/", api_views.api_analysis_submissions_over_time, name="api_analysis_submissions_over_time"),
+    path("api/crc/analysis/form-status/", api_views.api_analysis_form_status, name="api_analysis_form_status"),
+    path("api/crc/analysis/clo-achievement/", api_views.api_analysis_clo_achievement, name="api_analysis_clo_achievement"),
+    path("api/crc/compare-outlines/", api_views.api_compare_outlines, name="api_compare_outlines"),
+    path("api/crc/generate-cqi-report/", api_views.api_generate_cqi_report, name="api_generate_cqi_report"),
+# Add these new URLs
+path("api/crc/analysis/detailed-clo/<int:clo_number>/", api_views.api_analysis_detailed_clo, name="api_analysis_detailed_clo"),
+path("api/crc/analysis/clo-trends/", api_views.api_analysis_clo_trends, name="api_analysis_clo_trends"),
+
+path("api/crc/analysis/clo-by-course/", api_views.api_analysis_clo_by_course, name="api_analysis_clo_by_course"),
+
+
 ]

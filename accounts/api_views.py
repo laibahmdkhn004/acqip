@@ -1,3 +1,10 @@
+import os
+from dotenv import load_dotenv
+import litellm
+from django.conf import settings
+from collections import defaultdict
+from datetime import datetime, timedelta, date
+import itertools
 import re
 from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -7,6 +14,16 @@ from django.contrib.auth.decorators import login_required, user_passes_test
 from .models import Course, User, Department, DynamicForm, FormQuestion, DynamicFormSubmission, FormAnswer, CourseFaculty, CourseOutline
 from django.db.models import Count, Q, F
 from datetime import datetime, timedelta
+
+from litellm import completion
+
+        
+# Load environment variables
+load_dotenv()
+
+ #Add DeepSeek configuration (will be loaded from .env)
+DEEPSEEK_API_KEY = None
+LITELLM_MODEL = "deepseek/deepseek-chat"  # or "deepseek/deepseek-coder" for code
 
 
 def is_admin(user):
@@ -540,6 +557,17 @@ def api_form_questions_create(request, form_id):
             except:
                 config = None
         
+        # For CLO percentage questions, ensure proper config
+        if data.get('question_type') == 'clo_percentage':
+            if not config:
+                config = {
+                    'clo_fields': ['clo1', 'clo2', 'clo3', 'clo4'],
+                    'min_value': 0,
+                    'max_value': 100,
+                    'step': 0.1,
+                    'suffix': '%'
+                }
+        
         question = FormQuestion.objects.create(
             form=form,
             question_text=data.get('question_text'),
@@ -561,7 +589,9 @@ def api_form_questions_create(request, form_id):
             'help_text': question.help_text
         }, status=201)
     except Exception as e:
+        print(f"Error creating question: {str(e)}")  # Debug logging
         return JsonResponse({'error': str(e)}, status=400)
+
 
 @login_required
 @user_passes_test(is_admin_or_crc)
@@ -824,6 +854,8 @@ def api_submit_dynamic_form(request):
         answers = data.get('answers', {})
         status = data.get('status', 'draft')  # 'draft' or 'submitted'
         
+        print(f"Form submission attempt: user={request.user.username}, course_id={course_id}, form_id={form_id}, status={status}")
+        
         if not form_id:
             return JsonResponse({'error': 'form_id is required. Multiple forms may be active.'}, status=400)
         
@@ -861,13 +893,23 @@ def api_submit_dynamic_form(request):
         ).first()
         
         # Allow resubmission if in draft or revision requested status
+        # Only block if trying to submit when already submitted
         if existing_submission and existing_submission.status == 'submitted' and status == 'submitted':
-            return JsonResponse({'error': 'You have already submitted this form for the selected course'}, status=400)
+            return JsonResponse({
+                'error': 'You have already submitted this form for the selected course.',
+                'submission_id': existing_submission.id,
+                'status': existing_submission.status
+            }, status=400)
         
         # Create or update submission
         if existing_submission:
             submission = existing_submission
             submission.status = status
+            
+            # Update submission date if submitting (not draft)
+            if status == 'submitted':
+                submission.submission_date = datetime.now()
+            
             submission.save()
             
             # Delete existing answers
@@ -881,7 +923,8 @@ def api_submit_dynamic_form(request):
                 course_coordinator=request.user.username if course_assignment.is_coordinator else "",
                 is_coordinator=course_assignment.is_coordinator,
                 section=course_assignment.section,
-                status=status
+                status=status,
+                submission_date=datetime.now() if status == 'submitted' else None
             )
         
         # Create answers
@@ -890,7 +933,7 @@ def api_submit_dynamic_form(request):
                 question = FormQuestion.objects.get(id=question_id, form=form)
                 
                 # Handle different answer types
-                if isinstance(answer_value, list) or isinstance(answer_value, dict):
+                if isinstance(answer_value, (list, dict)):
                     FormAnswer.objects.create(
                         submission=submission,
                         question=question,
@@ -905,19 +948,23 @@ def api_submit_dynamic_form(request):
                         answer_data=None
                     )
             except FormQuestion.DoesNotExist:
+                print(f"Warning: Question {question_id} not found in form {form_id}")
                 continue
         
         return JsonResponse({
-            'message': 'Form saved successfully', 
+            'message': f'Form {"submitted" if status == "submitted" else "saved as draft"} successfully!',
             'submission_id': submission.id,
-            'status': submission.status
+            'status': submission.status,
+            'success': True
         })
         
     except Course.DoesNotExist:
         return JsonResponse({'error': 'Course not found'}, status=404)
     except Exception as e:
-        return JsonResponse({'error': str(e)}, status=400)
-
+        print(f"Error in form submission: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'error': f'Submission failed: {str(e)}'}, status=400)
 
 # Faculty Users API
 @login_required
@@ -2122,202 +2169,667 @@ def api_department_update(request, department_id):
         return JsonResponse({'error': str(e)}, status=400)
 
 
-# Analysis APIs
+# new apii
+
+# Analysis Endpoints
 @login_required
 @user_passes_test(is_admin_or_crc)
 @require_http_methods(["GET"])
-def api_analysis_form_submissions_over_time(request):
-    """Get form submissions over time (last 8 weeks) for line chart"""
+def api_analysis_submissions_over_time(request):
+    """Get form submissions over time (weekly periods)"""
     try:
-        import datetime
-        from django.db.models.functions import TruncWeek
-        from django.db.models import Count
+        # Get data for last 12 weeks
+        end_date = datetime.now()
+        start_date = end_date - timedelta(weeks=12)
         
-        # Get submissions from last 8 weeks
-        eight_weeks_ago = datetime.datetime.now() - datetime.timedelta(weeks=8)
-        
-        # Get submissions grouped by week
-        submissions_by_week = DynamicFormSubmission.objects.filter(
-            submission_date__gte=eight_weeks_ago,
+        # Get all submissions (universal forms only)
+        submissions = DynamicFormSubmission.objects.filter(
+            submission_date__gte=start_date,
             dynamic_form__form_type__in=['ccr', 'crr']
-        ).annotate(
-            week=TruncWeek('submission_date')
-        ).values('week', 'dynamic_form__form_type').annotate(
-            count=Count('id')
-        ).order_by('week')
+        ).order_by('submission_date')
         
-        # Format data for chart
-        weeks = []
-        ccr_data = []
-        crr_data = []
-        
-        # Initialize with zeros for last 8 weeks
-        for i in range(8):
-            week_start = (datetime.datetime.now() - datetime.timedelta(weeks=i)).date()
-            week_start = week_start - datetime.timedelta(days=week_start.weekday())
-            weeks.insert(0, week_start.strftime('%Y-%m-%d'))
-            ccr_data.insert(0, 0)
-            crr_data.insert(0, 0)
-        
-        # Fill in actual data
-        for entry in submissions_by_week:
-            week_str = entry['week'].strftime('%Y-%m-%d')
-            if week_str in weeks:
-                idx = weeks.index(week_str)
-                if entry['dynamic_form__form_type'] == 'ccr':
-                    ccr_data[idx] = entry['count']
-                else:
-                    crr_data[idx] = entry['count']
-        
-        return JsonResponse({
-            'weeks': weeks,
-            'ccr_submissions': ccr_data,
-            'crr_submissions': crr_data,
-            'total_submissions': sum(ccr_data) + sum(crr_data)
+        # Group by week
+        week_data = defaultdict(lambda: {
+            'ccr': 0,
+            'crr': 0,
+            'total': 0
         })
         
+        for submission in submissions:
+            # Get week number
+            week_start = submission.submission_date - timedelta(
+                days=submission.submission_date.weekday()
+            )
+            week_key = week_start.strftime('%Y-%m-%d')
+            
+            week_data[week_key]['total'] += 1
+            if submission.dynamic_form.form_type == 'ccr':
+                week_data[week_key]['ccr'] += 1
+            else:
+                week_data[week_key]['crr'] += 1
+        
+        # Sort by date
+        sorted_weeks = sorted(week_data.items(), key=lambda x: x[0])
+        
+        # Format response
+        result = {
+            'weeks': [week[0] for week in sorted_weeks],
+            'ccr_data': [week[1]['ccr'] for week in sorted_weeks],
+            'crr_data': [week[1]['crr'] for week in sorted_weeks],
+            'total_data': [week[1]['total'] for week in sorted_weeks]
+        }
+        
+        return JsonResponse(result)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
 
 @login_required
 @user_passes_test(is_admin_or_crc)
 @require_http_methods(["GET"])
-def api_analysis_form_status_distribution(request):
-    """Get form status distribution for pie chart"""
+def api_analysis_form_status(request):
+    """Get form status distribution"""
     try:
-        # Get status counts for CCR and CRR forms separately
-        ccr_status = DynamicFormSubmission.objects.filter(
-            dynamic_form__form_type='ccr'
-        ).values('status').annotate(
-            count=Count('id')
-        ).order_by('status')
+        # Get status counts for universal forms
+        status_counts = DynamicFormSubmission.objects.filter(
+            dynamic_form__form_type__in=['ccr', 'crr']
+        ).values('status').annotate(count=Count('id'))
         
-        crr_status = DynamicFormSubmission.objects.filter(
-            dynamic_form__form_type='crr'
-        ).values('status').annotate(
-            count=Count('id')
-        ).order_by('status')
+        # Get totals
+        total_submissions = sum(item['count'] for item in status_counts)
         
-        # Format data
-        status_labels = ['Submitted', 'Approved', 'Revision Requested', 'Draft']
-        ccr_counts = {item['status']: item['count'] for item in ccr_status}
-        crr_counts = {item['status']: item['count'] for item in crr_status}
+        # Format for pie chart
+        result = {
+            'labels': [],
+            'data': [],
+            'colors': []
+        }
         
-        ccr_data = []
-        crr_data = []
+        status_colors = {
+            'submitted': '#FFC107',  # Yellow
+            'approved': '#4CAF50',    # Green
+            'draft': '#9E9E9E',       # Grey
+            'revision_requested': '#F44336',  # Red
+        }
         
-        for status in ['submitted', 'approved', 'revision_requested', 'draft']:
-            ccr_data.append(ccr_counts.get(status, 0))
-            crr_data.append(crr_counts.get(status, 0))
+        for item in status_counts:
+            result['labels'].append(item['status'].title())
+            result['data'].append(item['count'])
+            result['colors'].append(status_colors.get(item['status'], '#2196F3'))
         
-        return JsonResponse({
-            'labels': status_labels,
-            'ccr_data': ccr_data,
-            'crr_data': crr_data,
-            'total_ccr': sum(ccr_data),
-            'total_crr': sum(crr_data)
-        })
-        
+        return JsonResponse(result)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
 
+
+# Update the CLO achievement analysis function
 @login_required
 @user_passes_test(is_admin_or_crc)
 @require_http_methods(["GET"])
 def api_analysis_clo_achievement(request):
-    """Get CLO achievement rate analysis from form answers"""
+    """Get CLO achievement rates by analyzing actual form answers AND course outlines"""
     try:
-        # This would analyze form answers to calculate CLO achievement rates
-        # For now, we'll use mock data based on form submissions
-        
-        # Get all form submissions with answers
-        submissions = DynamicFormSubmission.objects.filter(
-            dynamic_form__form_type__in=['ccr', 'crr']
-        ).select_related('dynamic_form').prefetch_related('answers')
-        
-        clo_achievement = {
-            'clo1': {'achieved': 0, 'total': 0, 'rate': 0},
-            'clo2': {'achieved': 0, 'total': 0, 'rate': 0},
-            'clo3': {'achieved': 0, 'total': 0, 'rate': 0},
-            'clo4': {'achieved': 0, 'total': 0, 'rate': 0}
+        # Initialize CLO data for 4 CLOs
+        clo_data = {
+            'CLO1': {'scores': [], 'count': 0, 'achieved_count': 0, 'sources': []},
+            'CLO2': {'scores': [], 'count': 0, 'achieved_count': 0, 'sources': []},
+            'CLO3': {'scores': [], 'count': 0, 'achieved_count': 0, 'sources': []},
+            'CLO4': {'scores': [], 'count': 0, 'achieved_count': 0, 'sources': []},
         }
         
-        # Analyze answers for CLO-related questions
+        # PART 1: Analyze form submissions (CCR/CRR forms)
+        submissions = DynamicFormSubmission.objects.filter(
+            dynamic_form__form_type__in=['ccr', 'crr'],
+            status__in=['submitted', 'approved']  # Only analyze submitted/approved forms
+        ).prefetch_related('answers__question')
+        
+        form_count = 0
         for submission in submissions:
-            answers = submission.answers.filter(
-                question__question_text__icontains='CLO'
-            )
+            answers = submission.answers.all()
             
             for answer in answers:
-                # Extract CLO number from question text
-                import re
-                clo_match = re.search(r'CLO\s*(\d+)', answer.question.question_text, re.IGNORECASE)
-                if clo_match:
-                    clo_num = clo_match.group(1)
-                    clo_key = f'clo{clo_num}'
+                question_text = answer.question.question_text.lower()
+                
+                # Method 1: Check for CLO percentage dictionary answers
+                if isinstance(answer.answer_data, dict):
+                    for clo_num in [1, 2, 3, 4]:
+                        clo_key = f'CLO{clo_num}'
+                        # Try different key formats
+                        for key in [f'clo{clo_num}', f'clo_{clo_num}', f'CLO{clo_num}', f'CLO_{clo_num}']:
+                            if key in answer.answer_data:
+                                score = answer.answer_data[key]
+                                if isinstance(score, (int, float)):
+                                    clo_data[clo_key]['scores'].append(score)
+                                    clo_data[clo_key]['count'] += 1
+                                    clo_data[clo_key]['sources'].append(f"Form: {submission.course.code}")
+                                    if score >= 70:
+                                        clo_data[clo_key]['achieved_count'] += 1
+                                elif isinstance(score, str):
+                                    try:
+                                        # Handle percentage strings
+                                        if '%' in score:
+                                            score_val = float(score.replace('%', '').strip())
+                                        else:
+                                            score_val = float(score)
+                                        
+                                        clo_data[clo_key]['scores'].append(score_val)
+                                        clo_data[clo_key]['count'] += 1
+                                        clo_data[clo_key]['sources'].append(f"Form: {submission.course.code}")
+                                        if score_val >= 70:
+                                            clo_data[clo_key]['achieved_count'] += 1
+                                    except:
+                                        pass
+                
+                # Method 2: Check question text for CLO references
+                for clo_num in [1, 2, 3, 4]:
+                    clo_patterns = [
+                        f'clo{clo_num}',
+                        f'clo {clo_num}',
+                        f'course learning outcome {clo_num}',
+                        f'learning outcome {clo_num}',
+                        f'clo-{clo_num}',
+                        f'clo_{clo_num}',
+                    ]
                     
-                    if clo_key in clo_achievement:
-                        clo_achievement[clo_key]['total'] += 1
+                    if any(pattern in question_text for pattern in clo_patterns):
+                        clo_key = f'CLO{clo_num}'
                         
-                        # Check if answer indicates achievement
-                        answer_text = answer.answer_text.lower() if answer.answer_text else ''
-                        answer_data = str(answer.answer_data).lower() if answer.answer_data else ''
-                        
-                        # Simple heuristics for achievement
-                        achievement_keywords = ['yes', 'achieved', 'completed', 'satisfactory', 'good', 'excellent', 'pass']
-                        if any(keyword in answer_text for keyword in achievement_keywords) or \
-                           any(keyword in answer_data for keyword in achievement_keywords):
-                            clo_achievement[clo_key]['achieved'] += 1
+                        # Extract score from answer
+                        score = extract_clo_score_from_answer(answer)
+                        if score is not None:
+                            clo_data[clo_key]['scores'].append(score)
+                            clo_data[clo_key]['count'] += 1
+                            clo_data[clo_key]['sources'].append(f"Form: {submission.course.code}")
+                            
+                            # Check if achieved (score >= 70%)
+                            if score >= 70:
+                                clo_data[clo_key]['achieved_count'] += 1
         
-        # Calculate rates
-        for clo in clo_achievement.values():
-            if clo['total'] > 0:
-                clo['rate'] = round((clo['achieved'] / clo['total']) * 100, 1)
+        # PART 2: Analyze course outlines for CLO data
+        # Get approved course outlines
+        approved_outlines = CourseOutline.objects.filter(
+            status='approved',
+            is_current=True
+        )
+        
+        outline_count = 0
+        for outline in approved_outlines:
+            try:
+                # Parse outline content (assuming JSON structure)
+                if outline.content:
+                    content = outline.content
+                    if isinstance(content, str):
+                        try:
+                            content_data = json.loads(content)
+                        except:
+                            content_data = None
+                    else:
+                        content_data = content
+                    
+                    if content_data and isinstance(content_data, dict):
+                        # Look for CLO data in outline structure
+                        if 'sections' in content_data:
+                            for section in content_data['sections']:
+                                if isinstance(section, dict):
+                                    # Check for CLO tables or sections
+                                    section_title = section.get('title', '').lower()
+                                    section_id = section.get('id', '').lower()
+                                    
+                                    # Check if this is a CLO-related section
+                                    if any(clo_term in section_title or clo_term in section_id 
+                                           for clo_term in ['clo', 'course learning outcome', 'learning outcome']):
+                                        
+                                        # Extract rows from table sections
+                                        if section.get('type') == 'table' and 'rows' in section:
+                                            for row in section['rows']:
+                                                if isinstance(row, dict):
+                                                    # Look for CLO data in row
+                                                    row_text = str(row).lower()
+                                                    for clo_num in [1, 2, 3, 4]:
+                                                        if f'clo{clo_num}' in row_text or f'clo {clo_num}' in row_text:
+                                                            clo_key = f'CLO{clo_num}'
+                                                            
+                                                            # Try to extract percentage from row
+                                                            row_str = str(row)
+                                                            import re
+                                                            
+                                                            # Look for percentages in row
+                                                            percent_pattern = r'(\d+\.?\d*)%'
+                                                            percentages = re.findall(percent_pattern, row_str)
+                                                            if percentages:
+                                                                try:
+                                                                    score = float(percentages[0])
+                                                                    clo_data[clo_key]['scores'].append(score)
+                                                                    clo_data[clo_key]['count'] += 1
+                                                                    clo_data[clo_key]['sources'].append(f"Outline: {outline.course.code}")
+                                                                    if score >= 70:
+                                                                        clo_data[clo_key]['achieved_count'] += 1
+                                                                except:
+                                                                    pass
+            except Exception as e:
+                print(f"Error parsing outline {outline.id}: {str(e)}")
+                continue
+        
+        # Calculate achievement rates and prepare result
+        result = {
+            'clos': ['CLO1', 'CLO2', 'CLO3', 'CLO4'],
+            'achievement_rates': [],
+            'average_scores': [],
+            'total_responses': [],
+            'achieved_counts': [],
+            'details': [],
+            'sources_summary': {
+                'form_submissions': form_count,
+                'course_outlines': outline_count,
+                'total_sources': form_count + outline_count
+            }
+        }
+        
+        for clo in result['clos']:
+            scores = clo_data[clo]['scores']
+            count = clo_data[clo]['count']
+            achieved = clo_data[clo]['achieved_count']
+            
+            if count > 0:
+                avg_score = sum(scores) / len(scores)
+                achievement_rate = (achieved / count) * 100
+            else:
+                avg_score = 0
+                achievement_rate = 0
+            
+            result['average_scores'].append(round(avg_score, 1))
+            result['achievement_rates'].append(round(achievement_rate, 1))
+            result['total_responses'].append(count)
+            result['achieved_counts'].append(achieved)
+            
+            # Add detailed breakdown
+            result['details'].append({
+                'clo': clo,
+                'average_score': round(avg_score, 1),
+                'achievement_rate': round(achievement_rate, 1),
+                'total_responses': count,
+                'achieved_responses': achieved,
+                'score_distribution': get_score_distribution(scores) if scores else {},
+                'data_sources': list(set(clo_data[clo]['sources']))[:5]  # Unique sources, limit to 5
+            })
+        
+        return JsonResponse(result)
+    except Exception as e:
+        print(f"Error in CLO achievement analysis: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'error': str(e)}, status=400)
+
+def extract_clo_score_from_answer(answer):
+    """Extract a numerical score (0-100) from an answer"""
+    try:
+        # If the question is CLO percentage type, check answer_data first
+        if answer.question.question_type == 'clo_percentage' and answer.answer_data:
+            if isinstance(answer.answer_data, dict):
+                # For CLO percentage type, average all CLO values
+                clo_values = []
+                for clo_num in [1, 2, 3, 4]:
+                    for key in [f'clo{clo_num}', f'clo_{clo_num}', f'CLO{clo_num}']:
+                        if key in answer.answer_data:
+                            value = answer.answer_data[key]
+                            if isinstance(value, (int, float)):
+                                clo_values.append(value)
+                            elif isinstance(value, str):
+                                try:
+                                    if '%' in value:
+                                        clo_values.append(float(value.replace('%', '').strip()))
+                                    else:
+                                        clo_values.append(float(value))
+                                except:
+                                    pass
+                if clo_values:
+                    return sum(clo_values) / len(clo_values)
+                
+                # Look for general score fields
+                for key in ['score', 'percentage', 'rating', 'value', 'achievement']:
+                    if key in answer.answer_data:
+                        try:
+                            value = answer.answer_data[key]
+                            if isinstance(value, (int, float)):
+                                return float(value)
+                            elif isinstance(value, str):
+                                if '%' in value:
+                                    return float(value.replace('%', '').strip())
+                                else:
+                                    return float(value)
+                        except:
+                            continue
+            
+            # If it's a list, try to extract numeric values
+            elif isinstance(answer.answer_data, list):
+                numeric_values = []
+                for item in answer.answer_data:
+                    if isinstance(item, (int, float)):
+                        numeric_values.append(item)
+                    elif isinstance(item, str):
+                        try:
+                            # Try to convert to float
+                            val = float(item)
+                            numeric_values.append(val)
+                        except:
+                            # Try to extract number from string
+                            import re
+                            numbers = re.findall(r'\d+\.?\d*', item)
+                            if numbers:
+                                try:
+                                    numeric_values.append(float(numbers[0]))
+                                except:
+                                    pass
+                
+                if numeric_values:
+                    return sum(numeric_values) / len(numeric_values)
+        
+        # Case 4: Try to extract number from text
+        if answer.answer_text:
+            import re
+            # Look for percentages first
+            percent_pattern = r'(\d+\.?\d*)%'
+            percent_matches = re.findall(percent_pattern, answer.answer_text)
+            if percent_matches:
+                try:
+                    return float(percent_matches[0])
+                except:
+                    pass
+            
+            # Look for any numbers
+            numbers = re.findall(r'\d+\.?\d*', answer.answer_text)
+            if numbers:
+                try:
+                    # Take the first number that looks like a percentage (0-100)
+                    for num in numbers:
+                        val = float(num)
+                        if 0 <= val <= 100:
+                            return val
+                    # If no number in 0-100 range, take the first one
+                    return float(numbers[0])
+                except:
+                    pass
+        
+        # Case 5: Map textual answers to scores
+        if answer.answer_text:
+            text = answer.answer_text.lower().strip()
+            
+            # Check for percentage phrases
+            if '100%' in text or 'hundred percent' in text:
+                return 100
+            elif '90%' in text or 'ninety percent' in text:
+                return 90
+            elif '80%' in text or 'eighty percent' in text:
+                return 80
+            elif '70%' in text or 'seventy percent' in text:
+                return 70
+            elif '60%' in text or 'sixty percent' in text:
+                return 60
+            elif '50%' in text or 'fifty percent' in text:
+                return 50
+            elif '40%' in text or 'forty percent' in text:
+                return 40
+            elif '30%' in text or 'thirty percent' in text:
+                return 30
+            elif '20%' in text or 'twenty percent' in text:
+                return 20
+            elif '10%' in text or 'ten percent' in text:
+                return 10
+            elif '0%' in text or 'zero percent' in text:
+                return 0
+            
+            # Map textual ratings to scores
+            mapping = {
+                'excellent': 90, 'outstanding': 95, 'exceptional': 95,
+                'very good': 85, 'very good': 85,
+                'good': 80, 'well achieved': 80,
+                'satisfactory': 75, 'adequate': 75, 'moderate': 75,
+                'average': 70, 'medium': 70,
+                'fair': 65, 'acceptable': 65,
+                'poor': 60, 'below average': 60,
+                'very poor': 50, 'inadequate': 50,
+                'not achieved': 40, 'failed': 40, 'unsatisfactory': 40,
+                'yes': 80, 'achieved': 80,
+                'no': 40, 'not achieved': 40,
+                'partially': 60, 'partially achieved': 60,
+                'fully': 90, 'fully achieved': 90,
+                'substantially': 85, 'mostly': 80,
+            }
+            
+            for key, value in mapping.items():
+                if key in text:
+                    return value
+            
+            # Check for Likert scale
+            likert_map = {
+                '5': 90, '5/5': 90, '5 out of 5': 90, 'five': 90,
+                '4': 75, '4/5': 75, '4 out of 5': 75, 'four': 75,
+                '3': 60, '3/5': 60, '3 out of 5': 60, 'three': 60,
+                '2': 45, '2/5': 45, '2 out of 5': 45, 'two': 45,
+                '1': 30, '1/5': 30, '1 out of 5': 30, 'one': 30,
+            }
+            
+            for key, value in likert_map.items():
+                if key in text:
+                    return value
+        
+        return None
+    except:
+        return None
+
+def get_score_distribution(scores):
+    """Get distribution of scores in categories"""
+    if not scores:
+        return {}
+    
+    distribution = {
+        'Excellent (90-100)': 0,
+        'Good (80-89)': 0,
+        'Satisfactory (70-79)': 0,
+        'Needs Improvement (60-69)': 0,
+        'Poor (Below 60)': 0,
+    }
+    
+    for score in scores:
+        if score >= 90:
+            distribution['Excellent (90-100)'] += 1
+        elif score >= 80:
+            distribution['Good (80-89)'] += 1
+        elif score >= 70:
+            distribution['Satisfactory (70-79)'] += 1
+        elif score >= 60:
+            distribution['Needs Improvement (60-69)'] += 1
+        else:
+            distribution['Poor (Below 60)'] += 1
+    
+    # Convert to percentages
+    total = len(scores)
+    if total > 0:
+        for key in distribution:
+            distribution[key] = round((distribution[key] / total) * 100, 1)
+    
+    return distribution
+
+# Add this new endpoint for detailed CLO analysis
+@login_required
+@user_passes_test(is_admin_or_crc)
+@require_http_methods(["GET"])
+def api_analysis_detailed_clo(request, clo_number):
+    """Get detailed analysis for a specific CLO"""
+    try:
+        if clo_number not in [1, 2, 3, 4]:
+            return JsonResponse({'error': 'Invalid CLO number. Must be 1-4'}, status=400)
+        
+        clo_key = f'CLO{clo_number}'
+        
+        # Get all answers related to this CLO
+        answers = FormAnswer.objects.filter(
+            question__question_text__icontains=f'clo{clo_number}',
+            submission__dynamic_form__form_type__in=['ccr', 'crr']
+        ).select_related('submission', 'question', 'submission__course', 'submission__faculty')
+        
+        # Prepare detailed data
+        detailed_data = []
+        courses_data = {}
+        faculty_data = {}
+        
+        for answer in answers:
+            score = extract_clo_score_from_answer(answer)
+            if score is None:
+                continue
+            
+            # Course analysis
+            course_code = answer.submission.course.code
+            if course_code not in courses_data:
+                courses_data[course_code] = {'scores': [], 'count': 0}
+            courses_data[course_code]['scores'].append(score)
+            courses_data[course_code]['count'] += 1
+            
+            # Faculty analysis
+            faculty_name = answer.submission.faculty.username
+            if faculty_name not in faculty_data:
+                faculty_data[faculty_name] = {'scores': [], 'count': 0}
+            faculty_data[faculty_name]['scores'].append(score)
+            faculty_data[faculty_name]['count'] += 1
+            
+            # Add to detailed list
+            detailed_data.append({
+                'id': answer.id,
+                'course_code': course_code,
+                'course_title': answer.submission.course.title,
+                'faculty': faculty_name,
+                'question': answer.question.question_text[:100] + ('...' if len(answer.question.question_text) > 100 else ''),
+                'answer': answer.answer_text[:200] if answer.answer_text else str(answer.answer_data)[:200],
+                'score': score,
+                'achieved': score >= 70,
+                'submission_date': answer.submission.submission_date.isoformat() if answer.submission.submission_date else None,
+                'form_type': answer.submission.dynamic_form.form_type,
+            })
+        
+        # Calculate course averages
+        course_analysis = []
+        for course_code, data in courses_data.items():
+            avg_score = sum(data['scores']) / len(data['scores'])
+            achievement_rate = sum(1 for s in data['scores'] if s >= 70) / len(data['scores']) * 100
+            course_analysis.append({
+                'course_code': course_code,
+                'average_score': round(avg_score, 1),
+                'achievement_rate': round(achievement_rate, 1),
+                'response_count': data['count']
+            })
+        
+        # Calculate faculty averages
+        faculty_analysis = []
+        for faculty_name, data in faculty_data.items():
+            avg_score = sum(data['scores']) / len(data['scores'])
+            achievement_rate = sum(1 for s in data['scores'] if s >= 70) / len(data['scores']) * 100
+            faculty_analysis.append({
+                'faculty': faculty_name,
+                'average_score': round(avg_score, 1),
+                'achievement_rate': round(achievement_rate, 1),
+                'response_count': data['count']
+            })
+        
+        # Sort analyses
+        course_analysis.sort(key=lambda x: x['achievement_rate'], reverse=True)
+        faculty_analysis.sort(key=lambda x: x['achievement_rate'], reverse=True)
+        
+        # Calculate overall statistics
+        all_scores = []
+        for answer in detailed_data:
+            all_scores.append(answer['score'])
+        
+        if all_scores:
+            overall_avg = sum(all_scores) / len(all_scores)
+            overall_achievement = sum(1 for s in all_scores if s >= 70) / len(all_scores) * 100
+        else:
+            overall_avg = 0
+            overall_achievement = 0
         
         return JsonResponse({
-            'clo_labels': ['CLO 1', 'CLO 2', 'CLO 3', 'CLO 4'],
-            'achievement_rates': [
-                clo_achievement['clo1']['rate'],
-                clo_achievement['clo2']['rate'],
-                clo_achievement['clo3']['rate'],
-                clo_achievement['clo4']['rate']
-            ],
-            'total_assessments': sum(clo['total'] for clo in clo_achievement.values()),
-            'average_rate': round(
-                sum(clo['rate'] for clo in clo_achievement.values()) / 4, 1
-            ) if any(clo['total'] > 0 for clo in clo_achievement.values()) else 0
+            'clo': clo_key,
+            'overall_statistics': {
+                'average_score': round(overall_avg, 1),
+                'achievement_rate': round(overall_achievement, 1),
+                'total_responses': len(all_scores),
+                'achieved_responses': sum(1 for s in all_scores if s >= 70),
+                'score_range': {
+                    'min': min(all_scores) if all_scores else 0,
+                    'max': max(all_scores) if all_scores else 0,
+                    'median': get_median(all_scores) if all_scores else 0
+                }
+            },
+            'course_analysis': course_analysis,
+            'faculty_analysis': faculty_analysis[:10],  # Top 10 faculty
+            'detailed_responses': detailed_data[:50],  # Limit to 50 most recent
+            'generated_at': datetime.now().isoformat()
         })
         
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
 
-# Outline Comparison APIs
-@login_required
-@user_passes_test(is_admin_or_crc)
-@require_http_methods(["GET"])
-def api_analysis_courses_with_outlines(request):
-    """Get all courses that have outlines"""
-    try:
-        courses_with_outlines = Course.objects.filter(
-            outlines__isnull=False
-        ).distinct().values('id', 'code', 'title', 'department__name')
-        
-        return JsonResponse(list(courses_with_outlines), safe=False)
-        
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=400)
+def get_median(scores):
+    """Calculate median of scores"""
+    sorted_scores = sorted(scores)
+    n = len(sorted_scores)
+    if n % 2 == 0:
+        return (sorted_scores[n//2 - 1] + sorted_scores[n//2]) / 2
+    else:
+        return sorted_scores[n//2]
 
+# Add endpoint for trend analysis
 @login_required
 @user_passes_test(is_admin_or_crc)
 @require_http_methods(["GET"])
-def api_analysis_course_outline_versions(request, course_id):
-    """Get all outline versions for a course"""
+def api_analysis_clo_trends(request):
+    """Get CLO achievement trends over time"""
     try:
-        outlines = CourseOutline.objects.filter(
-            course_id=course_id
-        ).values('id', 'version', 'title', 'status', 'created_at', 'faculty__username')
+        # Get data for last 4 quarters
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=365)  # Last year
         
-        return JsonResponse(list(outlines), safe=False)
+        # Initialize data structure
+        quarters = []
+        clo_trends = {
+            'CLO1': [],
+            'CLO2': [],
+            'CLO3': [],
+            'CLO4': []
+        }
+        
+        # Divide into quarters
+        for i in range(4):
+            quarter_start = start_date + timedelta(days=i*90)
+            quarter_end = start_date + timedelta(days=(i+1)*90)
+            quarter_name = f"Q{i+1} {quarter_start.year}"
+            quarters.append(quarter_name)
+            
+            # Get answers for this quarter
+            for clo_num in [1, 2, 3, 4]:
+                answers = FormAnswer.objects.filter(
+                    question__question_text__icontains=f'clo{clo_num}',
+                    submission__submission_date__gte=quarter_start,
+                    submission__submission_date__lt=quarter_end,
+                    submission__dynamic_form__form_type__in=['ccr', 'crr']
+                )
+                
+                scores = []
+                for answer in answers:
+                    score = extract_clo_score_from_answer(answer)
+                    if score is not None:
+                        scores.append(score)
+                
+                if scores:
+                    achievement_rate = sum(1 for s in scores if s >= 70) / len(scores) * 100
+                else:
+                    achievement_rate = 0
+                
+                clo_trends[f'CLO{clo_num}'].append(round(achievement_rate, 1))
+        
+        return JsonResponse({
+            'quarters': quarters,
+            'trends': clo_trends,
+            'time_period': f"{start_date.strftime('%b %Y')} - {end_date.strftime('%b %Y')}"
+        })
         
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
@@ -2326,12 +2838,9 @@ def api_analysis_course_outline_versions(request, course_id):
 @user_passes_test(is_admin_or_crc)
 @csrf_exempt
 @require_http_methods(["POST"])
-def api_analysis_compare_outlines(request):
+def api_compare_outlines(request):
     """Compare two outline versions"""
     try:
-        import difflib
-        from html import escape
-        
         data = json.loads(request.body)
         outline1_id = data.get('outline1_id')
         outline2_id = data.get('outline2_id')
@@ -2339,202 +2848,789 @@ def api_analysis_compare_outlines(request):
         if not outline1_id or not outline2_id:
             return JsonResponse({'error': 'Both outline IDs are required'}, status=400)
         
+        # Get outlines
         outline1 = CourseOutline.objects.get(id=outline1_id)
         outline2 = CourseOutline.objects.get(id=outline2_id)
         
-        # Get content for comparison
-        content1 = outline1.content or ""
-        content2 = outline2.content or ""
+        # Ensure same course
+        if outline1.course != outline2.course:
+            return JsonResponse({'error': 'Outlines must be from the same course'}, status=400)
         
-        # Simple text comparison using difflib
-        d = difflib.Differ()
-        diff = list(d.compare(
-            content1.splitlines(keepends=True),
-            content2.splitlines(keepends=True)
-        ))
+        # Parse content (assuming JSON structure)
+        try:
+            content1 = json.loads(outline1.content) if isinstance(outline1.content, str) else outline1.content
+            content2 = json.loads(outline2.content) if isinstance(outline2.content, str) else outline2.content
+        except:
+            # If not JSON, treat as text
+            content1 = str(outline1.content)
+            content2 = str(outline2.content)
         
-        # Categorize changes
-        added = []
-        deleted = []
-        modified = []
-        
-        for line in diff:
-            if line.startswith('+ ') and not line.startswith('+  '):
-                added.append(escape(line[2:]))
-            elif line.startswith('- ') and not line.startswith('-  '):
-                deleted.append(escape(line[2:]))
-            elif line.startswith('? '):
-                modified.append(escape(line[2:]))
-        
-        # Calculate similarity percentage
-        similarity = difflib.SequenceMatcher(
-            None, 
-            content1, 
-            content2
-        ).ratio() * 100
+        # Simple comparison logic
+        if isinstance(content1, dict) and isinstance(content2, dict):
+            # Compare structured data
+            differences = compare_structured_content(content1, content2)
+        else:
+            # Compare text
+            differences = compare_text_content(content1, content2)
         
         return JsonResponse({
             'outline1': {
                 'id': outline1.id,
                 'version': outline1.version,
                 'title': outline1.title,
-                'faculty': outline1.faculty.username,
-                'created_at': outline1.created_at.strftime('%Y-%m-%d')
+                'status': outline1.status
             },
             'outline2': {
                 'id': outline2.id,
                 'version': outline2.version,
                 'title': outline2.title,
-                'faculty': outline2.faculty.username,
-                'created_at': outline2.created_at.strftime('%Y-%m-%d')
+                'status': outline2.status
             },
-            'comparison': {
-                'similarity_percentage': round(similarity, 2),
-                'lines_added': len(added),
-                'lines_deleted': len(deleted),
-                'lines_modified': len(modified),
-                'added_lines': added,
-                'deleted_lines': deleted,
-                'modified_lines': modified
+            'differences': differences,
+            'course': {
+                'code': outline1.course.code,
+                'title': outline1.course.title
             }
         })
         
     except CourseOutline.DoesNotExist:
-        return JsonResponse({'error': 'One or both outlines not found'}, status=404)
+        return JsonResponse({'error': 'Outline not found'}, status=404)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
 
-# CQI Report APIs (NLP-based)
+def compare_structured_content(content1, content2):
+    """Compare two structured JSON contents"""
+    differences = {
+        'added': [],
+        'modified': [],
+        'deleted': []
+    }
+    
+    # Compare sections if they exist
+    if 'sections' in content1 and 'sections' in content2:
+        sections1 = {section.get('id', str(i)): section for i, section in enumerate(content1['sections'])}
+        sections2 = {section.get('id', str(i)): section for i, section in enumerate(content2['sections'])}
+        
+        # Find added sections
+        for section_id, section in sections2.items():
+            if section_id not in sections1:
+                differences['added'].append({
+                    'id': section_id,
+                    'title': section.get('title', 'Untitled Section'),
+                    'content': section
+                })
+        
+        # Find deleted sections
+        for section_id, section in sections1.items():
+            if section_id not in sections2:
+                differences['deleted'].append({
+                    'id': section_id,
+                    'title': section.get('title', 'Untitled Section'),
+                    'content': section
+                })
+        
+        # Find modified sections
+        for section_id in set(sections1.keys()) & set(sections2.keys()):
+            if sections1[section_id] != sections2[section_id]:
+                differences['modified'].append({
+                    'id': section_id,
+                    'title': sections2[section_id].get('title', 'Untitled Section'),
+                    'old_content': sections1[section_id],
+                    'new_content': sections2[section_id]
+                })
+    
+    return differences
+
+def compare_text_content(text1, text2):
+    """Compare two text contents"""
+    lines1 = text1.split('\n')
+    lines2 = text2.split('\n')
+    
+    differences = {
+        'added': [],
+        'modified': [],
+        'deleted': []
+    }
+    
+    # Simple line-by-line comparison
+    for i, (line1, line2) in enumerate(itertools.zip_longest(lines1, lines2, fillvalue="")):
+        if i >= len(lines1):
+            # Line added in version 2
+            if line2.strip():
+                differences['added'].append({
+                    'line': i + 1,
+                    'content': line2
+                })
+        elif i >= len(lines2):
+            # Line deleted in version 2
+            if line1.strip():
+                differences['deleted'].append({
+                    'line': i + 1,
+                    'content': line1
+                })
+        elif line1 != line2:
+            # Line modified
+            differences['modified'].append({
+                'line': i + 1,
+                'old_content': line1,
+                'new_content': line2
+            })
+    
+    return differences
+
 @login_required
 @user_passes_test(is_admin_or_crc)
 @csrf_exempt
 @require_http_methods(["POST"])
-def api_analysis_generate_cqi_report(request):
-    """Generate CQI report using NLP analysis"""
+def api_generate_cqi_report(request):
+    """Generate CQI report using AI (DeepSeek via LiteLLM)"""
     try:
-        import re
-        from collections import Counter
-        from datetime import datetime, timedelta
-        
         data = json.loads(request.body)
-        report_type = data.get('report_type', 'comprehensive')  # 'comprehensive', 'forms', 'outlines'
-        time_period = data.get('time_period', 'last_month')  # 'last_month', 'last_quarter', 'all_time'
+        course_id = data.get('course_id')
+        time_period = data.get('time_period', 'all')  # 'week', 'month', 'quarter', 'all'
+        report_type = data.get('report_type', 'summary')  # 'summary', 'detailed', 'recommendations'
         
-        # Calculate date range
-        end_date = datetime.now()
-        if time_period == 'last_month':
-            start_date = end_date - timedelta(days=30)
-        elif time_period == 'last_quarter':
-            start_date = end_date - timedelta(days=90)
-        else:
-            start_date = datetime.min
+        # Collect data for AI analysis
+        context_data = collect_data_for_ai(course_id, time_period)
         
-        # Get data for analysis
-        form_submissions = DynamicFormSubmission.objects.filter(
-            submission_date__range=(start_date, end_date),
-            dynamic_form__form_type__in=['ccr', 'crr']
-        ).select_related('faculty', 'course', 'dynamic_form').prefetch_related('answers')
-        
-        course_outlines = CourseOutline.objects.filter(
-            submitted_at__range=(start_date, end_date)
-        ).select_related('faculty', 'course')
-        
-        # Extract text data for NLP analysis
-        all_text_data = []
-        
-        # Collect form answers
-        for submission in form_submissions:
-            for answer in submission.answers.all():
-                if answer.answer_text:
-                    all_text_data.append(answer.answer_text)
-        
-        # Collect outline content
-        for outline in course_outlines:
-            if outline.content:
-                all_text_data.append(outline.content)
-        
-        # Simple NLP analysis (you can replace this with more sophisticated NLP)
-        common_issues = []
-        suggestions = []
-        strengths = []
-        
-        # Analyze text for common patterns
-        text_combined = ' '.join(all_text_data).lower()
-        
-        # Look for common issues
-        issue_patterns = {
-            'Time Management': ['not enough time', 'time constraint', 'rushed', 'schedule issue'],
-            'Resources': ['lack of resources', 'no textbook', 'limited access', 'equipment issue'],
-            'Assessment': ['difficult exam', 'unclear grading', 'assessment issue', 'rubric problem'],
-            'Content Coverage': ['too much content', 'syllabus overload', 'coverage issue'],
-            'Student Engagement': ['low participation', 'student disengagement', 'attendance issue'],
-        }
-        
-        for issue, keywords in issue_patterns.items():
-            count = sum(text_combined.count(keyword) for keyword in keywords)
-            if count > 0:
-                common_issues.append({
-                    'issue': issue,
-                    'frequency': count,
-                    'examples': [kw for kw in keywords if kw in text_combined][:3]
-                })
-        
-        # Look for strengths
-        strength_patterns = {
-            'Good Resources': ['excellent resources', 'good materials', 'helpful content', 'useful tools'],
-            'Effective Assessment': ['fair assessment', 'clear rubric', 'helpful feedback', 'good evaluation'],
-            'Student Engagement': ['active participation', 'good discussion', 'engaged students', 'high attendance'],
-            'Content Quality': ['excellent content', 'well organized', 'clear structure', 'comprehensive'],
-        }
-        
-        for strength, keywords in strength_patterns.items():
-            count = sum(text_combined.count(keyword) for keyword in keywords)
-            if count > 0:
-                strengths.append({
-                    'strength': strength,
-                    'frequency': count,
-                    'examples': [kw for kw in keywords if kw in text_combined][:3]
-                })
-        
-        # Generate suggestions based on analysis
-        if common_issues:
-            suggestions = [
-                "Consider allocating more time for complex topics based on faculty feedback.",
-                "Review resource availability and consider additional learning materials.",
-                "Provide clearer assessment rubrics and expectations to students.",
-                "Consider revising content coverage to better match available time."
-            ]
-        
-        # Generate summary statistics
-        stats = {
-            'total_form_submissions': form_submissions.count(),
-            'total_course_outlines': course_outlines.count(),
+        # Add metadata to context
+        context_data['metadata'] = {
+            'course_id': course_id,
             'time_period': time_period,
-            'start_date': start_date.strftime('%Y-%m-%d'),
-            'end_date': end_date.strftime('%Y-%m-%d'),
-            'top_faculty_contributors': list(
-                form_submissions.values('faculty__username')
-                .annotate(count=Count('id'))
-                .order_by('-count')[:5]
-                .values('faculty__username', 'count')
-            ),
-            'most_active_courses': list(
-                form_submissions.values('course__code', 'course__title')
-                .annotate(count=Count('id'))
-                .order_by('-count')[:5]
-                .values('course__code', 'course__title', 'count')
-            )
+            'report_type': report_type,
+            'generated_at': datetime.now().isoformat()
         }
+        
+        # Generate report using DeepSeek AI via LiteLLM
+        report = generate_ai_report_deepseek(context_data, report_type)
         
         return JsonResponse({
-            'report_type': report_type,
+            'report': report,
             'generated_at': datetime.now().isoformat(),
-            'statistics': stats,
-            'common_issues': common_issues[:5],  # Top 5 issues
-            'key_strengths': strengths[:5],  # Top 5 strengths
-            'recommendations': suggestions,
-            'analysis_summary': f"Analysis of {len(all_text_data)} text entries from {stats['total_form_submissions']} form submissions and {stats['total_course_outlines']} course outlines."
+            'course_id': course_id,
+            'time_period': time_period,
+            'report_type': report_type,
+            'context_summary': {
+                'has_course_data': 'course' in context_data,
+                'total_submissions': context_data.get('statistics', {}).get('total_submissions', 0),
+                'outline_count': len(context_data.get('outlines', [])),
+                'submission_count': len(context_data.get('submissions', []))
+            }
         })
         
     except Exception as e:
+        print(f"Error in CQI report generation: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({
+            'error': str(e),
+            'message': 'Failed to generate report. Please try again.',
+            'fallback_report': 'CQI Report Generation Failed\n\nPlease ensure you have an active internet connection and valid API key.'
+        }, status=400)
+
+def generate_ai_report_deepseek(context_data, report_type="summary"):
+    """Generate report using DeepSeek AI via LiteLLM"""
+    try:
+        # Get API key from settings (loaded from .env)
+        from django.conf import settings
+        
+        deepseek_api_key = getattr(settings, 'DEEPSEEK_API_KEY', None)
+        litellm_model = getattr(settings, 'LITELLM_MODEL', 'deepseek/deepseek-chat')
+        
+        if not deepseek_api_key:
+            return "DeepSeek API key not configured. Please contact administrator."
+        
+        # Create prompt based on report type
+        if report_type == "summary":
+            sections = """
+            1. Executive Summary (2-3 paragraphs)
+            2. Key Findings (Bulleted list of 5-7 key points)
+            3. Recommendations for Improvement (3-5 actionable recommendations)
+            """
+        elif report_type == "detailed":
+            sections = """
+            1. Executive Summary
+            2. Key Findings and Analysis
+            3. Submissions Analysis (CCR vs CRR forms comparison)
+            4. Course Outline Quality Assessment
+            5. Faculty Engagement Analysis
+            6. CLO Achievement Analysis
+            7. Recommendations for Improvement
+            8. Action Items and Timeline
+            """
+        elif report_type == "recommendations":
+            sections = """
+            1. Key Recommendations (Prioritized list)
+            2. Implementation Strategy
+            3. Expected Outcomes
+            4. Timeline and Resources Required
+            """
+        else:
+            sections = """
+            1. Executive Summary
+            2. Key Findings
+            3. Recommendations for Improvement
+            4. Action Items
+            """
+        
+        # Create enhanced prompt for DeepSeek
+        prompt = f"""
+        ROLE: You are a CQI (Continuous Quality Improvement) analyst for an academic institution.
+        
+        TASK: Analyze the following data and generate a comprehensive CQI report.
+        
+        REPORT TYPE: {report_type.upper()}
+        
+        DATA CONTEXT:
+        {json.dumps(context_data, indent=2)}
+        
+        REPORT STRUCTURE:
+        {sections}
+        
+        REPORT REQUIREMENTS:
+        1. Be specific, actionable, and evidence-based
+        2. Use academic and professional language
+        3. Include quantitative data where available
+        4. Provide clear recommendations with implementation steps
+        5. Consider institutional constraints and practical feasibility
+        6. Highlight both strengths and areas for improvement
+        7. Include metrics and KPIs where relevant
+        
+        FORMATTING:
+        - Use clear headings and subheadings
+        - Use bullet points for lists
+        - Include tables for comparative data if helpful
+        - Use bold text for key points
+        - Keep paragraphs concise (3-5 sentences)
+        
+        TONE: Professional, analytical, constructive, and solution-oriented
+        
+        LENGTH: 
+        - Summary: 800-1000 words
+        - Detailed: 1500-2000 words  
+        - Recommendations: 500-700 words
+        
+        IMPORTANT: Base all analysis on the provided data. Do not fabricate or assume data not present.
+        """
+        
+        # Generate content using LiteLLM with DeepSeek
+        try:
+            response = completion(
+                model=litellm_model,
+                messages=[
+                    {"role": "system", "content": "You are an expert CQI analyst for higher education institutions."},
+                    {"role": "user", "content": prompt}
+                ],
+                api_key=deepseek_api_key,
+                temperature=0.3,  # Lower temperature for more consistent, analytical output
+                max_tokens=4000
+            )
+            
+            return response.choices[0].message.content
+            
+        except Exception as e:
+            print(f"DeepSeek API error: {str(e)}")
+            # Fallback to manual report
+            return generate_manual_report(context_data, report_type)
+        
+    except Exception as e:
+        print(f"Error in AI report generation: {str(e)}")
+        return generate_manual_report(context_data, report_type)
+
+def generate_manual_report(context_data, report_type):
+    """Generate a manual fallback report if AI fails"""
+    stats = context_data.get('statistics', {})
+    
+    if report_type == "summary":
+        return f"""
+        CQI REPORT - MANUAL SUMMARY
+        
+        Executive Summary:
+        This report analyzes quality metrics based on {stats.get('total_submissions', 0)} form submissions 
+        and {len(context_data.get('outlines', []))} course outlines.
+        
+        Key Findings:
+        1. Total submissions: {stats.get('total_submissions', 0)}
+        2. Approved submissions: {stats.get('approved_submissions', 0)} ({stats.get('total_submissions', 1) and (stats.get('approved_submissions', 0)/stats.get('total_submissions', 1))*100:.1f}%)
+        3. Pending review: {stats.get('pending_submissions', 0)}
+        4. Revision requests: {stats.get('revision_requests', 0)}
+        
+        Recommendations:
+        1. Review submission processes for efficiency
+        2. Provide faculty training on form completion
+        3. Implement regular quality checks
+        
+        Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+        """
+    else:
+        return f"""
+        CQI REPORT
+        
+        Statistics:
+        - Total Submissions: {stats.get('total_submissions', 0)}
+        - Approved: {stats.get('approved_submissions', 0)}
+        - Pending: {stats.get('pending_submissions', 0)}
+        - Revision Requests: {stats.get('revision_requests', 0)}
+        
+        Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+        Report Type: {report_type}
+        """
+
+# The collect_data_for_ai function remains the same
+def collect_data_for_ai(course_id, time_period):
+    """Collect data for AI analysis"""
+    data = {}
+    
+    # Get course information
+    if course_id:
+        try:
+            course = Course.objects.get(id=course_id)
+            data['course'] = {
+                'code': course.code,
+                'title': course.title,
+                'department': course.department.name if course.department else None,
+                'credits': course.credits
+            }
+            
+            # Get course outlines
+            outlines = CourseOutline.objects.filter(course=course).order_by('-version')
+            data['outlines'] = []
+            for outline in outlines[:5]:  # Last 5 versions
+                data['outlines'].append({
+                    'version': outline.version,
+                    'status': outline.status,
+                    'title': outline.title,
+                    'created_at': outline.created_at.isoformat() if outline.created_at else None,
+                    'notes': outline.notes
+                })
+        except Course.DoesNotExist:
+            pass
+    
+    # Get form submissions
+    if course_id:
+        submissions = DynamicFormSubmission.objects.filter(
+            course_id=course_id,
+            dynamic_form__form_type__in=['ccr', 'crr']
+        ).select_related('faculty', 'dynamic_form')
+    else:
+        submissions = DynamicFormSubmission.objects.filter(
+            dynamic_form__form_type__in=['ccr', 'crr']
+        ).select_related('faculty', 'dynamic_form', 'course')
+    
+    # Apply time filter
+    if time_period != 'all':
+        if time_period == 'week':
+            start_date = datetime.now() - timedelta(days=7)
+        elif time_period == 'month':
+            start_date = datetime.now() - timedelta(days=30)
+        elif time_period == 'quarter':
+            start_date = datetime.now() - timedelta(days=90)
+        submissions = submissions.filter(submission_date__gte=start_date)
+    
+    data['submissions'] = []
+    for submission in submissions[:50]:  # Limit to 50 submissions
+        data['submissions'].append({
+            'form_type': submission.dynamic_form.form_type,
+            'form_name': submission.dynamic_form.name,
+            'faculty': submission.faculty.username,
+            'status': submission.status,
+            'submission_date': submission.submission_date.isoformat() if submission.submission_date else None,
+            'course': submission.course.code if course_id is None else None
+        })
+    
+    # Get statistics
+    data['statistics'] = {
+        'total_submissions': submissions.count(),
+        'approved_submissions': submissions.filter(status='approved').count(),
+        'pending_submissions': submissions.filter(status='submitted').count(),
+        'revision_requests': submissions.filter(status='revision_requested').count()
+    }
+    
+    return data
+
+def generate_ai_report_deepseek(context_data, report_type="summary"):
+    """Generate report using DeepSeek via LiteLLM"""
+    try:
+        # Get API configuration from environment variables
+        deepseek_api_key = os.getenv('DEEPSEEK_API_KEY')
+        deepseek_api_base = os.getenv('DEEPSEEK_API_BASE', 'https://api.deepseek.com')
+        
+        if not deepseek_api_key:
+            return "DeepSeek API key is not configured. Please contact the administrator."
+        
+        # Create prompt
+        prompt = create_report_prompt(context_data, report_type)
+        
+        # Generate content with DeepSeek using LiteLLM
+        try:
+            response = litellm.completion(
+                model="deepseek/deepseek-chat",  # Fixed: Added provider prefix
+                messages=[
+                    {
+                        "role": "system", 
+                        "content": "You are a CQI (Continuous Quality Improvement) analyst for an academic institution. Analyze the data and generate a comprehensive CQI report. Focus on identifying patterns, issues, and opportunities for quality improvement. Be specific and actionable in your recommendations."
+                    },
+                    {
+                        "role": "user", 
+                        "content": prompt
+                    }
+                ],
+                temperature=0.7,
+                max_tokens=4000,
+                api_key=deepseek_api_key,
+                api_base=deepseek_api_base
+            )
+            
+            return response.choices[0].message.content
+            
+        except Exception as e:
+            print(f"DeepSeek API error: {str(e)}")  # Debug logging
+            # Fallback to manual report
+            return generate_fallback_report(context_data)
+        
+    except Exception as e:
+        print(f"Error generating AI report: {str(e)}")
+        return generate_fallback_report(context_data)
+
+def generate_fallback_report(context_data):
+    """Generate a simple fallback report when AI fails"""
+    stats = context_data.get('statistics', {})
+    course = context_data.get('course', {})
+    
+    report = f"""CQI Report - Manual Analysis
+Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+
+SUMMARY
+=======
+Total Submissions: {stats.get('total_submissions', 0)}
+Approved Submissions: {stats.get('approved_submissions', 0)}
+Pending Submissions: {stats.get('pending_submissions', 0)}
+Revision Requests: {stats.get('revision_requests', 0)}
+
+{'COURSE INFORMATION' if course else 'GENERAL OVERVIEW'}
+{'='*20}
+{f"Course: {course.get('code', 'N/A')} - {course.get('title', 'N/A')}" if course else "Analysis across all courses"}
+{f"Department: {course.get('department', 'N/A')}" if course and course.get('department') else ""}
+{f"Credits: {course.get('credits', 'N/A')}" if course and course.get('credits') else ""}
+
+KEY FINDINGS
+============
+1. Submission Activity: {stats.get('total_submissions', 0)} total form submissions
+2. Approval Rate: {round((stats.get('approved_submissions', 0) / stats.get('total_submissions', 1)) * 100, 1) if stats.get('total_submissions', 0) > 0 else 0}%
+3. Pending Reviews: {stats.get('pending_submissions', 0)} submissions awaiting review
+4. Revision Rate: {round((stats.get('revision_requests', 0) / stats.get('total_submissions', 1)) * 100, 1) if stats.get('total_submissions', 0) > 0 else 0}%
+
+RECOMMENDATIONS
+===============
+1. Review pending submissions promptly to maintain workflow efficiency
+2. Address revision requests systematically to improve submission quality
+3. Monitor submission trends for continuous quality improvement
+
+NOTE: AI-powered analysis was unavailable. This is a basic manual report.
+"""
+    return report
+
+
+
+def create_report_prompt(context_data, report_type):
+    """Create a prompt for the AI report generation"""
+    
+    if report_type == "summary":
+        sections = """
+        1. Executive Summary
+        2. Key Findings
+        3. Recommendations for Improvement
+        """
+    elif report_type == "detailed":
+        sections = """
+        1. Executive Summary
+        2. Key Findings
+        3. Submissions Analysis (CCR vs CRR forms)
+        4. Course Outline Quality Assessment
+        5. Faculty Engagement Analysis
+        6. Recommendations for Improvement
+        7. Action Items
+        """
+    elif report_type == "recommendations":
+        sections = """
+        1. Key Recommendations
+        2. Priority Actions
+        3. Implementation Timeline
+        """
+    else:
+        sections = """
+        1. Executive Summary
+        2. Key Findings
+        3. Submissions Analysis (CCR vs CRR forms)
+        4. Course Outline Quality Assessment
+        5. Faculty Engagement Analysis
+        6. Recommendations for Improvement
+        7. Action Items
+        """
+    
+    # Create context summary
+    context_summary = {
+        'has_course_data': 'course' in context_data,
+        'total_submissions': context_data.get('statistics', {}).get('total_submissions', 0),
+        'approved_submissions': context_data.get('statistics', {}).get('approved_submissions', 0),
+        'pending_submissions': context_data.get('statistics', {}).get('pending_submissions', 0),
+        'revision_requests': context_data.get('statistics', {}).get('revision_requests', 0),
+        'outline_count': len(context_data.get('outlines', [])),
+        'submission_count': len(context_data.get('submissions', [])),
+        'course_info': context_data.get('course', {})
+    }
+    
+    prompt = f"""
+    As a CQI (Continuous Quality Improvement) analyst for an academic institution, analyze the following data and generate a comprehensive CQI report.
+    
+    REPORT TYPE: {report_type.upper()}
+    
+    Context Summary:
+    {json.dumps(context_summary, indent=2)}
+    
+    Detailed Data:
+    {json.dumps(context_data, indent=2)[:3000]}... [Data truncated for brevity]
+    
+    Please provide a structured report with the following sections:
+    {sections}
+    
+    Focus on:
+    - Identifying patterns, issues, and opportunities for quality improvement
+    - Being specific and actionable in your recommendations
+    - Using bullet points for clarity
+    - Keeping the report professional and evidence-based
+    - Formatting the report with clear headings and subheadings
+    
+    Important: Base your analysis on the provided data. If certain data points are missing, acknowledge this and focus on the available information.
+    """
+    
+    return prompt
+
+def collect_data_for_ai(course_id, time_period):
+    """Collect data for AI analysis"""
+    data = {}
+    
+    # Get course information
+    if course_id:
+        try:
+            course = Course.objects.get(id=course_id)
+            data['course'] = {
+                'code': course.code,
+                'title': course.title,
+                'department': course.department.name if course.department else None,
+                'credits': course.credits
+            }
+            
+            # Get course outlines
+            outlines = CourseOutline.objects.filter(course=course).order_by('-version')
+            data['outlines'] = []
+            for outline in outlines[:5]:  # Last 5 versions
+                data['outlines'].append({
+                    'version': outline.version,
+                    'status': outline.status,
+                    'title': outline.title,
+                    'created_at': outline.created_at.isoformat() if outline.created_at else None,
+                    'notes': outline.notes
+                })
+        except Course.DoesNotExist:
+            pass
+    
+    # Get form submissions
+    if course_id:
+        submissions = DynamicFormSubmission.objects.filter(
+            course_id=course_id,
+            dynamic_form__form_type__in=['ccr', 'crr']
+        ).select_related('faculty', 'dynamic_form')
+    else:
+        submissions = DynamicFormSubmission.objects.filter(
+            dynamic_form__form_type__in=['ccr', 'crr']
+        ).select_related('faculty', 'dynamic_form', 'course')
+    
+    # Apply time filter
+    if time_period != 'all':
+        if time_period == 'week':
+            start_date = datetime.now() - timedelta(days=7)
+        elif time_period == 'month':
+            start_date = datetime.now() - timedelta(days=30)
+        elif time_period == 'quarter':
+            start_date = datetime.now() - timedelta(days=90)
+        submissions = submissions.filter(submission_date__gte=start_date)
+    
+    data['submissions'] = []
+    for submission in submissions[:50]:  # Limit to 50 submissions
+        data['submissions'].append({
+            'form_type': submission.dynamic_form.form_type,
+            'form_name': submission.dynamic_form.name,
+            'faculty': submission.faculty.username,
+            'status': submission.status,
+            'submission_date': submission.submission_date.isoformat() if submission.submission_date else None,
+            'course': submission.course.code if course_id is None else None
+        })
+    
+    # Get statistics
+    data['statistics'] = {
+        'total_submissions': submissions.count(),
+        'approved_submissions': submissions.filter(status='approved').count(),
+        'pending_submissions': submissions.filter(status='submitted').count(),
+        'revision_requests': submissions.filter(status='revision_requested').count()
+    }
+    
+    return data
+
+def generate_ai_report(context_data, report_type="summary"):
+    """Generate report using Gemini AI"""
+    try:
+        # Initialize Gemini with error handling
+        try:
+            model = genai.GenerativeModel('gemini-pro')
+        except Exception as e:
+            return f"Gemini API initialization error: {str(e)}\n\nPlease check your API key and internet connection."
+        
+        # Create prompt based on report type
+        if report_type == "summary":
+            sections = """
+            1. Executive Summary
+            2. Key Findings
+            3. Recommendations for Improvement
+            """
+        elif report_type == "detailed":
+            sections = """
+            1. Executive Summary
+            2. Key Findings
+            3. Submissions Analysis (CCR vs CRR forms)
+            4. Course Outline Quality Assessment
+            5. Faculty Engagement Analysis
+            6. Recommendations for Improvement
+            7. Action Items
+            """
+        elif report_type == "recommendations":
+            sections = """
+            1. Key Recommendations
+            2. Priority Actions
+            3. Implementation Timeline
+            """
+        else:
+            sections = """
+            1. Executive Summary
+            2. Key Findings
+            3. Submissions Analysis (CCR vs CRR forms)
+            4. Course Outline Quality Assessment
+            5. Faculty Engagement Analysis
+            6. Recommendations for Improvement
+            7. Action Items
+            """
+        
+        # Create prompt
+        prompt = f"""
+        As a CQI (Continuous Quality Improvement) analyst for an academic institution, analyze the following data and generate a comprehensive CQI report.
+        
+        REPORT TYPE: {report_type.upper()}
+        
+        Context Data:
+        {json.dumps(context_data, indent=2)}
+        
+        Please provide a structured report with the following sections:
+        {sections}
+        
+        Focus on identifying patterns, issues, and opportunities for quality improvement.
+        Be specific and actionable in your recommendations.
+        Use bullet points for clarity.
+        Keep the report professional and evidence-based.
+        
+        Format the report with clear headings and subheadings.
+        """
+        
+        # Generate content with timeout
+        try:
+            response = model.generate_content(prompt)
+            return response.text
+        except Exception as e:
+            return f"Gemini API generation error: {str(e)}\n\nManual Report:\n\nTotal Submissions: {context_data.get('statistics', {}).get('total_submissions', 0)}\nApproved: {context_data.get('statistics', {}).get('approved_submissions', 0)}\nPending: {context_data.get('statistics', {}).get('pending_submissions', 0)}\nRevision Requests: {context_data.get('statistics', {}).get('revision_requests', 0)}"
+        
+    except Exception as e:
+        return f"Error generating AI report: {str(e)}\n\nManual Summary:\nTotal Submissions: {context_data.get('statistics', {}).get('total_submissions', 0)}\nApproved: {context_data.get('statistics', {}).get('approved_submissions', 0)}\nPending: {context_data.get('statistics', {}).get('pending_submissions', 0)}"
+
+
+@login_required
+@user_passes_test(is_admin_or_crc)
+@require_http_methods(["GET"])
+def api_analysis_clo_by_course(request):
+    """Get CLO achievement data broken down by course"""
+    try:
+        courses = Course.objects.all()
+        course_clo_data = []
+        
+        for course in courses:
+            course_data = {
+                'course_id': course.id,
+                'course_code': course.code,
+                'course_title': course.title,
+                'department': course.department.name if course.department else '',
+                'clo_data': {
+                    'CLO1': {'scores': [], 'count': 0, 'achieved': 0},
+                    'CLO2': {'scores': [], 'count': 0, 'achieved': 0},
+                    'CLO3': {'scores': [], 'count': 0, 'achieved': 0},
+                    'CLO4': {'scores': [], 'count': 0, 'achieved': 0},
+                }
+            }
+            
+            # Get form submissions for this course
+            submissions = DynamicFormSubmission.objects.filter(
+                course=course,
+                dynamic_form__form_type__in=['ccr', 'crr'],
+                status__in=['submitted', 'approved']
+            ).prefetch_related('answers__question')
+            
+            for submission in submissions:
+                answers = submission.answers.all()
+                
+                for answer in answers:
+                    # Check for CLO percentage dictionary
+                    if isinstance(answer.answer_data, dict):
+                        for clo_num in [1, 2, 3, 4]:
+                            clo_key = f'CLO{clo_num}'
+                            for key in [f'clo{clo_num}', f'clo_{clo_num}', f'CLO{clo_num}']:
+                                if key in answer.answer_data:
+                                    score = answer.answer_data[key]
+                                    if isinstance(score, (int, float)):
+                                        course_data['clo_data'][clo_key]['scores'].append(score)
+                                        course_data['clo_data'][clo_key]['count'] += 1
+                                        if score >= 70:
+                                            course_data['clo_data'][clo_key]['achieved'] += 1
+                                    elif isinstance(score, str):
+                                        try:
+                                            if '%' in score:
+                                                score_val = float(score.replace('%', '').strip())
+                                            else:
+                                                score_val = float(score)
+                                            
+                                            course_data['clo_data'][clo_key]['scores'].append(score_val)
+                                            course_data['clo_data'][clo_key]['count'] += 1
+                                            if score_val >= 70:
+                                                course_data['clo_data'][clo_key]['achieved'] += 1
+                                        except:
+                                            pass
+            
+            # Calculate averages and rates for this course
+            for clo in ['CLO1', 'CLO2', 'CLO3', 'CLO4']:
+                scores = course_data['clo_data'][clo]['scores']
+                count = course_data['clo_data'][clo]['count']
+                achieved = course_data['clo_data'][clo]['achieved']
+                
+                if count > 0:
+                    avg_score = sum(scores) / len(scores)
+                    achievement_rate = (achieved / count) * 100
+                else:
+                    avg_score = 0
+                    achievement_rate = 0
+                
+                course_data['clo_data'][clo]['average_score'] = round(avg_score, 1)
+                course_data['clo_data'][clo]['achievement_rate'] = round(achievement_rate, 1)
+            
+            course_clo_data.append(course_data)
+        
+        return JsonResponse(course_clo_data, safe=False)
+        
+    except Exception as e:
+        print(f"Error in CLO by course analysis: {str(e)}")
         return JsonResponse({'error': str(e)}, status=400)
