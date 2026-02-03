@@ -136,4 +136,5 @@ path("api/crc/analysis/clo-trends/", api_views.api_analysis_clo_trends, name="ap
 path("api/crc/analysis/clo-by-course/", api_views.api_analysis_clo_by_course, name="api_analysis_clo_by_course"),
 
 
+
 ]

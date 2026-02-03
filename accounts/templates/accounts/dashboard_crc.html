@@ -468,6 +468,7 @@
             "Content-Type": "application/json",
             "X-CSRFToken": getCSRFToken(),
           },
+          credentials: "include", // ← ADD THIS LINE
         };
 
         try {
@@ -4123,90 +4124,90 @@
           "Generate comprehensive quality improvement reports";
 
         elements.contentArea.innerHTML = `
-        <div class="space-y-6">
-            <div class="bg-white rounded-lg shadow p-6">
-                <h3 class="font-medium text-lg mb-4">Generate CQI Report</h3>
+    <div class="space-y-6">
+        <div class="bg-white rounded-lg shadow p-6">
+            <h3 class="font-medium text-lg mb-4">Generate CQI Report</h3>
+            
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Select Course (Optional)</label>
+                    <select id="report-course-select" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                        <option value="">All Courses (General Report)</option>
+                    </select>
+                </div>
                 
-                <div class="space-y-4">
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Select Course (Optional)</label>
-                        <select id="report-course-select" class="w-full border border-gray-300 rounded-lg px-3 py-2">
-                            <option value="">All Courses (General Report)</option>
-                        </select>
-                    </div>
-                    
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Time Period</label>
-                        <select id="report-period-select" class="w-full border border-gray-300 rounded-lg px-3 py-2">
-                            <option value="all">All Time</option>
-                            <option value="quarter">Last Quarter (90 days)</option>
-                            <option value="month">Last Month (30 days)</option>
-                            <option value="week">Last Week (7 days)</option>
-                        </select>
-                    </div>
-                    
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Report Type</label>
-                        <div class="space-y-2">
-                            <label class="flex items-center">
-                                <input type="radio" name="report-type" value="summary" checked class="h-4 w-4 text-blue-600">
-                                <span class="ml-2 text-sm">Executive Summary</span>
-                            </label>
-                            <label class="flex items-center">
-                                <input type="radio" name="report-type" value="detailed" class="h-4 w-4 text-blue-600">
-                                <span class="ml-2 text-sm">Detailed Analysis</span>
-                            </label>
-                            <label class="flex items-center">
-                                <input type="radio" name="report-type" value="recommendations" class="h-4 w-4 text-blue-600">
-                                <span class="ml-2 text-sm">Recommendations Only</span>
-                            </label>
-                        </div>
-                    </div>
-                    
-                    <div class="pt-4">
-                        <button onclick="generateCQIReport()" 
-                                id="generate-report-button"
-                                class="w-full px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center justify-center gap-2">
-                            <i class="fas fa-robot"></i>
-                            Generate AI-Powered Report
-                        </button>
-                        <p class="text-xs text-gray-500 mt-2 text-center">
-                            This will use Google Gemini AI to analyze data and generate insights
-                        </p>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Time Period</label>
+                    <select id="report-period-select" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                        <option value="all">All Time</option>
+                        <option value="quarter">Last Quarter (90 days)</option>
+                        <option value="month">Last Month (30 days)</option>
+                        <option value="week">Last Week (7 days)</option>
+                    </select>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Report Type</label>
+                    <div class="space-y-2">
+                        <label class="flex items-center">
+                            <input type="radio" name="report-type" value="summary" checked class="h-4 w-4 text-blue-600">
+                            <span class="ml-2 text-sm">Executive Summary</span>
+                        </label>
+                        <label class="flex items-center">
+                            <input type="radio" name="report-type" value="detailed" class="h-4 w-4 text-blue-600">
+                            <span class="ml-2 text-sm">Detailed Analysis</span>
+                        </label>
+                        <label class="flex items-center">
+                            <input type="radio" name="report-type" value="recommendations" class="h-4 w-4 text-blue-600">
+                            <span class="ml-2 text-sm">Recommendations Only</span>
+                        </label>
                     </div>
                 </div>
-            </div>
-            
-            <div id="report-results" class="hidden">
-                <div class="bg-white rounded-lg shadow">
-                    <div class="px-6 py-4 border-b flex justify-between items-center">
-                        <h3 class="text-lg font-medium">CQI Report</h3>
-                        <div class="flex gap-2">
-                            <button onclick="printReport()" class="px-3 py-1 text-sm text-gray-600 hover:text-gray-800 border rounded-lg">
-                                <i class="fas fa-print mr-1"></i> Print
-                            </button>
-                            <button onclick="downloadReport()" class="px-3 py-1 text-sm text-gray-600 hover:text-gray-800 border rounded-lg">
-                                <i class="fas fa-download mr-1"></i> Download
-                            </button>
-                        </div>
-                    </div>
-                    <div class="p-6">
-                        <div id="report-content" class="prose max-w-none"></div>
-                    </div>
-                </div>
-            </div>
-            
-            <div id="report-loading" class="hidden">
-                <div class="bg-white rounded-lg shadow p-6">
-                    <div class="flex flex-col items-center justify-center py-12">
-                        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mb-4"></div>
-                        <p class="text-gray-600">Generating AI report...</p>
-                        <p class="text-sm text-gray-500 mt-2">This may take a few moments</p>
-                    </div>
+                
+                <div class="pt-4">
+                    <button onclick="generateCQIReport()" 
+                            id="generate-report-button"
+                            class="w-full px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center justify-center gap-2">
+                        <i class="fas fa-robot"></i>
+                        Generate AI-Powered Report
+                    </button>
+                    <p class="text-xs text-gray-500 mt-2 text-center">
+                        This will use AI to analyze your form submissions and course outlines
+                    </p>
                 </div>
             </div>
         </div>
-    `;
+        
+        <div id="report-results" class="hidden">
+            <div class="bg-white rounded-lg shadow">
+                <div class="px-6 py-4 border-b flex justify-between items-center">
+                    <h3 class="text-lg font-medium">CQI Report</h3>
+                    <div class="flex gap-2">
+                        <button onclick="printReport()" class="px-3 py-1 text-sm text-gray-600 hover:text-gray-800 border rounded-lg">
+                            <i class="fas fa-print mr-1"></i> Print
+                        </button>
+                        <button onclick="downloadReport()" class="px-3 py-1 text-sm text-gray-600 hover:text-gray-800 border rounded-lg">
+                            <i class="fas fa-download mr-1"></i> Download
+                        </button>
+                    </div>
+                </div>
+                <div class="p-6">
+                    <div id="report-content" class="prose max-w-none"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div id="report-loading" class="hidden">
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="flex flex-col items-center justify-center py-12">
+                    <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mb-4"></div>
+                    <p class="text-gray-600">Generating AI report...</p>
+                    <p class="text-sm text-gray-500 mt-2">This may take a few moments</p>
+                </div>
+            </div>
+        </div>
+    </div>
+`;
 
         // Load courses for dropdown
         await loadCoursesForReport();
@@ -4217,6 +4218,11 @@
           const catalogue = await fetchAPI(API.crc_course_catalogue);
           const select = document.getElementById("report-course-select");
 
+          // Clear existing options except the first one
+          while (select.options.length > 1) {
+            select.remove(1);
+          }
+
           catalogue.forEach((course) => {
             const option = document.createElement("option");
             option.value = course.course_id;
@@ -4224,13 +4230,14 @@
             select.appendChild(option);
           });
         } catch (error) {
+          console.error("Error loading courses:", error);
           showNotification("Error loading courses", "error");
         }
       }
 
-      // Update the generateCQIReport function in your HTML/JS
-
       async function generateCQIReport() {
+        console.log("generateCQIReport function called");
+
         const courseId = document.getElementById("report-course-select").value;
         const timePeriod = document.getElementById(
           "report-period-select",
@@ -4239,42 +4246,42 @@
           'input[name="report-type"]:checked',
         ).value;
 
+        console.log("Parameters:", { courseId, timePeriod, reportType });
+
+        // Validate
+        if (!timePeriod) {
+          showNotification("Please select a time period", "error");
+          return;
+        }
+
         // Show loading
         document.getElementById("report-results").classList.add("hidden");
         document.getElementById("report-loading").classList.remove("hidden");
 
         try {
-          const response = await fetch("{% url 'api_generate_cqi_report' %}", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-CSRFToken": getCSRFToken(),
+          // Use fetchAPI instead of direct fetch
+          const reportData = await fetchAPI(
+            "{% url 'api_generate_cqi_report' %}",
+            {
+              method: "POST",
+              body: JSON.stringify({
+                course_id: courseId || null,
+                time_period: timePeriod,
+                report_type: reportType,
+              }),
             },
-            body: JSON.stringify({
-              course_id: courseId || null,
-              time_period: timePeriod,
-              report_type: reportType,
-            }),
-          });
+          );
+
+          console.log("Report data received:", reportData);
 
           // Hide loading
           document.getElementById("report-loading").classList.add("hidden");
 
-          if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(
-              errorData.message ||
-                `HTTP ${response.status}: ${response.statusText}`,
-            );
-          }
-
-          const report = await response.json();
-
           // Display report
-          displayCQIReport(report);
+          displayCQIReport(reportData);
         } catch (error) {
-          document.getElementById("report-loading").classList.add("hidden");
           console.error("Report generation error:", error);
+          document.getElementById("report-loading").classList.add("hidden");
 
           // Show error in results area
           document.getElementById("report-results").classList.remove("hidden");
@@ -4294,45 +4301,44 @@
         `;
         }
       }
-
-      function displayCQIReport(report) {
+      function displayCQIReport(reportData) {
         document.getElementById("report-results").classList.remove("hidden");
 
         // Check if there's an error in the report
-        if (report.error) {
+        if (reportData.error) {
           document.getElementById("report-content").innerHTML = `
             <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
                 <h4 class="text-lg font-medium text-yellow-800">Report Generation Warning</h4>
-                <p class="mt-2 text-yellow-700">${report.error}</p>
-                ${report.fallback_report ? `<div class="mt-4 p-4 bg-white rounded"><pre class="whitespace-pre-wrap">${report.fallback_report}</pre></div>` : ""}
+                <p class="mt-2 text-yellow-700">${reportData.error}</p>
+                ${reportData.fallback_report ? `<div class="mt-4 p-4 bg-white rounded"><pre class="whitespace-pre-wrap">${reportData.fallback_report}</pre></div>` : ""}
             </div>
         `;
           return;
         }
 
         // Format the report with proper styling
-        const formattedReport = formatReportForDisplay(report.report);
+        const formattedReport = formatReportForDisplay(reportData.report);
         document.getElementById("report-content").innerHTML = formattedReport;
 
         // Add metadata
         const metadata = document.createElement("div");
         metadata.className = "mt-6 pt-6 border-t text-sm text-gray-500";
         metadata.innerHTML = `
-        <p><strong>Generated on:</strong> ${new Date(report.generated_at).toLocaleString()}</p>
-        <p><strong>Report Type:</strong> ${report.report_type || "summary"}</p>
-        <p><strong>Time Period:</strong> ${report.time_period}</p>
-        ${report.course_id ? `<p><strong>Course:</strong> Selected Course</p>` : `<p><strong>Course:</strong> All Courses</p>`}
+        <p><strong>Generated on:</strong> ${new Date(reportData.generated_at).toLocaleString()}</p>
+        <p><strong>Report Type:</strong> ${reportData.report_type || "summary"}</p>
+        <p><strong>Time Period:</strong> ${reportData.time_period}</p>
+        ${reportData.course_id ? `<p><strong>Course:</strong> Selected Course</p>` : `<p><strong>Course:</strong> All Courses</p>`}
         ${
-          report.context_summary
+          reportData.context_summary
             ? `
-                <div class="mt-2 grid grid-cols-2 gap-2 text-xs">
-                    <span>Submissions: ${report.context_summary.total_submissions}</span>
-                    <span>Outlines: ${report.context_summary.outline_count}</span>
-                </div>
-            `
+            <div class="mt-2 grid grid-cols-2 gap-2 text-xs">
+                <span>Submissions: ${reportData.context_summary.total_submissions}</span>
+                <span>Outlines: ${reportData.context_summary.outline_count}</span>
+            </div>
+        `
             : ""
         }
-        <p class="text-xs text-gray-400 mt-2">Powered by DeepSeek AI</p>
+        <p class="text-xs text-gray-400 mt-2">Powered by AI Analysis</p>
     `;
         document.getElementById("report-content").appendChild(metadata);
       }
@@ -4366,8 +4372,11 @@
         });
 
         // Format lists
-        html = html.replace(/^\d+\.\s+(.*$)/gim, '<li class="ml-4">$1</li>');
-        html = html.replace(/^-\s+(.*$)/gim, '<li class="ml-4">$1</li>');
+        html = html.replace(
+          /^\d+\.\s+(.*$)/gim,
+          '<li class="ml-4 mb-1">$1</li>',
+        );
+        html = html.replace(/^-\s+(.*$)/gim, '<li class="ml-4 mb-1">$1</li>');
         html = html.replace(
           /(<li.*?>.*?<\/li>)/g,
           '<ul class="list-disc pl-6 mb-4">$1</ul>',
@@ -4452,6 +4461,9 @@
       window.printOutline = printOutline;
       window.viewCLODetails = viewCLODetails;
       window.showCLODetails = showCLODetails;
+      window.generateCQIReport = generateCQIReport;
+      window.printReport = printReport;
+      window.downloadReport = downloadReport;
     </script>
   </body>
 </html>

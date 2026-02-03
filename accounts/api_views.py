@@ -21,10 +21,6 @@ from litellm import completion
 # Load environment variables
 load_dotenv()
 
- #Add DeepSeek configuration (will be loaded from .env)
-DEEPSEEK_API_KEY = None
-LITELLM_MODEL = "deepseek/deepseek-chat"  # or "deepseek/deepseek-coder" for code
-
 
 def is_admin(user):
     return user.is_authenticated and user.role == User.ROLE_ADMIN
@@ -2980,579 +2976,6 @@ def compare_text_content(text1, text2):
 
 @login_required
 @user_passes_test(is_admin_or_crc)
-@csrf_exempt
-@require_http_methods(["POST"])
-def api_generate_cqi_report(request):
-    """Generate CQI report using AI (DeepSeek via LiteLLM)"""
-    try:
-        data = json.loads(request.body)
-        course_id = data.get('course_id')
-        time_period = data.get('time_period', 'all')  # 'week', 'month', 'quarter', 'all'
-        report_type = data.get('report_type', 'summary')  # 'summary', 'detailed', 'recommendations'
-        
-        # Collect data for AI analysis
-        context_data = collect_data_for_ai(course_id, time_period)
-        
-        # Add metadata to context
-        context_data['metadata'] = {
-            'course_id': course_id,
-            'time_period': time_period,
-            'report_type': report_type,
-            'generated_at': datetime.now().isoformat()
-        }
-        
-        # Generate report using DeepSeek AI via LiteLLM
-        report = generate_ai_report_deepseek(context_data, report_type)
-        
-        return JsonResponse({
-            'report': report,
-            'generated_at': datetime.now().isoformat(),
-            'course_id': course_id,
-            'time_period': time_period,
-            'report_type': report_type,
-            'context_summary': {
-                'has_course_data': 'course' in context_data,
-                'total_submissions': context_data.get('statistics', {}).get('total_submissions', 0),
-                'outline_count': len(context_data.get('outlines', [])),
-                'submission_count': len(context_data.get('submissions', []))
-            }
-        })
-        
-    except Exception as e:
-        print(f"Error in CQI report generation: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return JsonResponse({
-            'error': str(e),
-            'message': 'Failed to generate report. Please try again.',
-            'fallback_report': 'CQI Report Generation Failed\n\nPlease ensure you have an active internet connection and valid API key.'
-        }, status=400)
-
-def generate_ai_report_deepseek(context_data, report_type="summary"):
-    """Generate report using DeepSeek AI via LiteLLM"""
-    try:
-        # Get API key from settings (loaded from .env)
-        from django.conf import settings
-        
-        deepseek_api_key = getattr(settings, 'DEEPSEEK_API_KEY', None)
-        litellm_model = getattr(settings, 'LITELLM_MODEL', 'deepseek/deepseek-chat')
-        
-        if not deepseek_api_key:
-            return "DeepSeek API key not configured. Please contact administrator."
-        
-        # Create prompt based on report type
-        if report_type == "summary":
-            sections = """
-            1. Executive Summary (2-3 paragraphs)
-            2. Key Findings (Bulleted list of 5-7 key points)
-            3. Recommendations for Improvement (3-5 actionable recommendations)
-            """
-        elif report_type == "detailed":
-            sections = """
-            1. Executive Summary
-            2. Key Findings and Analysis
-            3. Submissions Analysis (CCR vs CRR forms comparison)
-            4. Course Outline Quality Assessment
-            5. Faculty Engagement Analysis
-            6. CLO Achievement Analysis
-            7. Recommendations for Improvement
-            8. Action Items and Timeline
-            """
-        elif report_type == "recommendations":
-            sections = """
-            1. Key Recommendations (Prioritized list)
-            2. Implementation Strategy
-            3. Expected Outcomes
-            4. Timeline and Resources Required
-            """
-        else:
-            sections = """
-            1. Executive Summary
-            2. Key Findings
-            3. Recommendations for Improvement
-            4. Action Items
-            """
-        
-        # Create enhanced prompt for DeepSeek
-        prompt = f"""
-        ROLE: You are a CQI (Continuous Quality Improvement) analyst for an academic institution.
-        
-        TASK: Analyze the following data and generate a comprehensive CQI report.
-        
-        REPORT TYPE: {report_type.upper()}
-        
-        DATA CONTEXT:
-        {json.dumps(context_data, indent=2)}
-        
-        REPORT STRUCTURE:
-        {sections}
-        
-        REPORT REQUIREMENTS:
-        1. Be specific, actionable, and evidence-based
-        2. Use academic and professional language
-        3. Include quantitative data where available
-        4. Provide clear recommendations with implementation steps
-        5. Consider institutional constraints and practical feasibility
-        6. Highlight both strengths and areas for improvement
-        7. Include metrics and KPIs where relevant
-        
-        FORMATTING:
-        - Use clear headings and subheadings
-        - Use bullet points for lists
-        - Include tables for comparative data if helpful
-        - Use bold text for key points
-        - Keep paragraphs concise (3-5 sentences)
-        
-        TONE: Professional, analytical, constructive, and solution-oriented
-        
-        LENGTH: 
-        - Summary: 800-1000 words
-        - Detailed: 1500-2000 words  
-        - Recommendations: 500-700 words
-        
-        IMPORTANT: Base all analysis on the provided data. Do not fabricate or assume data not present.
-        """
-        
-        # Generate content using LiteLLM with DeepSeek
-        try:
-            response = completion(
-                model=litellm_model,
-                messages=[
-                    {"role": "system", "content": "You are an expert CQI analyst for higher education institutions."},
-                    {"role": "user", "content": prompt}
-                ],
-                api_key=deepseek_api_key,
-                temperature=0.3,  # Lower temperature for more consistent, analytical output
-                max_tokens=4000
-            )
-            
-            return response.choices[0].message.content
-            
-        except Exception as e:
-            print(f"DeepSeek API error: {str(e)}")
-            # Fallback to manual report
-            return generate_manual_report(context_data, report_type)
-        
-    except Exception as e:
-        print(f"Error in AI report generation: {str(e)}")
-        return generate_manual_report(context_data, report_type)
-
-def generate_manual_report(context_data, report_type):
-    """Generate a manual fallback report if AI fails"""
-    stats = context_data.get('statistics', {})
-    
-    if report_type == "summary":
-        return f"""
-        CQI REPORT - MANUAL SUMMARY
-        
-        Executive Summary:
-        This report analyzes quality metrics based on {stats.get('total_submissions', 0)} form submissions 
-        and {len(context_data.get('outlines', []))} course outlines.
-        
-        Key Findings:
-        1. Total submissions: {stats.get('total_submissions', 0)}
-        2. Approved submissions: {stats.get('approved_submissions', 0)} ({stats.get('total_submissions', 1) and (stats.get('approved_submissions', 0)/stats.get('total_submissions', 1))*100:.1f}%)
-        3. Pending review: {stats.get('pending_submissions', 0)}
-        4. Revision requests: {stats.get('revision_requests', 0)}
-        
-        Recommendations:
-        1. Review submission processes for efficiency
-        2. Provide faculty training on form completion
-        3. Implement regular quality checks
-        
-        Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}
-        """
-    else:
-        return f"""
-        CQI REPORT
-        
-        Statistics:
-        - Total Submissions: {stats.get('total_submissions', 0)}
-        - Approved: {stats.get('approved_submissions', 0)}
-        - Pending: {stats.get('pending_submissions', 0)}
-        - Revision Requests: {stats.get('revision_requests', 0)}
-        
-        Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}
-        Report Type: {report_type}
-        """
-
-# The collect_data_for_ai function remains the same
-def collect_data_for_ai(course_id, time_period):
-    """Collect data for AI analysis"""
-    data = {}
-    
-    # Get course information
-    if course_id:
-        try:
-            course = Course.objects.get(id=course_id)
-            data['course'] = {
-                'code': course.code,
-                'title': course.title,
-                'department': course.department.name if course.department else None,
-                'credits': course.credits
-            }
-            
-            # Get course outlines
-            outlines = CourseOutline.objects.filter(course=course).order_by('-version')
-            data['outlines'] = []
-            for outline in outlines[:5]:  # Last 5 versions
-                data['outlines'].append({
-                    'version': outline.version,
-                    'status': outline.status,
-                    'title': outline.title,
-                    'created_at': outline.created_at.isoformat() if outline.created_at else None,
-                    'notes': outline.notes
-                })
-        except Course.DoesNotExist:
-            pass
-    
-    # Get form submissions
-    if course_id:
-        submissions = DynamicFormSubmission.objects.filter(
-            course_id=course_id,
-            dynamic_form__form_type__in=['ccr', 'crr']
-        ).select_related('faculty', 'dynamic_form')
-    else:
-        submissions = DynamicFormSubmission.objects.filter(
-            dynamic_form__form_type__in=['ccr', 'crr']
-        ).select_related('faculty', 'dynamic_form', 'course')
-    
-    # Apply time filter
-    if time_period != 'all':
-        if time_period == 'week':
-            start_date = datetime.now() - timedelta(days=7)
-        elif time_period == 'month':
-            start_date = datetime.now() - timedelta(days=30)
-        elif time_period == 'quarter':
-            start_date = datetime.now() - timedelta(days=90)
-        submissions = submissions.filter(submission_date__gte=start_date)
-    
-    data['submissions'] = []
-    for submission in submissions[:50]:  # Limit to 50 submissions
-        data['submissions'].append({
-            'form_type': submission.dynamic_form.form_type,
-            'form_name': submission.dynamic_form.name,
-            'faculty': submission.faculty.username,
-            'status': submission.status,
-            'submission_date': submission.submission_date.isoformat() if submission.submission_date else None,
-            'course': submission.course.code if course_id is None else None
-        })
-    
-    # Get statistics
-    data['statistics'] = {
-        'total_submissions': submissions.count(),
-        'approved_submissions': submissions.filter(status='approved').count(),
-        'pending_submissions': submissions.filter(status='submitted').count(),
-        'revision_requests': submissions.filter(status='revision_requested').count()
-    }
-    
-    return data
-
-def generate_ai_report_deepseek(context_data, report_type="summary"):
-    """Generate report using DeepSeek via LiteLLM"""
-    try:
-        # Get API configuration from environment variables
-        deepseek_api_key = os.getenv('DEEPSEEK_API_KEY')
-        deepseek_api_base = os.getenv('DEEPSEEK_API_BASE', 'https://api.deepseek.com')
-        
-        if not deepseek_api_key:
-            return "DeepSeek API key is not configured. Please contact the administrator."
-        
-        # Create prompt
-        prompt = create_report_prompt(context_data, report_type)
-        
-        # Generate content with DeepSeek using LiteLLM
-        try:
-            response = litellm.completion(
-                model="deepseek/deepseek-chat",  # Fixed: Added provider prefix
-                messages=[
-                    {
-                        "role": "system", 
-                        "content": "You are a CQI (Continuous Quality Improvement) analyst for an academic institution. Analyze the data and generate a comprehensive CQI report. Focus on identifying patterns, issues, and opportunities for quality improvement. Be specific and actionable in your recommendations."
-                    },
-                    {
-                        "role": "user", 
-                        "content": prompt
-                    }
-                ],
-                temperature=0.7,
-                max_tokens=4000,
-                api_key=deepseek_api_key,
-                api_base=deepseek_api_base
-            )
-            
-            return response.choices[0].message.content
-            
-        except Exception as e:
-            print(f"DeepSeek API error: {str(e)}")  # Debug logging
-            # Fallback to manual report
-            return generate_fallback_report(context_data)
-        
-    except Exception as e:
-        print(f"Error generating AI report: {str(e)}")
-        return generate_fallback_report(context_data)
-
-def generate_fallback_report(context_data):
-    """Generate a simple fallback report when AI fails"""
-    stats = context_data.get('statistics', {})
-    course = context_data.get('course', {})
-    
-    report = f"""CQI Report - Manual Analysis
-Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}
-
-SUMMARY
-=======
-Total Submissions: {stats.get('total_submissions', 0)}
-Approved Submissions: {stats.get('approved_submissions', 0)}
-Pending Submissions: {stats.get('pending_submissions', 0)}
-Revision Requests: {stats.get('revision_requests', 0)}
-
-{'COURSE INFORMATION' if course else 'GENERAL OVERVIEW'}
-{'='*20}
-{f"Course: {course.get('code', 'N/A')} - {course.get('title', 'N/A')}" if course else "Analysis across all courses"}
-{f"Department: {course.get('department', 'N/A')}" if course and course.get('department') else ""}
-{f"Credits: {course.get('credits', 'N/A')}" if course and course.get('credits') else ""}
-
-KEY FINDINGS
-============
-1. Submission Activity: {stats.get('total_submissions', 0)} total form submissions
-2. Approval Rate: {round((stats.get('approved_submissions', 0) / stats.get('total_submissions', 1)) * 100, 1) if stats.get('total_submissions', 0) > 0 else 0}%
-3. Pending Reviews: {stats.get('pending_submissions', 0)} submissions awaiting review
-4. Revision Rate: {round((stats.get('revision_requests', 0) / stats.get('total_submissions', 1)) * 100, 1) if stats.get('total_submissions', 0) > 0 else 0}%
-
-RECOMMENDATIONS
-===============
-1. Review pending submissions promptly to maintain workflow efficiency
-2. Address revision requests systematically to improve submission quality
-3. Monitor submission trends for continuous quality improvement
-
-NOTE: AI-powered analysis was unavailable. This is a basic manual report.
-"""
-    return report
-
-
-
-def create_report_prompt(context_data, report_type):
-    """Create a prompt for the AI report generation"""
-    
-    if report_type == "summary":
-        sections = """
-        1. Executive Summary
-        2. Key Findings
-        3. Recommendations for Improvement
-        """
-    elif report_type == "detailed":
-        sections = """
-        1. Executive Summary
-        2. Key Findings
-        3. Submissions Analysis (CCR vs CRR forms)
-        4. Course Outline Quality Assessment
-        5. Faculty Engagement Analysis
-        6. Recommendations for Improvement
-        7. Action Items
-        """
-    elif report_type == "recommendations":
-        sections = """
-        1. Key Recommendations
-        2. Priority Actions
-        3. Implementation Timeline
-        """
-    else:
-        sections = """
-        1. Executive Summary
-        2. Key Findings
-        3. Submissions Analysis (CCR vs CRR forms)
-        4. Course Outline Quality Assessment
-        5. Faculty Engagement Analysis
-        6. Recommendations for Improvement
-        7. Action Items
-        """
-    
-    # Create context summary
-    context_summary = {
-        'has_course_data': 'course' in context_data,
-        'total_submissions': context_data.get('statistics', {}).get('total_submissions', 0),
-        'approved_submissions': context_data.get('statistics', {}).get('approved_submissions', 0),
-        'pending_submissions': context_data.get('statistics', {}).get('pending_submissions', 0),
-        'revision_requests': context_data.get('statistics', {}).get('revision_requests', 0),
-        'outline_count': len(context_data.get('outlines', [])),
-        'submission_count': len(context_data.get('submissions', [])),
-        'course_info': context_data.get('course', {})
-    }
-    
-    prompt = f"""
-    As a CQI (Continuous Quality Improvement) analyst for an academic institution, analyze the following data and generate a comprehensive CQI report.
-    
-    REPORT TYPE: {report_type.upper()}
-    
-    Context Summary:
-    {json.dumps(context_summary, indent=2)}
-    
-    Detailed Data:
-    {json.dumps(context_data, indent=2)[:3000]}... [Data truncated for brevity]
-    
-    Please provide a structured report with the following sections:
-    {sections}
-    
-    Focus on:
-    - Identifying patterns, issues, and opportunities for quality improvement
-    - Being specific and actionable in your recommendations
-    - Using bullet points for clarity
-    - Keeping the report professional and evidence-based
-    - Formatting the report with clear headings and subheadings
-    
-    Important: Base your analysis on the provided data. If certain data points are missing, acknowledge this and focus on the available information.
-    """
-    
-    return prompt
-
-def collect_data_for_ai(course_id, time_period):
-    """Collect data for AI analysis"""
-    data = {}
-    
-    # Get course information
-    if course_id:
-        try:
-            course = Course.objects.get(id=course_id)
-            data['course'] = {
-                'code': course.code,
-                'title': course.title,
-                'department': course.department.name if course.department else None,
-                'credits': course.credits
-            }
-            
-            # Get course outlines
-            outlines = CourseOutline.objects.filter(course=course).order_by('-version')
-            data['outlines'] = []
-            for outline in outlines[:5]:  # Last 5 versions
-                data['outlines'].append({
-                    'version': outline.version,
-                    'status': outline.status,
-                    'title': outline.title,
-                    'created_at': outline.created_at.isoformat() if outline.created_at else None,
-                    'notes': outline.notes
-                })
-        except Course.DoesNotExist:
-            pass
-    
-    # Get form submissions
-    if course_id:
-        submissions = DynamicFormSubmission.objects.filter(
-            course_id=course_id,
-            dynamic_form__form_type__in=['ccr', 'crr']
-        ).select_related('faculty', 'dynamic_form')
-    else:
-        submissions = DynamicFormSubmission.objects.filter(
-            dynamic_form__form_type__in=['ccr', 'crr']
-        ).select_related('faculty', 'dynamic_form', 'course')
-    
-    # Apply time filter
-    if time_period != 'all':
-        if time_period == 'week':
-            start_date = datetime.now() - timedelta(days=7)
-        elif time_period == 'month':
-            start_date = datetime.now() - timedelta(days=30)
-        elif time_period == 'quarter':
-            start_date = datetime.now() - timedelta(days=90)
-        submissions = submissions.filter(submission_date__gte=start_date)
-    
-    data['submissions'] = []
-    for submission in submissions[:50]:  # Limit to 50 submissions
-        data['submissions'].append({
-            'form_type': submission.dynamic_form.form_type,
-            'form_name': submission.dynamic_form.name,
-            'faculty': submission.faculty.username,
-            'status': submission.status,
-            'submission_date': submission.submission_date.isoformat() if submission.submission_date else None,
-            'course': submission.course.code if course_id is None else None
-        })
-    
-    # Get statistics
-    data['statistics'] = {
-        'total_submissions': submissions.count(),
-        'approved_submissions': submissions.filter(status='approved').count(),
-        'pending_submissions': submissions.filter(status='submitted').count(),
-        'revision_requests': submissions.filter(status='revision_requested').count()
-    }
-    
-    return data
-
-def generate_ai_report(context_data, report_type="summary"):
-    """Generate report using Gemini AI"""
-    try:
-        # Initialize Gemini with error handling
-        try:
-            model = genai.GenerativeModel('gemini-pro')
-        except Exception as e:
-            return f"Gemini API initialization error: {str(e)}\n\nPlease check your API key and internet connection."
-        
-        # Create prompt based on report type
-        if report_type == "summary":
-            sections = """
-            1. Executive Summary
-            2. Key Findings
-            3. Recommendations for Improvement
-            """
-        elif report_type == "detailed":
-            sections = """
-            1. Executive Summary
-            2. Key Findings
-            3. Submissions Analysis (CCR vs CRR forms)
-            4. Course Outline Quality Assessment
-            5. Faculty Engagement Analysis
-            6. Recommendations for Improvement
-            7. Action Items
-            """
-        elif report_type == "recommendations":
-            sections = """
-            1. Key Recommendations
-            2. Priority Actions
-            3. Implementation Timeline
-            """
-        else:
-            sections = """
-            1. Executive Summary
-            2. Key Findings
-            3. Submissions Analysis (CCR vs CRR forms)
-            4. Course Outline Quality Assessment
-            5. Faculty Engagement Analysis
-            6. Recommendations for Improvement
-            7. Action Items
-            """
-        
-        # Create prompt
-        prompt = f"""
-        As a CQI (Continuous Quality Improvement) analyst for an academic institution, analyze the following data and generate a comprehensive CQI report.
-        
-        REPORT TYPE: {report_type.upper()}
-        
-        Context Data:
-        {json.dumps(context_data, indent=2)}
-        
-        Please provide a structured report with the following sections:
-        {sections}
-        
-        Focus on identifying patterns, issues, and opportunities for quality improvement.
-        Be specific and actionable in your recommendations.
-        Use bullet points for clarity.
-        Keep the report professional and evidence-based.
-        
-        Format the report with clear headings and subheadings.
-        """
-        
-        # Generate content with timeout
-        try:
-            response = model.generate_content(prompt)
-            return response.text
-        except Exception as e:
-            return f"Gemini API generation error: {str(e)}\n\nManual Report:\n\nTotal Submissions: {context_data.get('statistics', {}).get('total_submissions', 0)}\nApproved: {context_data.get('statistics', {}).get('approved_submissions', 0)}\nPending: {context_data.get('statistics', {}).get('pending_submissions', 0)}\nRevision Requests: {context_data.get('statistics', {}).get('revision_requests', 0)}"
-        
-    except Exception as e:
-        return f"Error generating AI report: {str(e)}\n\nManual Summary:\nTotal Submissions: {context_data.get('statistics', {}).get('total_submissions', 0)}\nApproved: {context_data.get('statistics', {}).get('approved_submissions', 0)}\nPending: {context_data.get('statistics', {}).get('pending_submissions', 0)}"
-
-
-@login_required
-@user_passes_test(is_admin_or_crc)
 @require_http_methods(["GET"])
 def api_analysis_clo_by_course(request):
     """Get CLO achievement data broken down by course"""
@@ -3634,3 +3057,347 @@ def api_analysis_clo_by_course(request):
     except Exception as e:
         print(f"Error in CLO by course analysis: {str(e)}")
         return JsonResponse({'error': str(e)}, status=400)
+
+
+
+
+# Update the CQI report function in api_views.py (around line 2270-2400 in your code)
+# In the api_generate_cqi_report function, around line 3031:
+@login_required
+@user_passes_test(is_admin_or_crc)
+@csrf_exempt
+@require_http_methods(["POST"])
+def api_generate_cqi_report(request):
+    """Generate CQI report using OpenRouter via LiteLLM"""
+    try:
+        data = json.loads(request.body)
+        course_id = data.get('course_id')
+        time_period = data.get('time_period', 'quarter')
+        report_type = data.get('report_type', 'summary')
+        
+        print(f"CQI Report Request: course_id={course_id}, time_period={time_period}, report_type={report_type}")
+        
+        # Collect comprehensive data for AI analysis
+        context_data = collect_data_for_ai(course_id, time_period)
+        
+        # Add metadata to context
+        context_data['metadata'] = {
+            'course_id': course_id,
+            'time_period': time_period,
+            'report_type': report_type,
+            'generated_at': datetime.now().isoformat(),
+            'data_summary': {
+                'form_submissions_count': len(context_data.get('form_submissions', [])),
+                'course_outlines_count': len(context_data.get('course_outlines', [])),
+                'has_clo_data': bool(context_data.get('clo_analysis', {}))
+            }
+        }
+        
+        # Generate report using OpenRouter AI
+        try:
+            report = generate_ai_report_openrouter(context_data, report_type)
+            
+            return JsonResponse({
+                'report': report,
+                'generated_at': datetime.now().isoformat(),
+                'course_id': course_id,
+                'time_period': time_period,
+                'report_type': report_type,
+                'context_summary': {
+                    'form_submissions_analyzed': len(context_data.get('form_submissions', [])),
+                    'course_outlines_analyzed': len(context_data.get('course_outlines', [])),
+                    'clo_analysis_included': bool(context_data.get('clo_analysis', {})),
+                    'statistics': context_data.get('statistics', {})
+                },
+                'success': True
+            })
+        except Exception as ai_error:
+            print(f"AI generation error: {ai_error}")
+            # Fallback to manual report
+            fallback_report = generate_fallback_report(context_data, report_type)
+            return JsonResponse({
+                'report': fallback_report,
+                'generated_at': datetime.now().isoformat(),
+                'course_id': course_id,
+                'time_period': time_period,
+                'report_type': report_type,
+                'note': 'Generated using fallback method due to AI error',
+                'success': False,
+                'error': str(ai_error)
+            })
+        
+    except Exception as e:
+        print(f"Error in CQI report generation: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({
+            'error': str(e),
+            'message': 'Failed to generate report. Please try again.',
+            'success': False,
+            'fallback_report': f"CQI Report Generation Failed\n\nError: {str(e)}"
+        }, status=400)
+
+
+
+def generate_ai_report_openrouter(context_data, report_type="summary"):
+    """Generate report using OpenRouter via LiteLLM"""
+    try:
+        # Get API key from environment
+        openrouter_api_key = os.getenv('OPENROUTER_API_KEY', 'sk-or-v1-6ce7c63dbae04fe1c21df525df045201Gc8ResUEBUAzAa1dBLTD6AfgANQps9CeR')
+        
+        if not openrouter_api_key:
+            return "OpenRouter API key is not configured. Please contact administrator."
+        
+        # Create prompt based on report type
+        if report_type == "summary":
+            sections = """
+            1. Executive Summary (2-3 paragraphs)
+            2. Key Findings (Bulleted list of 5-7 key points)
+            3. Recommendations for Improvement (3-5 actionable recommendations)
+            """
+        elif report_type == "detailed":
+            sections = """
+            1. Executive Summary
+            2. Key Findings and Analysis
+            3. Submissions Analysis (CCR vs CRR forms comparison)
+            4. Course Outline Quality Assessment
+            5. Faculty Engagement Analysis
+            6. CLO Achievement Analysis
+            7. Recommendations for Improvement
+            8. Action Items and Timeline
+            """
+        elif report_type == "recommendations":
+            sections = """
+            1. Key Recommendations (Prioritized list)
+            2. Implementation Strategy
+            3. Expected Outcomes
+            4. Timeline and Resources Required
+            """
+        else:
+            sections = """
+            1. Executive Summary
+            2. Key Findings
+            3. Recommendations for Improvement
+            4. Action Items
+            """
+        
+        # Create the prompt
+        prompt = f"""
+        ROLE: You are a CQI (Continuous Quality Improvement) analyst for an academic institution.
+        
+        TASK: Analyze the following academic data and generate a comprehensive CQI report.
+        
+        REPORT TYPE: {report_type.upper()}
+        
+        DATA TO ANALYZE:
+        {json.dumps(context_data, indent=2)}
+        
+        REPORT STRUCTURE:
+        {sections}
+        
+        REPORT REQUIREMENTS:
+        1. Be specific, actionable, and evidence-based
+        2. Use academic and professional language
+        3. Include quantitative data from the provided statistics
+        4. Provide clear recommendations with implementation steps
+        5. Consider institutional constraints and practical feasibility
+        6. Highlight both strengths and areas for improvement
+        7. Include metrics and KPIs where relevant
+        
+        FORMATTING:
+        - Use clear headings and subheadings
+        - Use bullet points for lists
+        - Keep paragraphs concise (3-5 sentences)
+        
+        TONE: Professional, analytical, constructive, and solution-oriented
+        
+        IMPORTANT: Base all analysis ONLY on the provided data. Do not fabricate or assume data not present.
+        """
+        
+        print(f"Generating {report_type} report with OpenRouter...")
+        
+        try:
+            # Generate content using OpenRouter via LiteLLM
+            response = completion(
+                model="openrouter/openai/gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "You are an expert CQI analyst for higher education institutions."},
+                    {"role": "user", "content": prompt}
+                ],
+                api_key=openrouter_api_key,
+                temperature=0.3,
+                max_tokens=3000
+            )
+            
+            return response.choices[0].message.content
+            
+        except Exception as e:
+            print(f"OpenRouter API error: {str(e)}")
+            # Fallback to manual report
+            return generate_fallback_report(context_data, report_type)
+        
+    except Exception as e:
+        print(f"Error in AI report generation: {str(e)}")
+        return generate_fallback_report(context_data, report_type)
+
+
+def generate_fallback_report(context_data, report_type):
+    """Generate a manual fallback report if AI fails"""
+    stats = context_data.get('statistics', {})
+    course = context_data.get('course', {})
+    
+    base_report = f"""
+    CQI REPORT - MANUAL GENERATION
+    
+    Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+    Report Type: {report_type.upper()}
+    
+    """
+    
+    if course:
+        base_report += f"Course: {course.get('code', 'N/A')} - {course.get('title', 'N/A')}\n"
+        base_report += f"Department: {course.get('department', 'N/A')}\n\n"
+    
+    if report_type == "summary":
+        return base_report + f"""
+    Executive Summary:
+    This report analyzes quality metrics based on {stats.get('total_submissions', 0)} form submissions 
+    and {len(context_data.get('outlines', []))} course outlines.
+    
+    Key Findings:
+    1. Total submissions: {stats.get('total_submissions', 0)}
+    2. Approved submissions: {stats.get('approved_submissions', 0)} ({stats.get('total_submissions', 1) and (stats.get('approved_submissions', 0)/stats.get('total_submissions', 1))*100:.1f}%)
+    3. Pending review: {stats.get('pending_submissions', 0)}
+    4. Revision requests: {stats.get('revision_requests', 0)}
+    
+    Recommendations:
+    1. Review submission processes for efficiency
+    2. Provide faculty training on form completion
+    3. Implement regular quality checks
+    """
+    elif report_type == "detailed":
+        return base_report + f"""
+    DETAILED ANALYSIS REPORT
+    
+    Statistics Overview:
+    - Total Submissions: {stats.get('total_submissions', 0)}
+    - Approved: {stats.get('approved_submissions', 0)}
+    - Pending: {stats.get('pending_submissions', 0)}
+    - Revision Requests: {stats.get('revision_requests', 0)}
+    
+    Data Sources:
+    - Course Outlines: {len(context_data.get('outlines', []))}
+    - Recent Submissions: {len(context_data.get('submissions', []))}
+    
+    Analysis:
+    1. Submission patterns show consistent faculty engagement
+    2. Approval rates indicate quality of submissions
+    3. Revision requests highlight areas for improvement
+    
+    Action Items:
+    1. Schedule faculty training sessions
+    2. Review and update submission guidelines
+    3. Implement automated quality checks
+    """
+    else:  # recommendations
+        return base_report + f"""
+    RECOMMENDATIONS REPORT
+    
+    Based on analysis of {stats.get('total_submissions', 0)} submissions:
+    
+    1. PRIORITY RECOMMENDATIONS:
+       - Implement submission quality checklist
+       - Provide faculty feedback within 48 hours
+       - Standardize evaluation criteria
+    
+    2. MEDIUM-TERM ACTIONS:
+       - Develop training modules
+       - Create submission templates
+       - Establish quality benchmarks
+    
+    3. LONG-TERM GOALS:
+       - Automate quality assessment
+       - Integrate with learning management system
+       - Establish continuous improvement cycle
+    """
+
+
+
+def collect_data_for_ai(course_id, time_period):
+    """Collect data for AI analysis"""
+    data = {}
+    
+    # Get course information
+    if course_id:
+        try:
+            course = Course.objects.get(id=course_id)
+            data['course'] = {
+                'code': course.code,
+                'title': course.title,
+                'department': course.department.name if course.department else None,
+                'credits': course.credits
+            }
+            
+            # Get course outlines
+            outlines = CourseOutline.objects.filter(course=course).order_by('-version')
+            data['outlines'] = []
+            for outline in outlines[:5]:  # Last 5 versions
+                data['outlines'].append({
+                    'version': outline.version,
+                    'status': outline.status,
+                    'title': outline.title,
+                    'created_at': outline.created_at.isoformat() if outline.created_at else None,
+                    'notes': outline.notes
+                })
+        except Course.DoesNotExist:
+            pass
+    
+    # Get form submissions - CREATE THE BASE QUERYSET
+    if course_id:
+        submissions_qs = DynamicFormSubmission.objects.filter(
+            course_id=course_id,
+            dynamic_form__form_type__in=['ccr', 'crr']
+        ).select_related('faculty', 'dynamic_form')
+    else:
+        submissions_qs = DynamicFormSubmission.objects.filter(
+            dynamic_form__form_type__in=['ccr', 'crr']
+        ).select_related('faculty', 'dynamic_form', 'course')
+    
+    # Apply time filter - CREATE A NEW QUERYSET FOR FILTERING
+    filtered_submissions = submissions_qs
+    if time_period != 'all':
+        if time_period == 'week':
+            start_date = datetime.now() - timedelta(days=7)
+        elif time_period == 'month':
+            start_date = datetime.now() - timedelta(days=30)
+        elif time_period == 'quarter':
+            start_date = datetime.now() - timedelta(days=90)
+        else:
+            start_date = datetime.now() - timedelta(days=7)  # Default to week
+        
+        filtered_submissions = submissions_qs.filter(submission_date__gte=start_date)
+    
+    # Calculate statistics FIRST (before slicing)
+    data['statistics'] = {
+        'total_submissions': filtered_submissions.count(),
+        'approved_submissions': filtered_submissions.filter(status='approved').count(),
+        'pending_submissions': filtered_submissions.filter(status='submitted').count(),
+        'revision_requests': filtered_submissions.filter(status='revision_requested').count()
+    }
+    
+    # Now get submission data (slice after calculations)
+    data['submissions'] = []
+    # Use list() to evaluate the queryset for slicing
+    submissions_list = list(filtered_submissions.order_by('-submission_date')[:50])
+    
+    for submission in submissions_list:
+        data['submissions'].append({
+            'form_type': submission.dynamic_form.form_type,
+            'form_name': submission.dynamic_form.name,
+            'faculty': submission.faculty.username,
+            'status': submission.status,
+            'submission_date': submission.submission_date.isoformat() if submission.submission_date else None,
+            'course': submission.course.code if course_id is None else None
+        })
+    
+    return data

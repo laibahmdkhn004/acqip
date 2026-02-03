@@ -2,7 +2,31 @@
 from pathlib import Path
 from dotenv import load_dotenv
 
+# settings.py or in your existing settings
+import os
+from dotenv import load_dotenv
+
 load_dotenv()
+
+# OpenRouter AI Configuration
+OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
+OPENROUTER_BASE_URL = os.getenv('OPENROUTER_BASE_URL', 'https://openrouter.ai/api/v1')
+OPENROUTER_MODEL = os.getenv('OPENROUTER_MODEL', 'openai/gpt-4-turbo')
+
+# LiteLLM Configuration
+LITELLM_CONFIG = {
+    'api_key': OPENROUTER_API_KEY,
+    'api_base': OPENROUTER_BASE_URL,
+    'timeout': 30.0,
+    'max_retries': 2,
+}
+
+# Feature flags
+FEATURE_FLAGS = {
+    'ai_cqi_reports': bool(OPENROUTER_API_KEY),
+    'ai_analysis': bool(OPENROUTER_API_KEY),
+}
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -129,9 +153,4 @@ LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'dashboard'
 LOGOUT_REDIRECT_URL = 'login'
 
-GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY', 'your-default-key')
-
-# DeepSeek configuration
-DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY', '')
-LITELLM_MODEL = os.getenv('LITELLM_MODEL', 'deepseek/deepseek-chat')
-
+# OpenRouter AI Configuration
