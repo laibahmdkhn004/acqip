@@ -1519,6 +1519,8 @@ def api_get_course_outline(request):
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
 
+
+
 # Submission Details API
 @login_required
 @require_http_methods(["GET"])

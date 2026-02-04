@@ -1,5 +1,5 @@
 ﻿﻿{% load static %}
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
@@ -16,8 +16,14 @@
     />
     <style>
       body {
-        font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto,
-          "Helvetica Neue", Arial;
+        font-family:
+          Inter,
+          system-ui,
+          -apple-system,
+          "Segoe UI",
+          Roboto,
+          "Helvetica Neue",
+          Arial;
       }
       .avatar {
         width: 38px;
@@ -117,7 +123,8 @@
       }
       .form-card:hover {
         transform: translateY(-2px);
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1),
+        box-shadow:
+          0 4px 6px -1px rgba(0, 0, 0, 0.1),
           0 2px 4px -1px rgba(0, 0, 0, 0.06);
       }
       .form-card.ccr {
@@ -156,7 +163,7 @@
               src="{% static 'images/logo.png' %}"
               alt="CUAST"
               class="h-10 w-10 rounded-md object-cover"
-              onerror="this.style.display='none'"
+              onerror="this.style.display = 'none'"
             />
             <div class="hidden sm:block">
               <div class="font-semibold">
@@ -469,99 +476,192 @@
           </div>
 
           <!-- My Courses Page -->
+          <!-- My Courses Page -->
           <div id="my-courses-content" class="hidden">
             <div class="bg-white rounded-lg shadow">
               <div class="p-4 border-b">
-                <h3 class="font-semibold">My Courses</h3>
+                <div
+                  class="flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                >
+                  <div>
+                    <h3 class="font-semibold">My Assigned Courses</h3>
+                    <p class="text-sm text-gray-600 mt-1">
+                      All courses assigned to you for the current semester
+                    </p>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <div class="flex items-center">
+                      <span
+                        class="w-3 h-3 bg-amber-100 border border-amber-300 rounded-full mr-2"
+                      ></span>
+                      <span class="text-xs text-gray-600">Coordinator</span>
+                    </div>
+                    <div class="flex items-center ml-3">
+                      <span
+                        class="w-3 h-3 bg-gray-100 border border-gray-300 rounded-full mr-2"
+                      ></span>
+                      <span class="text-xs text-gray-600">Faculty</span>
+                    </div>
+                  </div>
+                </div>
               </div>
               <div class="p-4">
-                <div id="all-courses-list">
-                  <div class="text-center py-8">
-                    <i
-                      class="fas fa-spinner fa-spin text-2xl text-gray-400 mb-2"
-                    ></i>
-                    <p class="text-gray-500">Loading courses...</p>
+                <div class="overflow-x-auto">
+                  <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                      <tr>
+                        <th
+                          class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                        >
+                          Course Code
+                        </th>
+                        <th
+                          class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                        >
+                          Course Title
+                        </th>
+                        <th
+                          class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                        >
+                          Department
+                        </th>
+                        <th
+                          class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                        >
+                          Credits
+                        </th>
+                        <th
+                          class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                        >
+                          Section
+                        </th>
+                        <th
+                          class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                        >
+                          Role
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody
+                      id="all-courses-table"
+                      class="bg-white divide-y divide-gray-200"
+                    >
+                      <tr>
+                        <td
+                          colspan="6"
+                          class="px-4 py-8 text-center text-gray-500"
+                        >
+                          <i class="fas fa-spinner fa-spin mr-2"></i> Loading
+                          courses...
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <!-- Summary Statistics -->
+                <div
+                  id="courses-summary"
+                  class="mt-6 pt-4 border-t border-gray-200 hidden"
+                >
+                  <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div class="text-center p-3 bg-gray-50 rounded">
+                      <div
+                        class="text-2xl font-bold text-gray-800"
+                        id="total-courses-count"
+                      >
+                        0
+                      </div>
+                      <div class="text-sm text-gray-600">Total Courses</div>
+                    </div>
+                    <div class="text-center p-3 bg-amber-50 rounded">
+                      <div
+                        class="text-2xl font-bold text-amber-800"
+                        id="coordinator-courses-count"
+                      >
+                        0
+                      </div>
+                      <div class="text-sm text-amber-600">Coordinator Role</div>
+                    </div>
+                    <div class="text-center p-3 bg-blue-50 rounded">
+                      <div
+                        class="text-2xl font-bold text-blue-800"
+                        id="total-credits-count"
+                      >
+                        0
+                      </div>
+                      <div class="text-sm text-blue-600">Total Credits</div>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
           </div>
-
           <!-- Dynamic Forms Page -->
           <div id="dynamic-forms-content" class="hidden">
             <div class="bg-white rounded-lg shadow">
-              <div class="p-4 border-b">
-                <h3 class="font-semibold">Dynamic Forms</h3>
-                <p class="text-sm text-gray-600 mt-1">
-                  Submit assessment forms for your courses
-                </p>
-              </div>
-              <div class="p-4">
-                <div class="mb-6">
-                  <h4 class="font-medium text-gray-700 mb-3">
-                    Select a form type:
-                  </h4>
-                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+              <div class="p-8">
+                <!-- Header and Explanation -->
+                <div class="text-center mb-8">
+                  <div
+                    class="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4"
+                  >
+                    <i
+                      class="fas fa-clipboard-list text-purple-600 text-2xl"
+                    ></i>
+                  </div>
+                  <h3 class="text-2xl font-semibold text-gray-800 mb-3">
+                    Dynamic Forms
+                  </h3>
+                  <p class="text-gray-600 max-w-2xl mx-auto mb-4">
+                    Submit assessment forms for your courses. The system
+                    provides two types of forms: Course Coordinator Reports
+                    (CCR) and Course Review Reports (CRR).
+                  </p>
+                  <div
+                    class="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl mx-auto mb-6"
+                  >
                     <div
-                      class="border rounded p-4 hover:border-purple-500 hover:shadow cursor-pointer"
-                      onclick="showFormsByType('ccr')"
+                      class="bg-purple-50 border border-purple-200 rounded-lg p-4"
                     >
-                      <div class="flex items-center justify-between">
-                        <div>
-                          <h5 class="font-semibold">CCR Form</h5>
-                          <p class="text-sm text-gray-600">
-                            Course Coordinator Report
-                          </p>
-                          <div class="text-xs text-gray-500 mt-1">
-                            For Course Coordinators Only
-                          </div>
-                        </div>
-                        <span
-                          class="px-2 py-1 bg-purple-100 text-purple-800 rounded text-xs"
-                          >Coordinator</span
-                        >
-                      </div>
-                      <div class="mt-3">
-                        <span class="text-sm text-purple-600 font-medium">
-                          Click to select course and form
-                        </span>
-                      </div>
+                      <h4 class="font-semibold text-purple-800 mb-2">
+                        <i class="fas fa-user-tie mr-2"></i>CCR Forms
+                      </h4>
+                      <p class="text-sm text-purple-700">
+                        For course coordinators only. Submit comprehensive
+                        course management reports.
+                      </p>
                     </div>
                     <div
-                      class="border rounded p-4 hover:border-green-500 hover:shadow cursor-pointer"
-                      onclick="showFormsByType('crr')"
+                      class="bg-green-50 border border-green-200 rounded-lg p-4"
                     >
-                      <div class="flex items-center justify-between">
-                        <div>
-                          <h5 class="font-semibold">CRR Form</h5>
-                          <p class="text-sm text-gray-600">
-                            Course Review Report
-                          </p>
-                          <div class="text-xs text-gray-500 mt-1">
-                            For All Faculty Members
-                          </div>
-                        </div>
-                        <span
-                          class="px-2 py-1 bg-green-100 text-green-800 rounded text-xs"
-                          >Faculty</span
-                        >
-                      </div>
-                      <div class="mt-3">
-                        <span class="text-sm text-green-600 font-medium">
-                          Click to select course and form
-                        </span>
-                      </div>
+                      <h4 class="font-semibold text-green-800 mb-2">
+                        <i class="fas fa-clipboard-check mr-2"></i>CRR Forms
+                      </h4>
+                      <p class="text-sm text-green-700">
+                        For all faculty members. Submit course review reports
+                        for assigned courses.
+                      </p>
                     </div>
                   </div>
+                </div>
 
-                  <div id="form-type-content" class="hidden">
-                    <!-- Content will be loaded here based on form type -->
-                  </div>
+                <!-- Action Button -->
+                <div class="text-center">
+                  <a
+                    href="/dynamic-form/"
+                    class="inline-flex items-center px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold rounded-lg hover:from-purple-700 hover:to-blue-700 transition-all duration-300 transform hover:-translate-y-1 hover:shadow-lg"
+                  >
+                    <i class="fas fa-clipboard-list mr-2"></i>
+                    Get Forms
+                  </a>
+                  <p class="text-sm text-gray-500 mt-3">
+                    Click to access all available forms and start submitting
+                  </p>
                 </div>
               </div>
             </div>
           </div>
-
           <!-- Submissions Page -->
           <div id="submissions-content" class="hidden">
             <div class="bg-white rounded-lg shadow">
@@ -637,28 +737,112 @@
           </div>
 
           <!-- Course Outlines Page -->
+          <!-- Updated Course Outlines Page Section -->
           <div id="course-outlines-content" class="hidden">
             <div class="bg-white rounded-lg shadow">
               <div class="p-4 border-b">
                 <div
                   class="flex flex-col sm:flex-row sm:items-center justify-between gap-4"
                 >
-                  <h3 class="font-semibold">Course Outlines</h3>
+                  <div>
+                    <h3 class="font-semibold">Course Outlines</h3>
+                    <p class="text-sm text-gray-600 mt-1">
+                      Manage your course outlines - only course coordinators can
+                      create outlines
+                    </p>
+                  </div>
                   <button
                     onclick="showCreateOutlineModal()"
-                    class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                    class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center"
                   >
                     <i class="fas fa-plus mr-2"></i>New Outline
                   </button>
                 </div>
               </div>
               <div class="p-4">
-                <div id="outlines-list">
-                  <div class="text-center py-8">
-                    <i
-                      class="fas fa-spinner fa-spin text-2xl text-gray-400 mb-2"
-                    ></i>
-                    <p class="text-gray-500">Loading outlines...</p>
+                <div class="overflow-x-auto">
+                  <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                      <tr>
+                        <th
+                          class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                        >
+                          Course
+                        </th>
+                        <th
+                          class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                        >
+                          Outline Title
+                        </th>
+                        <th
+                          class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                        >
+                          Version
+                        </th>
+                        <th
+                          class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                        >
+                          Status
+                        </th>
+                        <th
+                          class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                        >
+                          Created Date
+                        </th>
+                        <th
+                          class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                        >
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody
+                      id="outlines-table"
+                      class="bg-white divide-y divide-gray-200"
+                    >
+                      <tr>
+                        <td
+                          colspan="6"
+                          class="px-4 py-8 text-center text-gray-500"
+                        >
+                          <i class="fas fa-spinner fa-spin mr-2"></i> Loading
+                          outlines...
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <!-- Status Legend -->
+                <div class="mt-6 pt-4 border-t border-gray-200">
+                  <h4 class="text-sm font-medium text-gray-700 mb-2">
+                    Status Legend:
+                  </h4>
+                  <div class="flex flex-wrap gap-3">
+                    <div class="flex items-center">
+                      <span
+                        class="w-3 h-3 bg-yellow-100 rounded-full mr-2"
+                      ></span>
+                      <span class="text-xs text-gray-600">Draft</span>
+                    </div>
+                    <div class="flex items-center">
+                      <span
+                        class="w-3 h-3 bg-blue-100 rounded-full mr-2"
+                      ></span>
+                      <span class="text-xs text-gray-600">Submitted</span>
+                    </div>
+                    <div class="flex items-center">
+                      <span
+                        class="w-3 h-3 bg-green-100 rounded-full mr-2"
+                      ></span>
+                      <span class="text-xs text-gray-600">Approved</span>
+                    </div>
+                    <div class="flex items-center">
+                      <span class="w-3 h-3 bg-red-100 rounded-full mr-2"></span>
+                      <span class="text-xs text-gray-600"
+                        >Revision Requested</span
+                      >
+                    </div>
                   </div>
                 </div>
               </div>
@@ -903,6 +1087,93 @@
       </div>
     </div>
 
+    <!-- Submission Details Modal -->
+    <div
+      id="submission-details-modal"
+      class="fixed inset-0 flex items-center justify-center p-4 hidden z-50"
+    >
+      <div
+        class="bg-white rounded-lg shadow-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto"
+      >
+        <!-- Modal header with close button -->
+        <div
+          class="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center"
+        >
+          <h3
+            class="text-lg font-semibold text-gray-900"
+            id="submission-details-title"
+          >
+            Form Submission Details
+          </h3>
+          <button
+            onclick="closeModal('submission-details-modal')"
+            class="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100"
+          >
+            <svg
+              class="w-6 h-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M6 18L18 6M6 6l12 12"
+              ></path>
+            </svg>
+          </button>
+        </div>
+
+        <!-- Modal body -->
+        <div class="p-6">
+          <div id="submission-details-content" class="space-y-4">
+            <!-- Submission details will be loaded here -->
+          </div>
+          <div class="flex justify-end gap-3 mt-6 pt-4 border-t">
+            <button
+              onclick="closeModal('submission-details-modal')"
+              class="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Course Outline View Modal - Updated -->
+    <div
+      id="course-outline-view-modal"
+      class="modal-overlay fixed inset-0 bg-black/40 hidden items-center justify-center z-50 p-4"
+    >
+      <div
+        class="bg-white rounded-xl max-w-4xl w-full p-6 shadow-2xl mx-auto max-h-[90vh] overflow-y-auto"
+        style="z-index: 1002"
+      >
+        <div class="flex items-start justify-between mb-4">
+          <h3
+            id="course-outline-view-title"
+            class="text-xl font-semibold text-gray-900"
+          >
+            Course Outline
+          </h3>
+          <button
+            onclick="closeOutlineViewModal()"
+            class="text-gray-500 hover:text-gray-700 text-xl p-1"
+          >
+            ✕
+          </button>
+        </div>
+        <div id="course-outline-view-content" class="mt-2"></div>
+      </div>
+    </div>
+
+    <!-- Add Modal Overlay for all modals -->
+    <div
+      id="modal-overlay"
+      class="modal-overlay fixed inset-0 bg-black/40 hidden items-center justify-center z-50 p-4"
+    ></div>
     <!-- Notification Container -->
     <div
       id="notification-container"
@@ -961,7 +1232,7 @@
 
         // Avatar dropdown
         const avatarTrigger = document.getElementById(
-          "avatar-dropdown-trigger"
+          "avatar-dropdown-trigger",
         );
         if (avatarTrigger) {
           avatarTrigger.addEventListener("click", function (e) {
@@ -1020,7 +1291,7 @@
           } else {
             console.error(
               "Failed to load submissions:",
-              submissionsResponse.status
+              submissionsResponse.status,
             );
           }
 
@@ -1039,7 +1310,7 @@
           console.error("Error loading initial data:", error);
           showNotification(
             "Failed to load data. Please refresh the page.",
-            "error"
+            "error",
           );
         }
       }
@@ -1112,7 +1383,7 @@
         const coordinatorStatus = document.getElementById("coordinator-status");
         if (coordinatorStatus) {
           const isCoordinator = state.courses.some(
-            (course) => course.is_coordinator
+            (course) => course.is_coordinator,
           );
           coordinatorStatus.textContent = isCoordinator
             ? "Coordinator Role"
@@ -1125,7 +1396,7 @@
 
       function renderFormAvailability(formData) {
         const container = document.getElementById(
-          "forms-availability-container"
+          "forms-availability-container",
         );
         if (!container) return;
 
@@ -1335,7 +1606,7 @@
 
           const forms = state.activeForms[formType];
           const isCoordinator = state.courses.some(
-            (course) => course.is_coordinator
+            (course) => course.is_coordinator,
           );
 
           // Check access for CCR
@@ -1418,7 +1689,7 @@
         if (formType === "ccr") {
           // For CCR, only courses where user is coordinator
           availableCourses = state.courses.filter(
-            (course) => course.is_coordinator
+            (course) => course.is_coordinator,
           );
         } else {
           // For CRR, all assigned courses
@@ -1428,7 +1699,7 @@
         if (availableCourses.length === 0) {
           showNotification(
             `No courses available for ${formType.toUpperCase()} form`,
-            "error"
+            "error",
           );
           return;
         }
@@ -1466,7 +1737,7 @@
           const existingSubmission = state.submissions.find(
             (sub) =>
               sub.course?.id === course.id &&
-              sub.dynamic_form?.form_type === formType
+              sub.dynamic_form?.form_type === formType,
           );
 
           html += `
@@ -1474,8 +1745,8 @@
                       formType === "ccr" ? "purple" : "green"
                     }-500 hover:shadow cursor-pointer" 
                          onclick="startForm(${formId}, '${formType}', ${
-            course.id
-          })">
+                           course.id
+                         })">
                         <div class="flex items-center justify-between">
                             <div>
                                 <h5 class="font-semibold">${course.code}</h5>
@@ -1561,14 +1832,14 @@
         const totalSubmissions = state.submissions.length;
         const totalOutlines = state.outlines.length;
         const coordinatorCourses = state.courses.filter(
-          (c) => c.is_coordinator
+          (c) => c.is_coordinator,
         ).length;
 
         const totalCoursesEl = document.getElementById("total-courses");
         const totalSubmissionsEl = document.getElementById("total-submissions");
         const totalOutlinesEl = document.getElementById("total-outlines");
         const coordinatorCoursesEl = document.getElementById(
-          "coordinator-courses"
+          "coordinator-courses",
         );
 
         if (totalCoursesEl) totalCoursesEl.textContent = totalCourses;
@@ -1647,75 +1918,160 @@
       }
 
       function loadCoursesPage() {
-        const container = document.getElementById("all-courses-list");
-        if (!container) return;
+        renderCoursesTable();
+      }
 
-        if (state.courses.length === 0) {
-          container.innerHTML = `
-                    <div class="text-center py-8 text-gray-400">
-                        <i class="fas fa-book-open text-3xl mb-3"></i>
-                        <p>No courses assigned</p>
-                    </div>
-                `;
+      function renderCoursesTable() {
+        const tbody = document.getElementById("all-courses-table");
+        const summaryDiv = document.getElementById("courses-summary");
+
+        if (!tbody) return;
+
+        if (!state.courses || state.courses.length === 0) {
+          tbody.innerHTML = `
+      <tr>
+        <td colspan="6" class="px-4 py-8 text-center text-gray-500">
+          <div class="flex flex-col items-center">
+            <i class="fas fa-book-open text-3xl text-gray-300 mb-3"></i>
+            <p class="text-gray-500">No courses assigned</p>
+            <p class="text-sm text-gray-400 mt-1">
+              Contact your department if you believe this is an error
+            </p>
+          </div>
+        </td>
+      </tr>
+    `;
+          if (summaryDiv) summaryDiv.classList.add("hidden");
           return;
         }
 
-        container.innerHTML = state.courses
-          .map(
-            (course) => `
-                <div class="border rounded p-4 mb-4 hover:shadow">
-                    <div class="flex justify-between items-start">
-                        <div class="flex-1">
-                            <h4 class="font-semibold text-lg">${
-                              course.code
-                            }</h4>
-                            <p class="text-gray-600">${course.title}</p>
-                            <div class="flex items-center gap-4 mt-2 text-sm text-gray-500">
-                                <span>${
-                                  course.department_name ||
-                                  course.department ||
-                                  "No Department"
-                                }</span>
-                                <span>•</span>
-                                <span>${course.credits || 0} Credits</span>
-                                <span>•</span>
-                                <span>Section: ${course.section || "N/A"}</span>
-                            </div>
-                        </div>
-                        <div>
-                            ${
-                              course.is_coordinator
-                                ? '<span class="px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-sm">Coordinator</span>'
-                                : '<span class="px-3 py-1 bg-gray-100 text-gray-800 rounded-full text-sm">Faculty</span>'
-                            }
-                        </div>
-                    </div>
-                    <div class="mt-4 flex gap-2">
-                        ${
-                          course.is_coordinator &&
-                          state.activeForms.ccr.length > 0
-                            ? `
-                            <button onclick="selectFormAndCourse(${state.activeForms.ccr[0].id}, 'ccr')" 
-                                   class="px-3 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 text-sm">
-                                <i class="fas fa-user-tie mr-1"></i> CCR Form
-                            </button>
-                        `
-                            : ""
-                        }
-                        ${
-                          state.activeForms.crr.length > 0
-                            ? `
-                            <button onclick="selectFormAndCourse(${state.activeForms.crr[0].id}, 'crr')" 
-                                   class="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 text-sm">
-                                <i class="fas fa-clipboard-list mr-1"></i> CRR Form
-                            </button>
-                        `
-                            : ""
-                        }
-                    </div>
-                </div>
-            `
-          )
+        // Calculate statistics
+        const totalCourses = state.courses.length;
+        const coordinatorCourses = state.courses.filter(
+          (course) => course.is_coordinator,
+        ).length;
+        const totalCredits = state.courses.reduce(
+          (sum, course) => sum + (parseInt(course.credits) || 0),
+          0,
+        );
+
+        // Update summary
+        if (summaryDiv) {
+          document.getElementById("total-courses-count").textContent =
+            totalCourses;
+          document.getElementById("coordinator-courses-count").textContent =
+            coordinatorCourses;
+          document.getElementById("total-credits-count").textContent =
+            totalCredits;
+          summaryDiv.classList.remove("hidden");
+        }
+
+        // Render table rows
+        tbody.innerHTML = state.courses
+          .map((course) => {
+            const role = course.is_coordinator ? "Coordinator" : "Faculty";
+            const roleClass = course.is_coordinator
+              ? "bg-amber-100 text-amber-800"
+              : "bg-gray-100 text-gray-800";
+
+            return `
+        <tr class="hover:bg-gray-50">
+          <td class="px-4 py-3 whitespace-nowrap">
+            <div class="text-sm font-medium text-gray-900">
+              ${course.code || "N/A"}
+            </div>
+          </td>
+          <td class="px-4 py-3">
+            <div class="text-sm font-medium text-gray-900">
+              ${course.title || "No title"}
+            </div>
+          </td>
+          <td class="px-4 py-3 whitespace-nowrap">
+            <div class="text-sm text-gray-900">
+              ${course.department_name || course.department || "N/A"}
+            </div>
+          </td>
+          <td class="px-4 py-3 whitespace-nowrap">
+            <span class="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-800 rounded-full">
+              ${course.credits || 0} Credits
+            </span>
+          </td>
+          <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+            ${course.section || "N/A"}
+          </td>
+          <td class="px-4 py-3 whitespace-nowrap">
+            <span class="px-3 py-1 rounded-full text-xs font-medium ${roleClass}">
+              ${role}
+            </span>
+          </td>
+        </tr>
+      `;
+          })
+          .join("");
+      }
+
+      // Also update the renderAssignedCourses function in dashboard to remove buttons
+      function renderAssignedCourses() {
+        const container = document.getElementById("assigned-courses-list");
+        if (!container) return;
+
+        if (!state.courses || state.courses.length === 0) {
+          container.innerHTML = `
+      <div class="text-center py-8 text-gray-400">
+        <i class="fas fa-book-open text-3xl mb-3"></i>
+        <p>No courses assigned</p>
+        <p class="text-sm mt-2">Contact your department if you believe this is an error</p>
+      </div>
+    `;
+          return;
+        }
+
+        const coursesToShow = state.courses.slice(0, 5);
+        container.innerHTML = coursesToShow
+          .map((course) => {
+            const role = course.is_coordinator ? "Coordinator" : "Faculty";
+            const roleClass = course.is_coordinator
+              ? "bg-amber-100 text-amber-800"
+              : "bg-gray-100 text-gray-800";
+
+            return `
+        <div class="border rounded p-4 mb-3 hover:bg-gray-50">
+          <div class="flex justify-between items-start">
+            <div class="flex-1">
+              <div class="flex items-center gap-2 mb-1">
+                <h4 class="font-semibold">${course.code}</h4>
+                <span class="px-2 py-1 rounded-full text-xs ${roleClass}">
+                  ${role}
+                </span>
+              </div>
+              <p class="text-sm text-gray-600">${course.title}</p>
+              <div class="flex items-center gap-3 mt-2 text-xs text-gray-500">
+                <span>
+                  <i class="fas fa-university mr-1"></i>
+                  ${course.department_name || course.department || "No Department"}
+                </span>
+                <span>•</span>
+                <span>
+                  <i class="fas fa-credit-card mr-1"></i>
+                  ${course.credits || 0} Credits
+                </span>
+                ${
+                  course.section
+                    ? `
+                  <span>•</span>
+                  <span>
+                    <i class="fas fa-users mr-1"></i>
+                    Section: ${course.section}
+                  </span>
+                `
+                    : ""
+                }
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+          })
           .join("");
       }
 
@@ -1730,7 +2086,7 @@
       async function createOutlineForCourse(courseId) {
         try {
           const response = await fetch(
-            `/api/faculty/course-outline-structure/?course_id=${courseId}`
+            `/api/faculty/course-outline-structure/?course_id=${courseId}`,
           );
           if (response.ok) {
             const data = await response.json();
@@ -1751,14 +2107,14 @@
             } else {
               showNotification(
                 data.error || "You cannot create outlines for this course",
-                "error"
+                "error",
               );
             }
           } else {
             const error = await response.json();
             showNotification(
               error.error || "Failed to load course outline structure",
-              "error"
+              "error",
             );
           }
         } catch (error) {
@@ -1775,13 +2131,13 @@
 
         // Only show courses where user is coordinator
         const coordinatorCourses = state.courses.filter(
-          (course) => course.is_coordinator
+          (course) => course.is_coordinator,
         );
 
         if (coordinatorCourses.length === 0) {
           showNotification(
             "You are not a coordinator for any courses",
-            "error"
+            "error",
           );
           return;
         }
@@ -1795,7 +2151,22 @@
 
         openModal("create-outline-modal");
       }
+      function openOutlineViewModal() {
+        const modal = document.getElementById("course-outline-view-modal");
+        if (modal) {
+          modal.classList.remove("hidden");
+          document.body.classList.add("overflow-hidden");
+        }
+      }
 
+      // Add this function to close the outline view modal
+      function closeOutlineViewModal() {
+        const modal = document.getElementById("course-outline-view-modal");
+        if (modal) {
+          modal.classList.add("hidden");
+          document.body.classList.remove("overflow-hidden");
+        }
+      }
       function startOutlineEditor() {
         const select = document.getElementById("modal-course-select");
         if (!select) return;
@@ -1923,7 +2294,7 @@
       async function loadOutlineData(outlineId) {
         try {
           const response = await fetch(
-            `/api/get-course-outline/?course_id=${state.selectedCourse.id}`
+            `/api/get-course-outline/?course_id=${state.selectedCourse.id}`,
           );
           if (response.ok) {
             const outline = await response.json();
@@ -2056,7 +2427,7 @@
               `Outline ${
                 status === "draft" ? "saved" : "submitted"
               } successfully`,
-              "success"
+              "success",
             );
 
             // Return to outlines page
@@ -2166,7 +2537,7 @@
                         </td>
                         <td class="px-4 py-3">
                             <span class="px-3 py-1 rounded-full text-xs ${getStatusClass(
-                              status
+                              status,
                             )}">${status.replace("_", " ")}</span>
                         </td>
                         <td class="px-4 py-3 text-sm text-gray-500">
@@ -2198,17 +2569,466 @@
       async function viewSubmission(submissionId) {
         try {
           const response = await fetch(
-            `/api/submission-details/${submissionId}/`
+            `/api/submission-details/${submissionId}/`,
           );
           if (response.ok) {
             const data = await response.json();
-            showFormDetailsModal(data);
+            showSubmissionDetailsModal(data); // Changed to show modal
           } else {
             showNotification("Failed to load submission details", "error");
           }
         } catch (error) {
           showNotification("Failed to load submission details", "error");
         }
+      }
+      // Add this new function to show submission details in modal
+      function showSubmissionDetailsModal(submission) {
+        const modal = document.getElementById("submission-details-modal");
+        const title = document.getElementById("submission-details-title");
+        const content = document.getElementById("submission-details-content");
+
+        if (!modal || !title || !content) return;
+
+        // Set the modal title
+        title.textContent = `Form Submission Details - ${submission.form_name || "Unknown"}`;
+
+        // Build the content
+        let html = `
+        <div class="bg-gray-50 rounded-lg p-4 mb-4">
+            <h4 class="font-medium text-gray-900 mb-2">Submission Information</h4>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <div>
+                    <span class="text-gray-600">Form:</span>
+                    <div class="font-medium">${submission.form_name || "Unknown"} (${submission.form_type || "N/A"})</div>
+                </div>
+                <div>
+                    <span class="text-gray-600">Course:</span>
+                    <div class="font-medium">${submission.course_code || "N/A"} - ${submission.course_title || "Unknown"}</div>
+                </div>
+                <div>
+                    <span class="text-gray-600">Status:</span>
+                    <span class="font-medium ${submission.status === "approved" ? "text-green-600" : submission.status === "revision_requested" ? "text-red-600" : "text-yellow-600"}">
+                        ${submission.status || "Unknown"}
+                    </span>
+                </div>
+                <div>
+                    <span class="text-gray-600">Submission Date:</span>
+                    <div class="font-medium">${new Date(submission.submission_date).toLocaleDateString()}</div>
+                </div>
+            </div>
+        </div>
+
+        <h5 class="font-medium text-gray-900 mb-4">Submission Answers</h5>
+    `;
+
+        if (submission.answers && submission.answers.length > 0) {
+          html += `<div class="space-y-6">`;
+          submission.answers.forEach((answer, index) => {
+            // Check if this is a CLO percentage question
+            const isCLOPercentage = answer.question_type === "clo_percentage";
+
+            let answerDisplay = "";
+            if (isCLOPercentage) {
+              answerDisplay = formatCLOPercentageAnswer(answer);
+            } else if (answer.answer_text) {
+              answerDisplay = answer.answer_text;
+            } else if (answer.answer_data) {
+              if (Array.isArray(answer.answer_data)) {
+                answerDisplay = answer.answer_data.join(", ");
+              } else if (typeof answer.answer_data === "object") {
+                answerDisplay = formatObjectAnswer(answer.answer_data);
+              } else {
+                answerDisplay = String(answer.answer_data);
+              }
+            }
+
+            html += `
+                <div class="border border-gray-200 rounded-lg p-4">
+                    <h6 class="font-medium text-gray-900 mb-2">${index + 1}. ${answer.question_text || "Question"}</h6>
+                    <div class="text-sm text-gray-600">
+                        ${
+                          answerDisplay
+                            ? `<div class="${isCLOPercentage ? "" : "bg-gray-50 p-3 rounded"}">${answerDisplay}</div>`
+                            : '<div class="text-gray-400 italic">No answer provided</div>'
+                        }
+                    </div>
+                </div>
+            `;
+          });
+          html += `</div>`;
+        } else {
+          html += `<div class="text-center py-8 text-gray-500">No answers submitted for this form</div>`;
+        }
+
+        content.innerHTML = html;
+        openModal("submission-details-modal");
+      }
+
+      // Add helper functions for formatting CLO answers
+      function formatCLOPercentageAnswer(answer) {
+        let cloData = {};
+
+        // Try to extract CLO data from different possible sources
+        if (answer.answer_data && typeof answer.answer_data === "object") {
+          cloData = answer.answer_data;
+        } else if (answer.answer_text) {
+          try {
+            cloData = JSON.parse(answer.answer_text);
+          } catch (e) {
+            // If not JSON, try to parse as key-value pairs
+            const pairs = answer.answer_text.split(",");
+            pairs.forEach((pair) => {
+              const [key, value] = pair.split(":");
+              if (key && value) {
+                const cloNum = key.trim();
+                const percentage = value.trim().replace("%", "");
+                cloData[cloNum] = parseFloat(percentage);
+              }
+            });
+          }
+        }
+
+        // If still no data, return default message
+        if (Object.keys(cloData).length === 0) {
+          return '<div class="text-gray-500 italic">No CLO data provided</div>';
+        }
+
+        // Create simple table for CLO percentages
+        let tableHTML = `
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm border border-gray-200 rounded-lg">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-4 py-2 font-medium text-gray-700 border-b text-left">CLO</th>
+                        <th class="px-4 py-2 font-medium text-gray-700 border-b text-left">Percentage</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+
+        // Sort CLOs numerically (CLO1, CLO2, etc.)
+        const sortedCLOs = Object.keys(cloData).sort((a, b) => {
+          const numA = parseInt(a.replace("CLO", "")) || 0;
+          const numB = parseInt(b.replace("CLO", "")) || 0;
+          return numA - numB;
+        });
+
+        sortedCLOs.forEach((cloKey) => {
+          let percentage = cloData[cloKey];
+
+          // Convert to number if it's a string
+          if (typeof percentage === "string") {
+            percentage = parseFloat(percentage.replace("%", ""));
+          }
+
+          tableHTML += `
+            <tr class="hover:bg-gray-50">
+                <td class="px-4 py-2 border-b">
+                    <span class="font-medium">${cloKey}</span>
+                </td>
+                <td class="px-4 py-2 border-b font-medium">
+                    ${percentage}%
+                </td>
+            </tr>
+        `;
+        });
+
+        // Add total row if there are multiple CLOs
+        if (sortedCLOs.length > 1) {
+          const percentages = Object.values(cloData).map((p) => {
+            if (typeof p === "string") return parseFloat(p.replace("%", ""));
+            return p;
+          });
+          const averagePercentage =
+            percentages.length > 0
+              ? (
+                  percentages.reduce((a, b) => a + b, 0) / percentages.length
+                ).toFixed(1)
+              : 0;
+
+          tableHTML += `
+                    <tr class="bg-gray-50 font-medium">
+                        <td class="px-4 py-2">Average</td>
+                        <td class="px-4 py-2">${averagePercentage}%</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        `;
+        } else {
+          tableHTML += `
+                </tbody>
+            </table>
+        </div>
+        `;
+        }
+
+        return tableHTML;
+      }
+
+      // Helper function to format object answers
+      function formatObjectAnswer(obj) {
+        if (!obj) return "No data";
+
+        // Check if this is CLO data (keys like CLO1, CLO2, etc.)
+        const isCLOData = Object.keys(obj).some(
+          (key) =>
+            key.toUpperCase().startsWith("CLO") &&
+            (typeof obj[key] === "number" ||
+              (typeof obj[key] === "string" && !isNaN(parseFloat(obj[key])))),
+        );
+
+        if (isCLOData) {
+          return formatCLOPercentageAnswer({ answer_data: obj });
+        }
+
+        // For other objects, format as key-value pairs
+        let html = '<div class="space-y-2">';
+        Object.entries(obj).forEach(([key, value]) => {
+          if (value && typeof value === "object") {
+            html += `
+                <div class="border-l-2 border-gray-300 pl-3">
+                    <div class="font-medium">${key}:</div>
+                    <div class="mt-1">${formatObjectAnswer(value)}</div>
+                </div>
+            `;
+          } else {
+            html += `
+                <div class="flex">
+                    <span class="font-medium w-1/3">${key}:</span>
+                    <span class="text-gray-700 w-2/3">${value}</span>
+                </div>
+            `;
+          }
+        });
+        html += "</div>";
+
+        return html;
+      }
+
+      // Add this new function to show submission details in modal
+      function showSubmissionDetailsModal(submission) {
+        const modal = document.getElementById("submission-details-modal");
+        const title = document.getElementById("submission-details-title");
+        const content = document.getElementById("submission-details-content");
+
+        if (!modal || !title || !content) return;
+
+        // Set the modal title
+        title.textContent = `Form Submission Details - ${submission.form_name || "Unknown"}`;
+
+        // Build the content
+        let html = `
+        <div class="bg-gray-50 rounded-lg p-4 mb-4">
+            <h4 class="font-medium text-gray-900 mb-2">Submission Information</h4>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <div>
+                    <span class="text-gray-600">Form:</span>
+                    <div class="font-medium">${submission.form_name || "Unknown"} (${submission.form_type || "N/A"})</div>
+                </div>
+                <div>
+                    <span class="text-gray-600">Course:</span>
+                    <div class="font-medium">${submission.course_code || "N/A"} - ${submission.course_title || "Unknown"}</div>
+                </div>
+                <div>
+                    <span class="text-gray-600">Status:</span>
+                    <span class="font-medium ${submission.status === "approved" ? "text-green-600" : submission.status === "revision_requested" ? "text-red-600" : "text-yellow-600"}">
+                        ${submission.status || "Unknown"}
+                    </span>
+                </div>
+                <div>
+                    <span class="text-gray-600">Submission Date:</span>
+                    <div class="font-medium">${new Date(submission.submission_date).toLocaleDateString()}</div>
+                </div>
+            </div>
+        </div>
+
+        <h5 class="font-medium text-gray-900 mb-4">Submission Answers</h5>
+    `;
+
+        if (submission.answers && submission.answers.length > 0) {
+          html += `<div class="space-y-6">`;
+          submission.answers.forEach((answer, index) => {
+            // Check if this is a CLO percentage question
+            const isCLOPercentage = answer.question_type === "clo_percentage";
+
+            let answerDisplay = "";
+            if (isCLOPercentage) {
+              answerDisplay = formatCLOPercentageAnswer(answer);
+            } else if (answer.answer_text) {
+              answerDisplay = answer.answer_text;
+            } else if (answer.answer_data) {
+              if (Array.isArray(answer.answer_data)) {
+                answerDisplay = answer.answer_data.join(", ");
+              } else if (typeof answer.answer_data === "object") {
+                answerDisplay = formatObjectAnswer(answer.answer_data);
+              } else {
+                answerDisplay = String(answer.answer_data);
+              }
+            }
+
+            html += `
+                <div class="border border-gray-200 rounded-lg p-4">
+                    <h6 class="font-medium text-gray-900 mb-2">${index + 1}. ${answer.question_text || "Question"}</h6>
+                    <div class="text-sm text-gray-600">
+                        ${
+                          answerDisplay
+                            ? `<div class="${isCLOPercentage ? "" : "bg-gray-50 p-3 rounded"}">${answerDisplay}</div>`
+                            : '<div class="text-gray-400 italic">No answer provided</div>'
+                        }
+                    </div>
+                </div>
+            `;
+          });
+          html += `</div>`;
+        } else {
+          html += `<div class="text-center py-8 text-gray-500">No answers submitted for this form</div>`;
+        }
+
+        content.innerHTML = html;
+        openModal("submission-details-modal");
+      }
+
+      // Add helper functions for formatting CLO answers
+      function formatCLOPercentageAnswer(answer) {
+        let cloData = {};
+
+        // Try to extract CLO data from different possible sources
+        if (answer.answer_data && typeof answer.answer_data === "object") {
+          cloData = answer.answer_data;
+        } else if (answer.answer_text) {
+          try {
+            cloData = JSON.parse(answer.answer_text);
+          } catch (e) {
+            // If not JSON, try to parse as key-value pairs
+            const pairs = answer.answer_text.split(",");
+            pairs.forEach((pair) => {
+              const [key, value] = pair.split(":");
+              if (key && value) {
+                const cloNum = key.trim();
+                const percentage = value.trim().replace("%", "");
+                cloData[cloNum] = parseFloat(percentage);
+              }
+            });
+          }
+        }
+
+        // If still no data, return default message
+        if (Object.keys(cloData).length === 0) {
+          return '<div class="text-gray-500 italic">No CLO data provided</div>';
+        }
+
+        // Create simple table for CLO percentages
+        let tableHTML = `
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm border border-gray-200 rounded-lg">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-4 py-2 font-medium text-gray-700 border-b text-left">CLO</th>
+                        <th class="px-4 py-2 font-medium text-gray-700 border-b text-left">Percentage</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+
+        // Sort CLOs numerically (CLO1, CLO2, etc.)
+        const sortedCLOs = Object.keys(cloData).sort((a, b) => {
+          const numA = parseInt(a.replace("CLO", "")) || 0;
+          const numB = parseInt(b.replace("CLO", "")) || 0;
+          return numA - numB;
+        });
+
+        sortedCLOs.forEach((cloKey) => {
+          let percentage = cloData[cloKey];
+
+          // Convert to number if it's a string
+          if (typeof percentage === "string") {
+            percentage = parseFloat(percentage.replace("%", ""));
+          }
+
+          tableHTML += `
+            <tr class="hover:bg-gray-50">
+                <td class="px-4 py-2 border-b">
+                    <span class="font-medium">${cloKey}</span>
+                </td>
+                <td class="px-4 py-2 border-b font-medium">
+                    ${percentage}%
+                </td>
+            </tr>
+        `;
+        });
+
+        // Add total row if there are multiple CLOs
+        if (sortedCLOs.length > 1) {
+          const percentages = Object.values(cloData).map((p) => {
+            if (typeof p === "string") return parseFloat(p.replace("%", ""));
+            return p;
+          });
+          const averagePercentage =
+            percentages.length > 0
+              ? (
+                  percentages.reduce((a, b) => a + b, 0) / percentages.length
+                ).toFixed(1)
+              : 0;
+
+          tableHTML += `
+                    <tr class="bg-gray-50 font-medium">
+                        <td class="px-4 py-2">Average</td>
+                        <td class="px-4 py-2">${averagePercentage}%</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        `;
+        } else {
+          tableHTML += `
+                </tbody>
+            </table>
+        </div>
+        `;
+        }
+
+        return tableHTML;
+      }
+
+      // Helper function to format object answers
+      function formatObjectAnswer(obj) {
+        if (!obj) return "No data";
+
+        // Check if this is CLO data (keys like CLO1, CLO2, etc.)
+        const isCLOData = Object.keys(obj).some(
+          (key) =>
+            key.toUpperCase().startsWith("CLO") &&
+            (typeof obj[key] === "number" ||
+              (typeof obj[key] === "string" && !isNaN(parseFloat(obj[key])))),
+        );
+
+        if (isCLOData) {
+          return formatCLOPercentageAnswer({ answer_data: obj });
+        }
+
+        // For other objects, format as key-value pairs
+        let html = '<div class="space-y-2">';
+        Object.entries(obj).forEach(([key, value]) => {
+          if (value && typeof value === "object") {
+            html += `
+                <div class="border-l-2 border-gray-300 pl-3">
+                    <div class="font-medium">${key}:</div>
+                    <div class="mt-1">${formatObjectAnswer(value)}</div>
+                </div>
+            `;
+          } else {
+            html += `
+                <div class="flex">
+                    <span class="font-medium w-1/3">${key}:</span>
+                    <span class="text-gray-700 w-2/3">${value}</span>
+                </div>
+            `;
+          }
+        });
+        html += "</div>";
+
+        return html;
       }
 
       function editSubmission(submissionId) {
@@ -2230,11 +3050,11 @@
       }
 
       function showFormDetailsModal(submissionData) {
-        // This would open a modal with submission details
-        // Since we don't have the modal HTML for this, we'll redirect to a view page
-        window.location.href = `/submissions/?view=${submissionData.id}`;
+        // Instead of redirecting, show the modal
+        showSubmissionDetailsModal(submissionData);
       }
 
+      // Update the loadCourseOutlinesPage function
       async function loadCourseOutlinesPage() {
         await refreshOutlines();
       }
@@ -2244,22 +3064,177 @@
           const response = await fetch("/api/faculty/course-outlines/");
           if (response.ok) {
             const outlines = await response.json();
-            renderOutlinesList(outlines);
+            renderOutlinesTable(outlines);
           }
         } catch (error) {
           console.error("Error loading outlines:", error);
-          const container = document.getElementById("outlines-list");
-          if (container) {
-            container.innerHTML = `
-                        <div class="text-center py-8 text-red-400">
-                            <i class="fas fa-exclamation-triangle text-3xl mb-3"></i>
-                            <p>Failed to load outlines</p>
-                        </div>
-                    `;
+          const tbody = document.getElementById("outlines-table");
+          if (tbody) {
+            tbody.innerHTML = `
+        <tr>
+          <td colspan="6" class="px-4 py-8 text-center text-red-400">
+            <i class="fas fa-exclamation-triangle mr-2"></i>
+            Failed to load outlines
+          </td>
+        </tr>
+      `;
           }
         }
       }
 
+      // New function to render outlines table
+      function renderOutlinesTable(outlines) {
+        const tbody = document.getElementById("outlines-table");
+        if (!tbody) return;
+
+        if (!outlines || outlines.length === 0) {
+          tbody.innerHTML = `
+      <tr>
+        <td colspan="6" class="px-4 py-8 text-center text-gray-500">
+          <div class="flex flex-col items-center">
+            <i class="fas fa-file-alt text-3xl text-gray-300 mb-3"></i>
+            <p class="text-gray-500">No course outlines yet</p>
+            <p class="text-sm text-gray-400 mt-1">
+              Only course coordinators can create course outlines
+            </p>
+            <button
+              onclick="showCreateOutlineModal()"
+              class="mt-3 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
+            >
+              Create Your First Outline
+            </button>
+          </div>
+        </td>
+      </tr>
+    `;
+          return;
+        }
+
+        tbody.innerHTML = outlines
+          .map((outline) => {
+            const createdDate = outline.created_at
+              ? new Date(outline.created_at)
+              : new Date();
+            const status = outline.status || "draft";
+
+            // Check if outline can be edited
+            const canEdit =
+              status === "draft" || status === "revision_requested";
+            const canSubmit =
+              status === "draft" || status === "revision_requested";
+
+            return `
+        <tr class="hover:bg-gray-50">
+          <td class="px-4 py-3 whitespace-nowrap">
+            <div class="flex items-center">
+              <div class="ml-4">
+                <div class="text-sm font-medium text-gray-900">
+                  ${outline.course?.code || "N/A"}
+                </div>
+                <div class="text-sm text-gray-500 truncate max-w-xs">
+                  ${outline.course?.title || "No title"}
+                </div>
+                ${
+                  outline.is_current
+                    ? `
+                  <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 mt-1">
+                    Current Version
+                  </span>
+                `
+                    : ""
+                }
+              </div>
+            </div>
+          </td>
+          <td class="px-4 py-3">
+            <div class="text-sm font-medium text-gray-900">
+              ${outline.title || "Untitled Outline"}
+            </div>
+            <div class="text-sm text-gray-500">
+              ${outline.description ? outline.description.substring(0, 60) + (outline.description.length > 60 ? "..." : "") : "No description"}
+            </div>
+          </td>
+          <td class="px-4 py-3 whitespace-nowrap">
+            <span class="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-800 rounded-full">
+              v${outline.version || 1}
+            </span>
+          </td>
+          <td class="px-4 py-3 whitespace-nowrap">
+            <span class="px-3 py-1 rounded-full text-xs font-medium ${getStatusClass(status)}">
+              ${status.replace("_", " ").toUpperCase()}
+            </span>
+            ${
+              outline.notes && outline.status === "revision_requested"
+                ? `
+              <div class="mt-1 text-xs text-yellow-600">
+                <i class="fas fa-exclamation-circle mr-1"></i>
+                Revision needed
+              </div>
+            `
+                : ""
+            }
+          </td>
+          <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+            ${createdDate.toLocaleDateString()}
+            <div class="text-xs text-gray-400">
+              ${createdDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            </div>
+          </td>
+          <td class="px-4 py-3 whitespace-nowrap text-sm font-medium">
+            <div class="flex items-center space-x-2">
+              <button
+                onclick="viewOutlineDetails(${outline.id})"
+                class="text-blue-600 hover:text-blue-900"
+                title="View Details"
+              >
+                <i class="fas fa-eye"></i>
+              </button>
+              ${
+                canEdit
+                  ? `
+                <button
+                  onclick="editOutline(${outline.id})"
+                  class="text-green-600 hover:text-green-900"
+                  title="Edit Outline"
+                >
+                  <i class="fas fa-edit"></i>
+                </button>
+              `
+                  : ""
+              }
+              ${
+                canSubmit
+                  ? `
+                <button
+                  onclick="submitExistingOutline(${outline.id})"
+                  class="text-purple-600 hover:text-purple-900"
+                  title="Submit for Review"
+                >
+                  <i class="fas fa-paper-plane"></i>
+                </button>
+              `
+                  : ""
+              }
+              ${
+                outline.status === "approved"
+                  ? `
+                <button
+                  onclick="downloadOutline(${outline.id})"
+                  class="text-gray-600 hover:text-gray-900"
+                  title="Download Outline"
+                >
+                  <i class="fas fa-download"></i>
+                </button>
+              `
+                  : ""
+              }
+            </div>
+          </td>
+        </tr>
+      `;
+          })
+          .join("");
+      }
       function renderOutlinesList(outlines) {
         const container = document.getElementById("outlines-list");
         if (!container) return;
@@ -2300,7 +3275,7 @@
                                       outline.course?.code || "Course"
                                     } - ${outline.title || "Untitled"}</h4>
                                     <span class="px-3 py-1 rounded-full text-xs ${getStatusClass(
-                                      status
+                                      status,
                                     )}">
                                         ${status.replace("_", " ")}
                                     </span>
@@ -2346,7 +3321,7 @@
                                         <div class="text-center p-2 bg-purple-50 rounded">
                                             <div class="text-xs text-purple-600">Approved</div>
                                             <div class="text-sm">${new Date(
-                                              outline.approved_at
+                                              outline.approved_at,
                                             ).toLocaleDateString()}</div>
                                         </div>
                                     `
@@ -2369,27 +3344,31 @@
                             </div>
                         </div>
                         
-                        <div class="mt-4 flex gap-2">
-                            ${
-                              canEdit
-                                ? `
-                                <button onclick="editOutline(${outline.id})" class="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">
-                                    <i class="fas fa-edit mr-1"></i> Edit
-                                </button>
-                            `
-                                : ""
-                            }
-                            ${
-                              canSubmit
-                                ? `
-                                <button onclick="submitExistingOutline(${outline.id})" class="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700">
-                                    <i class="fas fa-paper-plane mr-1"></i> Submit
-                                </button>
-                            `
-                                : ""
-                            }
-                        </div>
-                    </div>
+                      <div class="mt-4 flex gap-2">
+    <!-- View button - available for ALL outlines -->
+    <button onclick="viewOutlineDetails(${outline.id})" class="px-3 py-1 bg-gray-600 text-white rounded hover:bg-gray-700">
+        <i class="fas fa-eye mr-1"></i> View
+    </button>
+    
+    ${
+      canEdit
+        ? `
+            <button onclick="editOutline(${outline.id})" class="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">
+                <i class="fas fa-edit mr-1"></i> Edit
+            </button>
+        `
+        : ""
+    }
+    ${
+      canSubmit
+        ? `
+            <button onclick="submitExistingOutline(${outline.id})" class="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700">
+                <i class="fas fa-paper-plane mr-1"></i> Submit
+            </button>
+        `
+        : ""
+    }
+</div>
                 `;
           })
           .join("");
@@ -2410,7 +3389,7 @@
       async function submitExistingOutline(outlineId) {
         if (
           !confirm(
-            "Submit this outline for CRC review? Once submitted, you cannot edit it until CRC requests revisions."
+            "Submit this outline for CRC review? Once submitted, you cannot edit it until CRC requests revisions.",
           )
         )
           return;
@@ -2440,6 +3419,286 @@
           }
         } catch (error) {
           showNotification("Network error. Please try again.", "error");
+        }
+      }
+
+      // View outline details
+      // Add this function to open the outline view modal
+      function openOutlineViewModal() {
+        const modal = document.getElementById("course-outline-view-modal");
+        if (modal) {
+          modal.classList.remove("hidden");
+          document.body.classList.add("overflow-hidden");
+        }
+      }
+
+      function closeOutlineViewModal() {
+        const modal = document.getElementById("course-outline-view-modal");
+        if (modal) {
+          modal.classList.add("hidden");
+          document.body.classList.remove("overflow-hidden");
+        }
+      }
+      // Close modal when clicking outside
+      document.addEventListener("click", (e) => {
+        const modal = document.getElementById("course-outline-view-modal");
+        if (modal && !modal.classList.contains("hidden")) {
+          if (e.target === modal) {
+            closeOutlineViewModal();
+          }
+        }
+      });
+
+      async function viewOutlineDetails(outlineId) {
+        try {
+          // Try to find the outline in state.outlines first
+          const outline = state.outlines.find((o) => o.id == outlineId);
+
+          if (outline && outline.content) {
+            // We have the outline with content, show it
+            showOutlineInModal(outline);
+            openOutlineViewModal();
+          } else {
+            // Fetch the outline details from the server
+            // Find the course for this outline
+            const foundOutline = state.outlines.find((o) => o.id == outlineId);
+            if (!foundOutline) {
+              throw new Error("Outline not found in local data");
+            }
+
+            // Use course_id to fetch the latest outline
+            const courseId = foundOutline.course?.id;
+            if (!courseId) {
+              throw new Error("Course ID not found");
+            }
+
+            // Show loading
+            const title = document.getElementById("course-outline-view-title");
+            const content = document.getElementById(
+              "course-outline-view-content",
+            );
+
+            if (title) title.textContent = "Loading Course Outline...";
+            if (content) {
+              content.innerHTML = `
+                    <div class="flex justify-center items-center h-64">
+                        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                    </div>
+                `;
+            }
+
+            // Open modal
+            openOutlineViewModal();
+
+            // Fetch outline using course_id
+            const response = await fetch(
+              `/api/get-course-outline/?course_id=${courseId}`,
+            );
+
+            if (response.ok) {
+              const outlineData = await response.json();
+              showOutlineInModal(outlineData);
+            } else {
+              throw new Error("Failed to fetch outline");
+            }
+          }
+        } catch (error) {
+          console.error("Error in viewOutlineDetails:", error);
+
+          // Update modal to show error
+          const content = document.getElementById(
+            "course-outline-view-content",
+          );
+          if (content) {
+            content.innerHTML = `
+                <div class="text-center py-8 text-red-500">
+                    <i class="fas fa-exclamation-triangle text-3xl mb-3"></i>
+                    <p>Failed to load outline details</p>
+                    <p class="text-sm mt-2">${error.message}</p>
+                </div>
+            `;
+          }
+        }
+      }
+      function showOutlineInModal(outline) {
+        const title = document.getElementById("course-outline-view-title");
+        const content = document.getElementById("course-outline-view-content");
+
+        if (!title || !content) return;
+
+        // Set the modal title
+        title.textContent = `Course Outline - ${outline.course?.code || "Unknown"}`;
+
+        // Format dates
+        const createdDate = outline.created_at
+          ? new Date(outline.created_at).toLocaleDateString()
+          : "N/A";
+        const submittedDate = outline.submitted_at
+          ? new Date(outline.submitted_at).toLocaleDateString()
+          : null;
+        const approvedDate = outline.approved_at
+          ? new Date(outline.approved_at).toLocaleDateString()
+          : null;
+
+        // Build the content
+        let html = `
+        <div class="space-y-6">
+            <div class="bg-gray-50 rounded-lg p-4">
+                <h4 class="font-medium text-gray-900 mb-2">Outline Information</h4>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                    <div>
+                        <span class="text-gray-600">Course:</span>
+                        <div class="font-medium">${outline.course?.code || "N/A"} - ${outline.course?.title || "Unknown"}</div>
+                    </div>
+                    <div>
+                        <span class="text-gray-600">Title:</span>
+                        <div class="font-medium">${outline.title || "Untitled"}</div>
+                    </div>
+                    <div>
+                        <span class="text-gray-600">Version:</span>
+                        <div class="font-medium">${outline.version || 1}</div>
+                    </div>
+                    <div>
+                        <span class="text-gray-600">Status:</span>
+                        <span class="px-2 py-1 rounded-full text-xs ${getStatusClass(outline.status)}">
+                            ${outline.status ? outline.status.replace(/_/g, " ") : "Unknown"}
+                        </span>
+                    </div>
+                    <div>
+                        <span class="text-gray-600">Created:</span>
+                        <div class="font-medium">${createdDate}</div>
+                    </div>
+    `;
+
+        if (submittedDate) {
+          html += `
+            <div>
+                <span class="text-gray-600">Submitted:</span>
+                <div class="font-medium">${submittedDate}</div>
+            </div>
+        `;
+        }
+
+        if (approvedDate) {
+          html += `
+            <div>
+                <span class="text-gray-600">Approved:</span>
+                <div class="font-medium">${approvedDate}</div>
+            </div>
+        `;
+        }
+
+        html += `
+                </div>
+        `;
+
+        if (outline.description) {
+          html += `
+            <div class="mt-3">
+                <span class="text-gray-600">Description:</span>
+                <div class="font-medium">${outline.description}</div>
+            </div>
+        `;
+        }
+
+        if (outline.notes && outline.status === "revision_requested") {
+          html += `
+            <div class="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded">
+                <p class="text-sm text-yellow-700">
+                    <strong>CRC Notes:</strong> ${outline.notes}
+                </p>
+            </div>
+        `;
+        }
+
+        html += `
+            </div>
+        `;
+
+        // Add outline content if available
+        if (outline.content) {
+          html += `
+            <div class="border border-gray-200 rounded-lg">
+                <div class="flex justify-between items-center p-4 border-b bg-gray-50">
+                    <h5 class="font-medium text-gray-900">Outline Content</h5>
+                    <div class="flex gap-2">
+                        <button onclick="printOutline()" class="text-sm text-gray-600 hover:text-gray-800 flex items-center gap-1">
+                            <i class="fas fa-print"></i> Print
+                        </button>
+                        <span class="text-sm text-gray-500">Version: ${outline.version || 1}</span>
+                    </div>
+                </div>
+                <div class="p-4 max-h-96 overflow-y-auto">
+                    <div id="outline-content-viewer" class="outline-content">
+                        ${outline.content}
+                    </div>
+                </div>
+            </div>
+        `;
+        } else {
+          html += `
+            <div class="text-center py-8 text-gray-500">
+                <i class="fas fa-file-alt text-3xl mb-3"></i>
+                <p>No content available for this outline</p>
+            </div>
+        `;
+        }
+
+        // Add close button
+        html += `
+            <div class="flex justify-end pt-4 border-t">
+                <button onclick="closeOutlineViewModal()" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                    Close
+                </button>
+            </div>
+        </div>
+    `;
+
+        content.innerHTML = html;
+      }
+
+      function printOutline() {
+        const content = document.getElementById("outline-content-viewer");
+        if (content) {
+          const printWindow = window.open("", "_blank");
+          printWindow.document.write(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Course Outline</title>
+                <style>
+                    body { font-family: Arial, sans-serif; line-height: 1.6; padding: 20px; }
+                    .outline-content { max-width: 100%; }
+                    .outline-content table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+                    .outline-content th, .outline-content td { border: 1px solid #ddd; padding: 0.5rem; }
+                    .outline-content th { background-color: #f5f5f5; }
+                    h1, h2, h3, h4 { margin-top: 1.5em; margin-bottom: 0.5em; }
+                    p { margin: 0.5em 0; }
+                    ul, ol { margin: 0.5em 0; padding-left: 1.5em; }
+                </style>
+            </head>
+            <body>
+                ${content.innerHTML}
+            </body>
+            </html>
+        `);
+          printWindow.document.close();
+          printWindow.print();
+        }
+      }
+      // Make sure getStatusClass function exists (add if not present)
+      function getStatusClass(status) {
+        switch (status) {
+          case "draft":
+            return "bg-yellow-100 text-yellow-800";
+          case "submitted":
+            return "bg-blue-100 text-blue-800";
+          case "approved":
+            return "bg-green-100 text-green-800";
+          case "revision_requested":
+            return "bg-red-100 text-red-800";
+          default:
+            return "bg-gray-100 text-gray-800";
         }
       }
 
@@ -2514,7 +3773,7 @@
                         }
                     </div>
                 </div>
-            `
+            `,
           )
           .join("");
       }
@@ -2565,7 +3824,7 @@
                             </div>
                             <div>
                                 <span class="px-3 py-1 rounded-full text-xs ${getStatusClass(
-                                  status
+                                  status,
                                 )}">${status.replace("_", " ")}</span>
                             </div>
                         </div>
@@ -2602,7 +3861,7 @@
             const cookie = cookies[i].trim();
             if (cookie.substring(0, name.length + 1) === name + "=") {
               cookieValue = decodeURIComponent(
-                cookie.substring(name.length + 1)
+                cookie.substring(name.length + 1),
               );
               break;
             }
@@ -2675,7 +3934,7 @@
 
       function formatList(type) {
         document.execCommand(
-          type === "ul" ? "insertUnorderedList" : "insertOrderedList"
+          type === "ul" ? "insertUnorderedList" : "insertOrderedList",
         );
         const editor = document.getElementById("outline-content");
         if (editor) editor.focus();
@@ -2721,7 +3980,7 @@
           document.execCommand(
             "insertHTML",
             false,
-            `<a href="${url}" target="_blank">${text}</a>`
+            `<a href="${url}" target="_blank">${text}</a>`,
           );
           const editor = document.getElementById("outline-content");
           if (editor) editor.focus();
@@ -2744,6 +4003,10 @@
       window.editSubmission = editSubmission;
       window.editOutline = editOutline;
       window.submitExistingOutline = submitExistingOutline;
+
+      window.viewOutlineDetails = viewOutlineDetails;
+      window.closeOutlineViewModal = closeOutlineViewModal;
+      window.printOutline = printOutline;
       window.closeModal = closeModal;
       window.formatText = formatText;
       window.formatHeading = formatHeading;

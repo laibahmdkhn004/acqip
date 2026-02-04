@@ -2419,136 +2419,112 @@
 
           elements.modalTitle.textContent = "Form Submission Details";
           elements.modalBody.innerHTML = `
-                          <div class="space-y-6">
-                              <div class="bg-gray-50 rounded-lg p-4">
-                                  <h4 class="font-medium text-gray-900">Submission Information</h4>
-                                  <div class="mt-2 text-sm">
-                                      <div class="flex">
-                                          <span class="text-gray-600 w-24">Form:</span>
-                                          <span class="font-medium">${
-                                            submission.form_name || "Unknown"
-                                          } (${submission.form_type || "N/A"})</span>
-                                      </div>
-                                      <div class="flex mt-1">
-                                          <span class="text-gray-600 w-24">Course:</span>
-                                          <span class="font-medium">${
-                                            submission.course_code || "N/A"
-                                          } - ${
-                                            submission.course_title || "Unknown"
-                                          }</span>
-                                      </div>
-                                      <div class="flex mt-1">
-                                          <span class="text-gray-600 w-24">Faculty:</span>
-                                          <span class="font-medium">${
-                                            submission.faculty_name || "Unknown"
-                                          }</span>
-                                      </div>
-                                      <div class="flex mt-1">
-                                          <span class="text-gray-600 w-24">Status:</span>
-                                          <span class="font-medium ${
-                                            submission.status === "approved"
-                                              ? "text-green-600"
-                                              : submission.status ===
-                                                  "revision_requested"
-                                                ? "text-red-600"
-                                                : "text-yellow-600"
-                                          }">
-                                              ${submission.status || "Unknown"}
-                                          </span>
-                                      </div>
-                                  </div>
-                              </div>
+            <div class="space-y-6">
+                <div class="bg-gray-50 rounded-lg p-4">
+                    <h4 class="font-medium text-gray-900">Submission Information</h4>
+                    <div class="mt-2 text-sm">
+                        <div class="flex">
+                            <span class="text-gray-600 w-24">Form:</span>
+                            <span class="font-medium">${submission.form_name || "Unknown"} (${submission.form_type || "N/A"})</span>
+                        </div>
+                        <div class="flex mt-1">
+                            <span class="text-gray-600 w-24">Course:</span>
+                            <span class="font-medium">${submission.course_code || "N/A"} - ${submission.course_title || "Unknown"}</span>
+                        </div>
+                        <div class="flex mt-1">
+                            <span class="text-gray-600 w-24">Faculty:</span>
+                            <span class="font-medium">${submission.faculty_name || "Unknown"}</span>
+                        </div>
+                        <div class="flex mt-1">
+                            <span class="text-gray-600 w-24">Status:</span>
+                            <span class="font-medium ${submission.status === "approved" ? "text-green-600" : submission.status === "revision_requested" ? "text-red-600" : "text-yellow-600"}">
+                                ${submission.status || "Unknown"}
+                            </span>
+                        </div>
+                    </div>
+                </div>
 
-                              <div>
-                                  <h5 class="font-medium text-gray-900 mb-4">Submission Answers</h5>
-                                  ${
-                                    submission.answers &&
-                                    submission.answers.length > 0
-                                      ? `
-                                      <div class="space-y-4 max-h-96 overflow-y-auto">
-                                          ${submission.answers
-                                            .map((answer, index) => {
-                                              let answerDisplay = "";
-                                              if (answer.answer_text) {
-                                                answerDisplay =
-                                                  answer.answer_text;
-                                              } else if (answer.answer_data) {
-                                                if (
-                                                  Array.isArray(
-                                                    answer.answer_data,
-                                                  )
-                                                ) {
-                                                  answerDisplay =
-                                                    answer.answer_data.join(
-                                                      ", ",
-                                                    );
-                                                } else if (
-                                                  typeof answer.answer_data ===
-                                                  "object"
-                                                ) {
-                                                  answerDisplay =
-                                                    JSON.stringify(
-                                                      answer.answer_data,
-                                                    );
-                                                } else {
-                                                  answerDisplay = String(
-                                                    answer.answer_data,
-                                                  );
-                                                }
-                                              }
+                <div>
+                    <h5 class="font-medium text-gray-900 mb-4">Submission Answers</h5>
+                    ${
+                      submission.answers && submission.answers.length > 0
+                        ? `
+                        <div class="space-y-4 max-h-96 overflow-y-auto">
+                            ${submission.answers
+                              .map((answer, index) => {
+                                // Check if this is a CLO percentage question
+                                const isCLOPercentage =
+                                  answer.question_type === "clo_percentage";
 
-                                              return `
-                                              <div class="border border-gray-200 rounded-lg p-4">
-                                                  <h6 class="font-medium text-gray-900 mb-2">${
-                                                    index + 1
-                                                  }. ${
-                                                    answer.question_text ||
-                                                    "Question"
-                                                  }</h6>
-                                                  <div class="text-sm text-gray-600">
-                                                      ${
-                                                        answerDisplay
-                                                          ? `
-                                                          <div class="bg-gray-50 p-3 rounded">
-                                                              ${answerDisplay}
-                                                          </div>
-                                                      `
-                                                          : `
-                                                          <div class="text-gray-400 italic">No answer provided</div>
-                                                      `
-                                                      }
-                                                  </div>
-                                              </div>
-                                          `;
-                                            })
-                                            .join("")}
-                                      </div>
-                                  `
-                                      : `
-                                      <div class="text-center py-8 text-gray-500">
-                                          No answers submitted for this form
-                                      </div>
-                                  `
+                                let answerDisplay = "";
+                                if (isCLOPercentage) {
+                                  // Handle CLO percentage display
+                                  answerDisplay =
+                                    formatCLOPercentageAnswer(answer);
+                                } else if (answer.answer_text) {
+                                  answerDisplay = answer.answer_text;
+                                } else if (answer.answer_data) {
+                                  if (Array.isArray(answer.answer_data)) {
+                                    answerDisplay =
+                                      answer.answer_data.join(", ");
+                                  } else if (
+                                    typeof answer.answer_data === "object"
+                                  ) {
+                                    answerDisplay = formatObjectAnswer(
+                                      answer.answer_data,
+                                    );
+                                  } else {
+                                    answerDisplay = String(answer.answer_data);
                                   }
-                              </div>
+                                }
 
-                              <div class="flex gap-3 justify-end pt-4 border-t">
-                                  <button onclick="elements.modal.classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">Close</button>
-                                  ${
-                                    submission.status === "submitted"
-                                      ? `
-                                      <button onclick="approveFormSubmission(${submissionId})" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
-                                          Approve
-                                      </button>
-                                      <button onclick="rejectFormSubmission(${submissionId})" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">
-                                          Request Revision
-                                      </button>
-                                  `
-                                      : ""
-                                  }
-                              </div>
-                          </div>
-                      `;
+                                return `
+                                <div class="border border-gray-200 rounded-lg p-4">
+                                    <h6 class="font-medium text-gray-900 mb-2">${index + 1}. ${answer.question_text || "Question"}</h6>
+                                    <div class="text-sm text-gray-600">
+                                        ${
+                                          answerDisplay
+                                            ? `
+                                            <div class="${isCLOPercentage ? "" : "bg-gray-50 p-3 rounded"}">
+                                                ${answerDisplay}
+                                            </div>
+                                        `
+                                            : `
+                                            <div class="text-gray-400 italic">No answer provided</div>
+                                        `
+                                        }
+                                    </div>
+                                </div>
+                            `;
+                              })
+                              .join("")}
+                        </div>
+                    `
+                        : `
+                        <div class="text-center py-8 text-gray-500">
+                            No answers submitted for this form
+                        </div>
+                    `
+                    }
+                </div>
+
+                <div class="flex gap-3 justify-end pt-4 border-t">
+                    <button onclick="elements.modal.classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">Close</button>
+                    ${
+                      submission.status === "submitted"
+                        ? `
+                        <button onclick="approveFormSubmission(${submissionId})" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                            Approve
+                        </button>
+                        <button onclick="rejectFormSubmission(${submissionId})" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">
+                            Request Revision
+                        </button>
+                    `
+                        : ""
+                    }
+                </div>
+            </div>
+        `;
 
           elements.modal.classList.remove("hidden");
         } catch (error) {
@@ -2556,6 +2532,133 @@
         }
       }
 
+      // Helper function to format CLO percentage answers as a table
+      function formatCLOPercentageAnswer(answer) {
+        let cloData = {};
+
+        // Try to extract CLO data from different possible sources
+        if (answer.answer_data && typeof answer.answer_data === "object") {
+          cloData = answer.answer_data;
+        } else if (answer.answer_text) {
+          try {
+            cloData = JSON.parse(answer.answer_text);
+          } catch (e) {
+            // If not JSON, try to parse as key-value pairs
+            const pairs = answer.answer_text.split(",");
+            pairs.forEach((pair) => {
+              const [key, value] = pair.split(":");
+              if (key && value) {
+                const cloNum = key.trim();
+                const percentage = value.trim().replace("%", "");
+                cloData[cloNum] = parseFloat(percentage);
+              }
+            });
+          }
+        }
+
+        // If still no data, return default message
+        if (Object.keys(cloData).length === 0) {
+          return '<div class="text-gray-500 italic">No CLO data provided</div>';
+        }
+
+        // Create simple table for CLO percentages
+        let tableHTML = `
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm border border-gray-200 rounded-lg">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-4 py-2 font-medium text-gray-700 border-b text-left">CLO</th>
+                        <th class="px-4 py-2 font-medium text-gray-700 border-b text-left">Percentage</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+
+        // Sort CLOs numerically (CLO1, CLO2, etc.)
+        const sortedCLOs = Object.keys(cloData).sort((a, b) => {
+          const numA = parseInt(a.replace("CLO", "")) || 0;
+          const numB = parseInt(b.replace("CLO", "")) || 0;
+          return numA - numB;
+        });
+
+        sortedCLOs.forEach((cloKey) => {
+          let percentage = cloData[cloKey];
+
+          // Convert to number if it's a string
+          if (typeof percentage === "string") {
+            percentage = parseFloat(percentage.replace("%", ""));
+          }
+
+          tableHTML += `
+            <tr class="hover:bg-gray-50">
+                <td class="px-4 py-2 border-b">
+                    <span class="font-medium">${cloKey}</span>
+                </td>
+                <td class="px-4 py-2 border-b font-medium">
+                    ${percentage}%
+                </td>
+            </tr>
+        `;
+        });
+
+        // Add total row if there are multiple CLOs
+        if (sortedCLOs.length > 1) {
+          const percentages = Object.values(cloData).map((p) => {
+            if (typeof p === "string") return parseFloat(p.replace("%", ""));
+            return p;
+          });
+          const averagePercentage =
+            percentages.length > 0
+              ? (
+                  percentages.reduce((a, b) => a + b, 0) / percentages.length
+                ).toFixed(1)
+              : 0;
+
+          tableHTML += `
+                    <tr class="bg-gray-50 font-medium">
+                        
+                       
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        `;
+        } else {
+          tableHTML += `
+                </tbody>
+            </table>
+        </div>
+        `;
+        }
+
+        return tableHTML;
+      }
+      // Helper function to format object answers
+      function formatObjectAnswer(obj) {
+        if (!obj) return "No data";
+
+        // If object has CLO-like structure, format as table
+        const keys = Object.keys(obj);
+        if (keys.some((key) => key.includes("CLO"))) {
+          return formatCLOPercentageAnswer({ answer_data: obj });
+        }
+
+        // Otherwise format as key-value pairs
+        return `
+        <div class="space-y-1">
+            ${Object.entries(obj)
+              .map(
+                ([key, value]) => `
+                <div class="flex">
+                    <span class="font-medium w-32">${key}:</span>
+                    <span class="text-gray-700">${value}</span>
+                </div>
+            `,
+              )
+              .join("")}
+        </div>
+    `;
+      }
       async function approveFormSubmission(submissionId) {
         if (!confirm("Are you sure you want to approve this submission?")) {
           return;
