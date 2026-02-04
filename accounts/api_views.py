@@ -767,7 +767,6 @@ def api_faculty_dynamic_forms(request):
         return JsonResponse({'error': str(e)}, status=400)
 
 # Check form availability for faculty
-# Check form availability for faculty (UNIVERSAL FORMS ONLY)
 
 @login_required
 @require_http_methods(["GET"])
@@ -3060,15 +3059,76 @@ def api_analysis_clo_by_course(request):
 
 
 
+def get_ai_provider_config():
+    """Get AI provider configuration from settings"""
+    return {
+        'provider': settings.AI_CONFIG.get('provider', 'openai'),
+        'model': settings.AI_CONFIG.get('model', 'gpt-4'),
+        'api_key': settings.AI_CONFIG.get('api_key'),
+        'api_base': settings.AI_CONFIG.get('api_base'),
+        'available': bool(settings.AI_CONFIG.get('api_key')),
+        'timeout': 30.0,
+        'max_tokens': 4000,
+        'temperature': 0.3
+    }
 
-# Update the CQI report function in api_views.py (around line 2270-2400 in your code)
-# In the api_generate_cqi_report function, around line 3031:
+def get_model_string(provider, model_name):
+    """Convert provider and model name to LiteLLM compatible string"""
+    provider_mappings = {
+        'openai': model_name,  # gpt-4, gpt-3.5-turbo, etc.
+        'openrouter': f'openrouter/{model_name}',
+        'deepseek': f'deepseek/{model_name}',
+        'anthropic': f'claude-{model_name}',
+        'groq': f'groq/{model_name}',
+        'ollama': model_name,
+        'together': f'together_ai/{model_name}',
+        'huggingface': f'huggingface/{model_name}',
+    }
+    
+    # Return the mapping or default to model_name
+    return provider_mappings.get(provider, model_name)
+
+def call_llm_api(prompt, config=None):
+    """Generic function to call any LLM provider via LiteLLM"""
+    if config is None:
+        config = get_ai_provider_config()
+    
+    if not config['available']:
+        raise Exception(f"AI API key not configured for provider: {config['provider']}")
+    
+    try:
+        # Construct model string
+        model_string = get_model_string(config['provider'], config['model'])
+        
+        # Call the API via LiteLLM
+        response = litellm.completion(
+            model=model_string,
+            messages=[
+                {"role": "system", "content": "You are an expert CQI analyst for higher education institutions."},
+                {"role": "user", "content": prompt}
+            ],
+            api_key=config['api_key'],
+            api_base=config.get('api_base'),
+            temperature=config.get('temperature', 0.3),
+            max_tokens=config.get('max_tokens', 4000),
+            timeout=config.get('timeout', 30.0)
+        )
+        
+        return response.choices[0].message.content
+        
+    except Exception as e:
+        print(f"AI API Error ({config['provider']}): {str(e)}")
+        raise Exception(f"AI service error ({config['provider']}): {str(e)}")
+
+
+
+#  CQI report function 
 @login_required
 @user_passes_test(is_admin_or_crc)
 @csrf_exempt
 @require_http_methods(["POST"])
 def api_generate_cqi_report(request):
-    """Generate CQI report using OpenRouter via LiteLLM"""
+    """Generate CQI report using any AI provider via LiteLLM"""
     try:
         data = json.loads(request.body)
         course_id = data.get('course_id')
@@ -3076,6 +3136,15 @@ def api_generate_cqi_report(request):
         report_type = data.get('report_type', 'summary')
         
         print(f"CQI Report Request: course_id={course_id}, time_period={time_period}, report_type={report_type}")
+        
+        # Check if AI is configured
+        ai_config = get_ai_provider_config()
+        if not ai_config['available']:
+            return JsonResponse({
+                'error': 'AI service not configured. Please set AI_API_KEY in environment variables.',
+                'success': False,
+                'fallback_report': "CQI Report Generation Failed: AI service not configured."
+            }, status=400)
         
         # Collect comprehensive data for AI analysis
         context_data = collect_data_for_ai(course_id, time_period)
@@ -3086,6 +3155,8 @@ def api_generate_cqi_report(request):
             'time_period': time_period,
             'report_type': report_type,
             'generated_at': datetime.now().isoformat(),
+            'ai_provider': ai_config['provider'],
+            'ai_model': ai_config['model'],
             'data_summary': {
                 'form_submissions_count': len(context_data.get('form_submissions', [])),
                 'course_outlines_count': len(context_data.get('course_outlines', [])),
@@ -3093,9 +3164,9 @@ def api_generate_cqi_report(request):
             }
         }
         
-        # Generate report using OpenRouter AI
+        # Generate report using AI
         try:
-            report = generate_ai_report_openrouter(context_data, report_type)
+            report = generate_ai_report(context_data, report_type, ai_config)
             
             return JsonResponse({
                 'report': report,
@@ -3103,6 +3174,8 @@ def api_generate_cqi_report(request):
                 'course_id': course_id,
                 'time_period': time_period,
                 'report_type': report_type,
+                'ai_provider': ai_config['provider'],
+                'ai_model': ai_config['model'],
                 'context_summary': {
                     'form_submissions_analyzed': len(context_data.get('form_submissions', [])),
                     'course_outlines_analyzed': len(context_data.get('course_outlines', [])),
@@ -3121,7 +3194,7 @@ def api_generate_cqi_report(request):
                 'course_id': course_id,
                 'time_period': time_period,
                 'report_type': report_type,
-                'note': 'Generated using fallback method due to AI error',
+                'note': f'Generated using fallback method due to AI error: {str(ai_error)}',
                 'success': False,
                 'error': str(ai_error)
             })
@@ -3139,107 +3212,85 @@ def api_generate_cqi_report(request):
 
 
 
-def generate_ai_report_openrouter(context_data, report_type="summary"):
-    """Generate report using OpenRouter via LiteLLM"""
-    try:
-        # Get API key from environment
-        openrouter_api_key = os.getenv('OPENROUTER_API_KEY', 'sk-or-v1-6ce7c63dbae04fe1c21df525df045201Gc8ResUEBUAzAa1dBLTD6AfgANQps9CeR')
-        
-        if not openrouter_api_key:
-            return "OpenRouter API key is not configured. Please contact administrator."
-        
-        # Create prompt based on report type
-        if report_type == "summary":
-            sections = """
-            1. Executive Summary (2-3 paragraphs)
-            2. Key Findings (Bulleted list of 5-7 key points)
-            3. Recommendations for Improvement (3-5 actionable recommendations)
-            """
-        elif report_type == "detailed":
-            sections = """
-            1. Executive Summary
-            2. Key Findings and Analysis
-            3. Submissions Analysis (CCR vs CRR forms comparison)
-            4. Course Outline Quality Assessment
-            5. Faculty Engagement Analysis
-            6. CLO Achievement Analysis
-            7. Recommendations for Improvement
-            8. Action Items and Timeline
-            """
-        elif report_type == "recommendations":
-            sections = """
-            1. Key Recommendations (Prioritized list)
-            2. Implementation Strategy
-            3. Expected Outcomes
-            4. Timeline and Resources Required
-            """
-        else:
-            sections = """
-            1. Executive Summary
-            2. Key Findings
-            3. Recommendations for Improvement
-            4. Action Items
-            """
-        
-        # Create the prompt
-        prompt = f"""
-        ROLE: You are a CQI (Continuous Quality Improvement) analyst for an academic institution.
-        
-        TASK: Analyze the following academic data and generate a comprehensive CQI report.
-        
-        REPORT TYPE: {report_type.upper()}
-        
-        DATA TO ANALYZE:
-        {json.dumps(context_data, indent=2)}
-        
-        REPORT STRUCTURE:
-        {sections}
-        
-        REPORT REQUIREMENTS:
-        1. Be specific, actionable, and evidence-based
-        2. Use academic and professional language
-        3. Include quantitative data from the provided statistics
-        4. Provide clear recommendations with implementation steps
-        5. Consider institutional constraints and practical feasibility
-        6. Highlight both strengths and areas for improvement
-        7. Include metrics and KPIs where relevant
-        
-        FORMATTING:
-        - Use clear headings and subheadings
-        - Use bullet points for lists
-        - Keep paragraphs concise (3-5 sentences)
-        
-        TONE: Professional, analytical, constructive, and solution-oriented
-        
-        IMPORTANT: Base all analysis ONLY on the provided data. Do not fabricate or assume data not present.
+def generate_ai_report(context_data, report_type="summary", ai_config=None):
+    """Generate report using any AI provider"""
+    if ai_config is None:
+        ai_config = get_ai_provider_config()
+    
+    # Create prompt based on report type
+    if report_type == "summary":
+        sections = """
+        1. Executive Summary (2-3 paragraphs)
+        2. Key Findings (Bulleted list of 5-7 key points)
+        3. Recommendations for Improvement (3-5 actionable recommendations)
         """
-        
-        print(f"Generating {report_type} report with OpenRouter...")
-        
-        try:
-            # Generate content using OpenRouter via LiteLLM
-            response = completion(
-                model="openrouter/openai/gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "You are an expert CQI analyst for higher education institutions."},
-                    {"role": "user", "content": prompt}
-                ],
-                api_key=openrouter_api_key,
-                temperature=0.3,
-                max_tokens=3000
-            )
-            
-            return response.choices[0].message.content
-            
-        except Exception as e:
-            print(f"OpenRouter API error: {str(e)}")
-            # Fallback to manual report
-            return generate_fallback_report(context_data, report_type)
-        
-    except Exception as e:
-        print(f"Error in AI report generation: {str(e)}")
-        return generate_fallback_report(context_data, report_type)
-
+    elif report_type == "detailed":
+        sections = """
+        1. Executive Summary
+        2. Key Findings and Analysis
+        3. Submissions Analysis (CCR vs CRR forms comparison)
+        4. Course Outline Quality Assessment
+        5. Faculty Engagement Analysis
+        6. CLO Achievement Analysis
+        7. Recommendations for Improvement
+        8. Action Items and Timeline
+        """
+    elif report_type == "recommendations":
+        sections = """
+        1. Key Recommendations (Prioritized list)
+        2. Implementation Strategy
+        3. Expected Outcomes
+        4. Timeline and Resources Required
+        """
+    else:
+        sections = """
+        1. Executive Summary
+        2. Key Findings
+        3. Recommendations for Improvement
+        4. Action Items
+        """
+    
+    # Create the prompt
+    prompt = f"""
+    ROLE: You are a CQI (Continuous Quality Improvement) analyst for an academic institution.
+    
+    TASK: Analyze the following academic data and generate a comprehensive CQI report.
+    
+    REPORT TYPE: {report_type.upper()}
+    
+    AI CONFIGURATION:
+    - Provider: {ai_config['provider']}
+    - Model: {ai_config['model']}
+    
+    DATA TO ANALYZE:
+    {json.dumps(context_data, indent=2)}
+    
+    REPORT STRUCTURE:
+    {sections}
+    
+    REPORT REQUIREMENTS:
+    1. Be specific, actionable, and evidence-based
+    2. Use academic and professional language
+    3. Include quantitative data from the provided statistics
+    4. Provide clear recommendations with implementation steps
+    5. Consider institutional constraints and practical feasibility
+    6. Highlight both strengths and areas for improvement
+    7. Include metrics and KPIs where relevant
+    
+    FORMATTING:
+    - Use clear headings and subheadings
+    - Use bullet points for lists
+    - Keep paragraphs concise (3-5 sentences)
+    
+    TONE: Professional, analytical, constructive, and solution-oriented
+    
+    IMPORTANT: Base all analysis ONLY on the provided data. Do not fabricate or assume data not present.
+    """
+    
+    print(f"Generating {report_type} report with {ai_config['provider']} ({ai_config['model']})...")
+    
+    # Call the generic LLM function
+    return call_llm_api(prompt, ai_config)
 
 def generate_fallback_report(context_data, report_type):
     """Generate a manual fallback report if AI fails"""
