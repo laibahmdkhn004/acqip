@@ -468,6 +468,7 @@
             "Content-Type": "application/json",
             "X-CSRFToken": getCSRFToken(),
           },
+          credentials: "include", // ← ADD THIS LINE
         };
 
         try {
@@ -3153,86 +3154,60 @@
           "Analytics and insights for quality improvement";
 
         elements.contentArea.innerHTML = `
-        <div class="space-y-6">
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div class="bg-white rounded-lg shadow p-6">
-                    <h3 class="font-medium text-lg mb-4">Form Submissions Over Time</h3>
-                    <div class="h-64">
-                        <canvas id="submissionsChart"></canvas>
-                    </div>
-                </div>
-                
-                <div class="bg-white rounded-lg shadow p-6">
-                    <h3 class="font-medium text-lg mb-4">Form Status Distribution</h3>
-                    <div class="h-64">
-                        <canvas id="statusChart"></canvas>
-                    </div>
-                </div>
-                
-                <div class="bg-white rounded-lg shadow p-6">
-                    <h3 class="font-medium text-lg mb-4">CLO Achievement Rates</h3>
-                    <div class="h-64">
-                        <canvas id="cloChart"></canvas>
-                    </div>
-                    <div class="mt-4 text-center">
-                        <button onclick="showCLODetails()" class="text-sm text-blue-600 hover:text-blue-800">
-                            View Detailed Analysis →
-                        </button>
-                    </div>
-                </div>
+    <div class="space-y-6">
+        <!-- Full width submissions chart on top -->
+        <div class="bg-white rounded-lg shadow p-6">
+            <h3 class="font-medium text-lg mb-4">Form Submissions Over Time</h3>
+            <div class="h-64">
+                <canvas id="submissionsChart"></canvas>
             </div>
-            
+        </div>
+        
+        <!-- Two charts in a row below -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div class="bg-white rounded-lg shadow p-6">
-                <h3 class="font-medium text-lg mb-4">CLO Achievement Details</h3>
-                <div class="overflow-x-auto">
-                    <table class="w-full text-sm text-left" id="cloDetailsTable">
-                        <thead class="bg-gray-50">
-                            <tr>
-                                <th class="px-4 py-3 font-medium text-gray-700">CLO</th>
-                                <th class="px-4 py-3 font-medium text-gray-700">Avg Score</th>
-                                <th class="px-4 py-3 font-medium text-gray-700">Achievement Rate</th>
-                                <th class="px-4 py-3 font-medium text-gray-700">Responses</th>
-                                <th class="px-4 py-3 font-medium text-gray-700">Achieved</th>
-                                <th class="px-4 py-3 font-medium text-gray-700">Status</th>
-                                <th class="px-4 py-3 font-medium text-gray-700">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="cloDetailsBody">
-                            <!-- Will be populated by JavaScript -->
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-            
-            <div class="bg-white rounded-lg shadow p-6">
-                <h3 class="font-medium text-lg mb-4">CLO Trends Over Time</h3>
+                <h3 class="font-medium text-lg mb-4">Form Status Distribution</h3>
                 <div class="h-64">
-                    <canvas id="cloTrendsChart"></canvas>
+                    <canvas id="statusChart"></canvas>
                 </div>
             </div>
             
             <div class="bg-white rounded-lg shadow p-6">
-                <h3 class="font-medium text-lg mb-4">Key Metrics</h3>
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div class="bg-blue-50 p-4 rounded-lg">
-                        <div class="text-2xl font-bold text-blue-600" id="totalSubmissions">0</div>
-                        <div class="text-sm text-gray-600">Total Submissions</div>
-                    </div>
-                    <div class="bg-green-50 p-4 rounded-lg">
-                        <div class="text-2xl font-bold text-green-600" id="approvalRate">0%</div>
-                        <div class="text-sm text-gray-600">Approval Rate</div>
-                    </div>
-                    <div class="bg-yellow-50 p-4 rounded-lg">
-                        <div class="text-2xl font-bold text-yellow-600" id="pendingCount">0</div>
-                        <div class="text-sm text-gray-600">Pending Review</div>
-                    </div>
-                    <div class="bg-purple-50 p-4 rounded-lg">
-                        <div class="text-2xl font-bold text-purple-600" id="avgCloRate">0%</div>
-                        <div class="text-sm text-gray-600">Avg CLO Rate</div>
-                    </div>
+                <h3 class="font-medium text-lg mb-4">CLO Achievement Rates</h3>
+                <div class="h-64">
+                    <canvas id="cloChart"></canvas>
+                </div>
+                <div class="mt-4 text-center">
+                    <button onclick="showCLODetails()" class="text-sm text-blue-600 hover:text-blue-800">
+                        View Detailed Analysis →
+                    </button>
                 </div>
             </div>
         </div>
+        
+        <!-- Key metrics cards -->
+        <div class="bg-white rounded-lg shadow p-6">
+            <h3 class="font-medium text-lg mb-4">Key Metrics</h3>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div class="bg-blue-50 p-4 rounded-lg">
+                    <div class="text-2xl font-bold text-blue-600" id="totalSubmissions">0</div>
+                    <div class="text-sm text-gray-600">Total Submissions</div>
+                </div>
+                <div class="bg-green-50 p-4 rounded-lg">
+                    <div class="text-2xl font-bold text-green-600" id="approvalRate">0%</div>
+                    <div class="text-sm text-gray-600">Approval Rate</div>
+                </div>
+                <div class="bg-yellow-50 p-4 rounded-lg">
+                    <div class="text-2xl font-bold text-yellow-600" id="pendingCount">0</div>
+                    <div class="text-sm text-gray-600">Pending Review</div>
+                </div>
+                <div class="bg-purple-50 p-4 rounded-lg">
+                    <div class="text-2xl font-bold text-purple-600" id="avgCloRate">0%</div>
+                    <div class="text-sm text-gray-600">Avg CLO Rate</div>
+                </div>
+            </div>
+        </div>
+    </div>
     `;
 
         // Load all charts and data
@@ -3254,11 +3229,6 @@
           // Load CLO achievement data
           const cloData = await fetchAPI(API.analysis_clo_achievement);
           renderCLOChart(cloData);
-          populateCLODetails(cloData);
-
-          // Load CLO trends
-          const trendData = await fetchAPI(API.analysis_clo_trends);
-          renderCLOTrendsChart(trendData);
 
           // Update metrics
           updateMetrics(submissionsData, statusData, cloData);
@@ -3292,18 +3262,6 @@
                   "rgb(239, 68, 68)",
                 ],
                 borderWidth: 1,
-                yAxisID: "y",
-              },
-              {
-                label: "Average Score",
-                data: data.average_scores,
-                type: "line",
-                borderColor: "rgba(139, 92, 246, 1)",
-                backgroundColor: "rgba(139, 92, 246, 0.1)",
-                borderWidth: 2,
-                fill: false,
-                tension: 0.4,
-                yAxisID: "y1",
               },
             ],
           },
@@ -3312,52 +3270,16 @@
             maintainAspectRatio: false,
             plugins: {
               legend: {
-                position: "top",
-              },
-              tooltip: {
-                callbacks: {
-                  label: function (context) {
-                    let label = context.dataset.label || "";
-                    if (label) {
-                      label += ": ";
-                    }
-                    if (context.datasetIndex === 0) {
-                      label += `${context.raw}%`;
-                    } else {
-                      label += context.raw;
-                    }
-                    return label;
-                  },
-                },
+                display: false,
               },
             },
             scales: {
               y: {
-                type: "linear",
-                display: true,
-                position: "left",
+                beginAtZero: true,
+                max: 100,
                 title: {
                   display: true,
                   text: "Achievement Rate (%)",
-                },
-                min: 0,
-                max: 100,
-                grid: {
-                  drawOnChartArea: false,
-                },
-              },
-              y1: {
-                type: "linear",
-                display: true,
-                position: "right",
-                title: {
-                  display: true,
-                  text: "Average Score",
-                },
-                min: 0,
-                max: 100,
-                grid: {
-                  drawOnChartArea: false,
                 },
               },
             },
@@ -3633,11 +3555,94 @@
           showNotification("Error loading CLO details", "error");
         }
       }
+      async function showCLODetails() {
+        try {
+          const cloData = await fetchAPI(API.analysis_clo_achievement);
 
-      function showCLODetails() {
-        // Show modal with all CLO details
-        viewCLODetails(1, "CLO1");
+          elements.modalTitle.textContent = "CLO Achievement Details";
+          elements.modalBody.innerHTML = `
+            <div class="space-y-6 max-h-[70vh] overflow-y-auto">
+                <div class="bg-blue-50 p-4 rounded-lg">
+                    <h4 class="font-medium text-blue-900 mb-2">Overall CLO Achievement Summary</h4>
+                    <p class="text-sm text-blue-700">Average achievement rate across all CLOs: ${Math.round(cloData.achievement_rates.reduce((a, b) => a + b, 0) / cloData.achievement_rates.length)}%</p>
+                </div>
+                
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-4 py-3 font-medium text-gray-700">CLO</th>
+                                <th class="px-4 py-3 font-medium text-gray-700">Achievement Rate</th>
+                                <th class="px-4 py-3 font-medium text-gray-700">Average Score</th>
+                                <th class="px-4 py-3 font-medium text-gray-700">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-200">
+                            ${cloData.clos
+                              .map((clo, index) => {
+                                const achievementRate =
+                                  cloData.achievement_rates[index];
+                                const avgScore = cloData.average_scores[index];
+
+                                // Determine status color
+                                let statusColor, statusText;
+                                if (achievementRate >= 80) {
+                                  statusColor = "bg-green-100 text-green-800";
+                                  statusText = "Excellent";
+                                } else if (achievementRate >= 70) {
+                                  statusColor = "bg-blue-100 text-blue-800";
+                                  statusText = "Good";
+                                } else if (achievementRate >= 60) {
+                                  statusColor = "bg-yellow-100 text-yellow-800";
+                                  statusText = "Satisfactory";
+                                } else {
+                                  statusColor = "bg-red-100 text-red-800";
+                                  statusText = "Needs Improvement";
+                                }
+
+                                return `
+                                    <tr class="hover:bg-gray-50">
+                                        <td class="px-4 py-3 font-medium">${clo}</td>
+                                        <td class="px-4 py-3">
+                                            <div class="flex items-center">
+                                                <div class="w-full bg-gray-200 rounded-full h-2.5 mr-2">
+                                                    <div class="bg-blue-600 h-2.5 rounded-full" style="width: ${achievementRate}%"></div>
+                                                </div>
+                                                <span class="font-medium">${achievementRate}%</span>
+                                            </div>
+                                        </td>
+                                        <td class="px-4 py-3">
+                                            <div class="font-medium">${avgScore}</div>
+                                            <div class="text-xs text-gray-500">out of 100</div>
+                                        </td>
+                                        <td class="px-4 py-3">
+                                            <span class="px-2 py-1 rounded-full text-xs font-medium ${statusColor}">
+                                                ${statusText}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                `;
+                              })
+                              .join("")}
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div class="flex justify-end pt-4 border-t">
+                    <button onclick="elements.modal.classList.add('hidden')" 
+                            class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                        Close
+                    </button>
+                </div>
+            </div>
+        `;
+
+          elements.modal.classList.remove("hidden");
+        } catch (error) {
+          showNotification("Error loading CLO details", "error");
+        }
       }
+
       async function loadAllCharts() {
         try {
           // Load submissions over time
@@ -3756,7 +3761,6 @@
           },
         });
       }
-
       function renderCLOChart(data) {
         const ctx = document.getElementById("cloChart").getContext("2d");
 
@@ -3844,6 +3848,60 @@
               )
             : 0;
         document.getElementById("avgCloRate").textContent = `${avgCloRate}%`;
+      }
+
+      function renderSubmissionsChart(data) {
+        const ctx = document
+          .getElementById("submissionsChart")
+          .getContext("2d");
+
+        new Chart(ctx, {
+          type: "line",
+          data: {
+            labels: data.weeks.map((w) => `Week ${w}`),
+            datasets: [
+              {
+                label: "CCR Submissions",
+                data: data.ccr_data,
+                borderColor: "#3b82f6",
+                backgroundColor: "rgba(59, 130, 246, 0.1)",
+                tension: 0.1,
+              },
+              {
+                label: "CRR Submissions",
+                data: data.crr_data,
+                borderColor: "#10b981",
+                backgroundColor: "rgba(16, 185, 129, 0.1)",
+                tension: 0.1,
+              },
+              {
+                label: "Total",
+                data: data.total_data,
+                borderColor: "#8b5cf6",
+                backgroundColor: "rgba(139, 92, 246, 0.1)",
+                tension: 0.1,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                position: "top",
+              },
+            },
+            scales: {
+              y: {
+                beginAtZero: true,
+                title: {
+                  display: true,
+                  text: "Number of Submissions",
+                },
+              },
+            },
+          },
+        });
       }
 
       // Outline Comparison Page
@@ -4123,90 +4181,90 @@
           "Generate comprehensive quality improvement reports";
 
         elements.contentArea.innerHTML = `
-        <div class="space-y-6">
-            <div class="bg-white rounded-lg shadow p-6">
-                <h3 class="font-medium text-lg mb-4">Generate CQI Report</h3>
+    <div class="space-y-6">
+        <div class="bg-white rounded-lg shadow p-6">
+            <h3 class="font-medium text-lg mb-4">Generate CQI Report</h3>
+            
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Select Course (Optional)</label>
+                    <select id="report-course-select" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                        <option value="">All Courses (General Report)</option>
+                    </select>
+                </div>
                 
-                <div class="space-y-4">
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Select Course (Optional)</label>
-                        <select id="report-course-select" class="w-full border border-gray-300 rounded-lg px-3 py-2">
-                            <option value="">All Courses (General Report)</option>
-                        </select>
-                    </div>
-                    
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Time Period</label>
-                        <select id="report-period-select" class="w-full border border-gray-300 rounded-lg px-3 py-2">
-                            <option value="all">All Time</option>
-                            <option value="quarter">Last Quarter (90 days)</option>
-                            <option value="month">Last Month (30 days)</option>
-                            <option value="week">Last Week (7 days)</option>
-                        </select>
-                    </div>
-                    
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Report Type</label>
-                        <div class="space-y-2">
-                            <label class="flex items-center">
-                                <input type="radio" name="report-type" value="summary" checked class="h-4 w-4 text-blue-600">
-                                <span class="ml-2 text-sm">Executive Summary</span>
-                            </label>
-                            <label class="flex items-center">
-                                <input type="radio" name="report-type" value="detailed" class="h-4 w-4 text-blue-600">
-                                <span class="ml-2 text-sm">Detailed Analysis</span>
-                            </label>
-                            <label class="flex items-center">
-                                <input type="radio" name="report-type" value="recommendations" class="h-4 w-4 text-blue-600">
-                                <span class="ml-2 text-sm">Recommendations Only</span>
-                            </label>
-                        </div>
-                    </div>
-                    
-                    <div class="pt-4">
-                        <button onclick="generateCQIReport()" 
-                                id="generate-report-button"
-                                class="w-full px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center justify-center gap-2">
-                            <i class="fas fa-robot"></i>
-                            Generate AI-Powered Report
-                        </button>
-                        <p class="text-xs text-gray-500 mt-2 text-center">
-                            This will use Google Gemini AI to analyze data and generate insights
-                        </p>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Time Period</label>
+                    <select id="report-period-select" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                        <option value="all">All Time</option>
+                        <option value="quarter">Last Quarter (90 days)</option>
+                        <option value="month">Last Month (30 days)</option>
+                        <option value="week">Last Week (7 days)</option>
+                    </select>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Report Type</label>
+                    <div class="space-y-2">
+                        <label class="flex items-center">
+                            <input type="radio" name="report-type" value="summary" checked class="h-4 w-4 text-blue-600">
+                            <span class="ml-2 text-sm">Executive Summary</span>
+                        </label>
+                        <label class="flex items-center">
+                            <input type="radio" name="report-type" value="detailed" class="h-4 w-4 text-blue-600">
+                            <span class="ml-2 text-sm">Detailed Analysis</span>
+                        </label>
+                        <label class="flex items-center">
+                            <input type="radio" name="report-type" value="recommendations" class="h-4 w-4 text-blue-600">
+                            <span class="ml-2 text-sm">Recommendations Only</span>
+                        </label>
                     </div>
                 </div>
-            </div>
-            
-            <div id="report-results" class="hidden">
-                <div class="bg-white rounded-lg shadow">
-                    <div class="px-6 py-4 border-b flex justify-between items-center">
-                        <h3 class="text-lg font-medium">CQI Report</h3>
-                        <div class="flex gap-2">
-                            <button onclick="printReport()" class="px-3 py-1 text-sm text-gray-600 hover:text-gray-800 border rounded-lg">
-                                <i class="fas fa-print mr-1"></i> Print
-                            </button>
-                            <button onclick="downloadReport()" class="px-3 py-1 text-sm text-gray-600 hover:text-gray-800 border rounded-lg">
-                                <i class="fas fa-download mr-1"></i> Download
-                            </button>
-                        </div>
-                    </div>
-                    <div class="p-6">
-                        <div id="report-content" class="prose max-w-none"></div>
-                    </div>
-                </div>
-            </div>
-            
-            <div id="report-loading" class="hidden">
-                <div class="bg-white rounded-lg shadow p-6">
-                    <div class="flex flex-col items-center justify-center py-12">
-                        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mb-4"></div>
-                        <p class="text-gray-600">Generating AI report...</p>
-                        <p class="text-sm text-gray-500 mt-2">This may take a few moments</p>
-                    </div>
+                
+                <div class="pt-4">
+                    <button onclick="generateCQIReport()" 
+                            id="generate-report-button"
+                            class="w-full px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center justify-center gap-2">
+                        <i class="fas fa-robot"></i>
+                        Generate AI-Powered Report
+                    </button>
+                    <p class="text-xs text-gray-500 mt-2 text-center">
+                        This will use AI to analyze your form submissions and course outlines
+                    </p>
                 </div>
             </div>
         </div>
-    `;
+        
+        <div id="report-results" class="hidden">
+            <div class="bg-white rounded-lg shadow">
+                <div class="px-6 py-4 border-b flex justify-between items-center">
+                    <h3 class="text-lg font-medium">CQI Report</h3>
+                    <div class="flex gap-2">
+                        <button onclick="printReport()" class="px-3 py-1 text-sm text-gray-600 hover:text-gray-800 border rounded-lg">
+                            <i class="fas fa-print mr-1"></i> Print
+                        </button>
+                        <button onclick="downloadReport()" class="px-3 py-1 text-sm text-gray-600 hover:text-gray-800 border rounded-lg">
+                            <i class="fas fa-download mr-1"></i> Download
+                        </button>
+                    </div>
+                </div>
+                <div class="p-6">
+                    <div id="report-content" class="prose max-w-none"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div id="report-loading" class="hidden">
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="flex flex-col items-center justify-center py-12">
+                    <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mb-4"></div>
+                    <p class="text-gray-600">Generating AI report...</p>
+                    <p class="text-sm text-gray-500 mt-2">This may take a few moments</p>
+                </div>
+            </div>
+        </div>
+    </div>
+`;
 
         // Load courses for dropdown
         await loadCoursesForReport();
@@ -4217,6 +4275,11 @@
           const catalogue = await fetchAPI(API.crc_course_catalogue);
           const select = document.getElementById("report-course-select");
 
+          // Clear existing options except the first one
+          while (select.options.length > 1) {
+            select.remove(1);
+          }
+
           catalogue.forEach((course) => {
             const option = document.createElement("option");
             option.value = course.course_id;
@@ -4224,13 +4287,14 @@
             select.appendChild(option);
           });
         } catch (error) {
+          console.error("Error loading courses:", error);
           showNotification("Error loading courses", "error");
         }
       }
 
-      // Update the generateCQIReport function in your HTML/JS
-
       async function generateCQIReport() {
+        console.log("generateCQIReport function called");
+
         const courseId = document.getElementById("report-course-select").value;
         const timePeriod = document.getElementById(
           "report-period-select",
@@ -4239,42 +4303,42 @@
           'input[name="report-type"]:checked',
         ).value;
 
+        console.log("Parameters:", { courseId, timePeriod, reportType });
+
+        // Validate
+        if (!timePeriod) {
+          showNotification("Please select a time period", "error");
+          return;
+        }
+
         // Show loading
         document.getElementById("report-results").classList.add("hidden");
         document.getElementById("report-loading").classList.remove("hidden");
 
         try {
-          const response = await fetch("{% url 'api_generate_cqi_report' %}", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-CSRFToken": getCSRFToken(),
+          // Use fetchAPI instead of direct fetch
+          const reportData = await fetchAPI(
+            "{% url 'api_generate_cqi_report' %}",
+            {
+              method: "POST",
+              body: JSON.stringify({
+                course_id: courseId || null,
+                time_period: timePeriod,
+                report_type: reportType,
+              }),
             },
-            body: JSON.stringify({
-              course_id: courseId || null,
-              time_period: timePeriod,
-              report_type: reportType,
-            }),
-          });
+          );
+
+          console.log("Report data received:", reportData);
 
           // Hide loading
           document.getElementById("report-loading").classList.add("hidden");
 
-          if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(
-              errorData.message ||
-                `HTTP ${response.status}: ${response.statusText}`,
-            );
-          }
-
-          const report = await response.json();
-
           // Display report
-          displayCQIReport(report);
+          displayCQIReport(reportData);
         } catch (error) {
-          document.getElementById("report-loading").classList.add("hidden");
           console.error("Report generation error:", error);
+          document.getElementById("report-loading").classList.add("hidden");
 
           // Show error in results area
           document.getElementById("report-results").classList.remove("hidden");
@@ -4294,45 +4358,46 @@
         `;
         }
       }
-
-      function displayCQIReport(report) {
+      function displayCQIReport(reportData) {
         document.getElementById("report-results").classList.remove("hidden");
 
         // Check if there's an error in the report
-        if (report.error) {
+        if (reportData.error) {
           document.getElementById("report-content").innerHTML = `
             <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
                 <h4 class="text-lg font-medium text-yellow-800">Report Generation Warning</h4>
-                <p class="mt-2 text-yellow-700">${report.error}</p>
-                ${report.fallback_report ? `<div class="mt-4 p-4 bg-white rounded"><pre class="whitespace-pre-wrap">${report.fallback_report}</pre></div>` : ""}
+                <p class="mt-2 text-yellow-700">${reportData.error}</p>
+                ${reportData.fallback_report ? `<div class="mt-4 p-4 bg-white rounded"><pre class="whitespace-pre-wrap">${reportData.fallback_report}</pre></div>` : ""}
             </div>
         `;
           return;
         }
 
         // Format the report with proper styling
-        const formattedReport = formatReportForDisplay(report.report);
+        const formattedReport = formatReportForDisplay(reportData.report);
         document.getElementById("report-content").innerHTML = formattedReport;
 
-        // Add metadata
+        // Add metadata with AI provider info
         const metadata = document.createElement("div");
         metadata.className = "mt-6 pt-6 border-t text-sm text-gray-500";
         metadata.innerHTML = `
-        <p><strong>Generated on:</strong> ${new Date(report.generated_at).toLocaleString()}</p>
-        <p><strong>Report Type:</strong> ${report.report_type || "summary"}</p>
-        <p><strong>Time Period:</strong> ${report.time_period}</p>
-        ${report.course_id ? `<p><strong>Course:</strong> Selected Course</p>` : `<p><strong>Course:</strong> All Courses</p>`}
+        <p><strong>Generated on:</strong> ${new Date(reportData.generated_at).toLocaleString()}</p>
+        <p><strong>Report Type:</strong> ${reportData.report_type || "summary"}</p>
+        <p><strong>Time Period:</strong> ${reportData.time_period}</p>
+        <p><strong>AI Provider:</strong> ${reportData.ai_provider || "Unknown"}</p>
+        <p><strong>AI Model:</strong> ${reportData.ai_model || "Unknown"}</p>
+        ${reportData.course_id ? `<p><strong>Course:</strong> Selected Course</p>` : `<p><strong>Course:</strong> All Courses</p>`}
         ${
-          report.context_summary
+          reportData.context_summary
             ? `
-                <div class="mt-2 grid grid-cols-2 gap-2 text-xs">
-                    <span>Submissions: ${report.context_summary.total_submissions}</span>
-                    <span>Outlines: ${report.context_summary.outline_count}</span>
-                </div>
-            `
+            <div class="mt-2 grid grid-cols-2 gap-2 text-xs">
+                <span>Submissions: ${reportData.context_summary.form_submissions_analyzed}</span>
+                <span>Outlines: ${reportData.context_summary.course_outlines_analyzed}</span>
+            </div>
+        `
             : ""
         }
-        <p class="text-xs text-gray-400 mt-2">Powered by DeepSeek AI</p>
+        <p class="text-xs text-gray-400 mt-2">Powered by ${reportData.ai_provider || "AI"} Analysis</p>
     `;
         document.getElementById("report-content").appendChild(metadata);
       }
@@ -4366,8 +4431,11 @@
         });
 
         // Format lists
-        html = html.replace(/^\d+\.\s+(.*$)/gim, '<li class="ml-4">$1</li>');
-        html = html.replace(/^-\s+(.*$)/gim, '<li class="ml-4">$1</li>');
+        html = html.replace(
+          /^\d+\.\s+(.*$)/gim,
+          '<li class="ml-4 mb-1">$1</li>',
+        );
+        html = html.replace(/^-\s+(.*$)/gim, '<li class="ml-4 mb-1">$1</li>');
         html = html.replace(
           /(<li.*?>.*?<\/li>)/g,
           '<ul class="list-disc pl-6 mb-4">$1</ul>',
@@ -4452,6 +4520,9 @@
       window.printOutline = printOutline;
       window.viewCLODetails = viewCLODetails;
       window.showCLODetails = showCLODetails;
+      window.generateCQIReport = generateCQIReport;
+      window.printReport = printReport;
+      window.downloadReport = downloadReport;
     </script>
   </body>
 </html>
