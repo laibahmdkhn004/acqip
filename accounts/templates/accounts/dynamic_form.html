@@ -12,6 +12,8 @@
         border: 1px solid #e5e7eb;
         border-radius: 0.5rem;
         background-color: white;
+        content-visibility: auto;
+        contain-intrinsic-size: 0 500px;
       }
     </style>
   </head>
@@ -133,47 +135,61 @@
       const urlFormType = urlParams.get("form_type") || "crr";
       const urlFormId = urlParams.get("form_id");
 
+      // State and Cache
       let currentCourseId = null;
       let currentFormType = urlFormType;
       let currentFormId = urlFormId;
       let currentFormData = null;
       let assignedCourses = [];
 
+      // Enhanced cache with time-based invalidation
+      const formCache = new Map();
+      const COURSE_CACHE_KEY = "cached_courses";
+      const FORM_CACHE_KEY_PREFIX = "form_";
+      const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
       // Initialize form
       document.addEventListener("DOMContentLoaded", async function () {
-        console.log("Initializing form...");
+        console.log("Initializing optimized form...");
 
-        // Load assigned courses first
-        await loadAssignedCourses();
+        // Try to load courses from cache first
+        const cachedCourses = getCachedCourses();
+        if (cachedCourses) {
+          assignedCourses = cachedCourses;
+          populateCourseDropdown();
+          showCourseSelection();
+        }
+
+        // Load courses in background and update cache
+        loadAssignedCourses().then(() => {
+          // Update dropdown if it was empty from cache
+          if (!cachedCourses) {
+            populateCourseDropdown();
+            showCourseSelection();
+          }
+        });
 
         // Set active form type button based on URL
-        if (urlFormType === "ccr") {
-          document
-            .getElementById("ccr-btn")
-            .classList.add("bg-gray-800", "text-white", "hover:bg-gray-900");
-          document
-            .getElementById("ccr-btn")
-            .classList.remove("text-gray-700", "border-gray-300");
-        } else if (urlFormType === "crr") {
-          document
-            .getElementById("crr-btn")
-            .classList.add("bg-gray-800", "text-white", "hover:bg-gray-900");
-          document
-            .getElementById("crr-btn")
-            .classList.remove("text-gray-700", "border-gray-300");
-        }
+        setFormTypeButton(urlFormType);
 
-        // Show course selection
-        document.getElementById("course-selection").classList.remove("hidden");
+        // Set up event listeners
+        setupEventListeners();
 
-        // If course_id and form_id are in URL, load the form
+        // If course_id and form_id are in URL, load the form immediately
         if (urlCourseId && urlFormId) {
-          document.getElementById("course-select").value = urlCourseId;
-          setTimeout(() => {
-            loadFormForCourse(urlCourseId, urlFormType, urlFormId);
-          }, 100);
-        }
+          currentCourseId = urlCourseId;
+          currentFormType = urlFormType;
+          currentFormId = urlFormId;
 
+          document.getElementById("course-select").value = urlCourseId;
+
+          // Load form directly without intermediate API calls
+          loadFormForCourse(urlCourseId, urlFormType, urlFormId);
+        }
+      });
+
+      // Event Listeners Setup
+      function setupEventListeners() {
         // Form type button handlers
         document
           .getElementById("ccr-btn")
@@ -187,16 +203,15 @@
             setFormType("crr");
           });
 
-        // Course select handler
+        // Course select handler with debounce
+        let courseChangeTimeout;
         document
           .getElementById("course-select")
           .addEventListener("change", function () {
-            const courseId = this.value;
-            if (courseId && currentFormId) {
-              loadFormForCourse(courseId, currentFormType, currentFormId);
-            } else {
-              hideForm();
-            }
+            clearTimeout(courseChangeTimeout);
+            courseChangeTimeout = setTimeout(() => {
+              handleCourseChange(this.value);
+            }, 200); // Debounce 200ms
           });
 
         // Button handlers
@@ -217,39 +232,9 @@
               saveForm("submitted");
             }
           });
-      });
-
-      async function loadAssignedCourses() {
-        try {
-          const response = await fetch(API.faculty_courses);
-          const courses = await response.json();
-
-          assignedCourses = courses;
-          const courseSelect = document.getElementById("course-select");
-
-          // Clear existing options except the first one
-          while (courseSelect.options.length > 1) {
-            courseSelect.remove(1);
-          }
-
-          // Add courses to dropdown
-          courses.forEach((course) => {
-            const option = document.createElement("option");
-            option.value = course.id;
-            option.setAttribute("data-is-coordinator", course.is_coordinator);
-            option.textContent = `${course.code} - ${course.title} ${course.is_coordinator ? "(Coordinator)" : ""}`;
-            courseSelect.appendChild(option);
-          });
-        } catch (error) {
-          console.error("Failed to load courses:", error);
-        }
       }
 
-      function setFormType(formType) {
-        currentFormType = formType;
-        currentFormId = null;
-
-        // Update button styles
+      function setFormTypeButton(formType) {
         const ccrBtn = document.getElementById("ccr-btn");
         const crrBtn = document.getElementById("crr-btn");
 
@@ -266,7 +251,7 @@
             "hover:bg-gray-900",
           );
           crrBtn.classList.add("text-gray-700", "border-gray-300");
-        } else {
+        } else if (formType === "crr") {
           crrBtn.classList.add(
             "bg-gray-800",
             "text-white",
@@ -280,6 +265,120 @@
           );
           ccrBtn.classList.add("text-gray-700", "border-gray-300");
         }
+      }
+
+      // Cache Management
+      function getCachedCourses() {
+        try {
+          const cached = localStorage.getItem(COURSE_CACHE_KEY);
+          if (cached) {
+            const { data, timestamp } = JSON.parse(cached);
+            if (Date.now() - timestamp < CACHE_DURATION) {
+              return data;
+            }
+          }
+        } catch (e) {
+          console.warn("Failed to read cache", e);
+        }
+        return null;
+      }
+
+      function cacheCourses(courses) {
+        try {
+          localStorage.setItem(
+            COURSE_CACHE_KEY,
+            JSON.stringify({
+              data: courses,
+              timestamp: Date.now(),
+            }),
+          );
+        } catch (e) {
+          console.warn("Failed to cache courses", e);
+        }
+      }
+
+      function getCachedForm(formType, formId, courseId) {
+        const cacheKey = `${FORM_CACHE_KEY_PREFIX}${formType}_${formId}`;
+        try {
+          const cached = localStorage.getItem(cacheKey);
+          if (cached) {
+            const { data, timestamp } = JSON.parse(cached);
+            if (Date.now() - timestamp < CACHE_DURATION) {
+              return data;
+            }
+          }
+        } catch (e) {
+          console.warn("Failed to read form cache", e);
+        }
+        return null;
+      }
+
+      function cacheForm(formType, formId, formData) {
+        const cacheKey = `${FORM_CACHE_KEY_PREFIX}${formType}_${formId}`;
+        try {
+          localStorage.setItem(
+            cacheKey,
+            JSON.stringify({
+              data: formData,
+              timestamp: Date.now(),
+            }),
+          );
+        } catch (e) {
+          console.warn("Failed to cache form", e);
+        }
+      }
+
+      // Optimized Course Loading
+      async function loadAssignedCourses() {
+        try {
+          // Show loading state
+          showCourseSelection();
+
+          const response = await fetch(API.faculty_courses);
+          if (!response.ok) throw new Error("Failed to fetch courses");
+
+          const courses = await response.json();
+          assignedCourses = courses;
+
+          // Cache courses
+          cacheCourses(courses);
+
+          populateCourseDropdown();
+        } catch (error) {
+          console.error("Failed to load courses:", error);
+          // Don't alert, just log - user can still use cached data
+        }
+      }
+
+      function showCourseSelection() {
+        document.getElementById("course-selection").classList.remove("hidden");
+      }
+
+      function populateCourseDropdown() {
+        const courseSelect = document.getElementById("course-select");
+
+        // Clear existing options except the first one
+        while (courseSelect.options.length > 1) {
+          courseSelect.remove(1);
+        }
+
+        // Add courses to dropdown
+        assignedCourses.forEach((course) => {
+          const option = document.createElement("option");
+          option.value = course.id;
+          option.setAttribute("data-is-coordinator", course.is_coordinator);
+          option.textContent = `${course.code} - ${course.title} ${course.is_coordinator ? "(Coordinator)" : ""}`;
+          courseSelect.appendChild(option);
+        });
+      }
+
+      function setFormType(formType) {
+        currentFormType = formType;
+        currentFormId = null;
+        currentCourseId = null;
+
+        // Update button styles
+        setFormTypeButton(formType);
 
         // Update form info
         const formInfo = document.getElementById("form-info");
@@ -312,28 +411,67 @@
         // If a course is selected, load forms for this type
         const selectedCourseId = document.getElementById("course-select").value;
         if (selectedCourseId) {
-          loadAvailableForms(selectedCourseId, formType);
+          handleCourseChange(selectedCourseId);
         } else {
           hideForm();
         }
       }
 
-      async function loadAvailableForms(courseId, formType) {
-        try {
-          const response = await fetch(
-            `${API.faculty_dynamic_forms}?form_type=${formType}`,
-          );
-          const data = await response.json();
+      function handleCourseChange(courseId) {
+        if (!courseId) {
+          hideForm();
+          return;
+        }
 
-          if (data.active && data.forms && data.forms.length > 0) {
-            if (data.forms.length === 1) {
-              currentFormId = data.forms[0].id;
-              loadFormForCourse(courseId, formType, data.forms[0].id);
+        currentCourseId = courseId;
+
+        // Check if we have a cached form for this form type
+        if (currentFormId) {
+          loadFormForCourse(courseId, currentFormType, currentFormId);
+        } else {
+          loadAvailableForms(courseId, currentFormType);
+        }
+      }
+
+      // Optimized Form Loading
+      async function loadAvailableForms(courseId, formType) {
+        // Show immediate loading state
+        showFormLoading();
+
+        try {
+          // Try cache first
+          const cacheKey = `available_forms_${formType}`;
+          let formsData = null;
+
+          // Check memory cache first
+          if (formCache.has(cacheKey)) {
+            formsData = formCache.get(cacheKey);
+          }
+
+          // If not in cache, fetch from API
+          if (!formsData) {
+            const response = await fetch(
+              `${API.faculty_dynamic_forms}?form_type=${formType}`,
+            );
+            formsData = await response.json();
+            formCache.set(cacheKey, formsData);
+          }
+
+          if (
+            formsData.active &&
+            formsData.forms &&
+            formsData.forms.length > 0
+          ) {
+            if (formsData.forms.length === 1) {
+              currentFormId = formsData.forms[0].id;
+              loadFormForCourse(courseId, formType, formsData.forms[0].id);
             } else {
-              showFormSelectionModal(data.forms, courseId, formType);
+              showFormSelectionModal(formsData.forms, courseId, formType);
             }
           } else {
-            alert(data.message || "No active forms available for this type.");
+            alert(
+              formsData.message || "No active forms available for this type.",
+            );
           }
         } catch (error) {
           console.error("Failed to load forms:", error);
@@ -341,153 +479,175 @@
         }
       }
 
-      function showFormSelectionModal(forms, courseId, formType) {
-        let modalHtml = `
-            <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                <div class="bg-white rounded-lg p-6 max-w-md w-full">
-                    <h3 class="text-lg font-semibold mb-4">Select a Form</h3>
-                    <div class="space-y-3">
-        `;
-
-        forms.forEach((form) => {
-          modalHtml += `
-                <button onclick="selectForm(${form.id}, ${courseId}, '${formType}')" 
-                        class="w-full text-left p-3 border border-gray-300 rounded hover:bg-gray-50">
-                    <div class="font-medium">${form.name}</div>
-                    <div class="text-sm text-gray-600">${form.description || "No description"}</div>
-                </button>
-            `;
-        });
-
-        modalHtml += `
-                    </div>
-                    <div class="mt-6 flex justify-end">
-                        <button onclick="closeModal()" class="px-4 py-2 text-gray-600 hover:text-gray-800">
-                            Cancel
-                        </button>
-                    </div>
-                </div>
-            </div>
-        `;
-
-        const modalDiv = document.createElement("div");
-        modalDiv.innerHTML = modalHtml;
-        document.body.appendChild(modalDiv);
-
-        window.selectForm = function (formId, courseId, formType) {
-          currentFormId = formId;
-          loadFormForCourse(courseId, formType, formId);
-          document.body.removeChild(modalDiv);
-        };
-
-        window.closeModal = function () {
-          document.body.removeChild(modalDiv);
-        };
-      }
-
+      // Optimized function to load form data
       async function loadFormForCourse(courseId, formType, formId) {
+        console.log("Loading form:", { courseId, formType, formId });
+
+        // Update state
+        currentCourseId = courseId;
+        currentFormType = formType;
+        currentFormId = formId;
+
+        // Show immediate loading state
+        showFormLoading();
+
+        // Check cache first
+        const cachedForm = getCachedForm(formType, formId, courseId);
+        if (cachedForm) {
+          console.log("Using cached form data");
+          renderFormFromCache(cachedForm, courseId);
+          return;
+        }
+
+        // Try memory cache
+        const memoryCacheKey = `${formType}-${formId}`;
+        if (formCache.has(memoryCacheKey)) {
+          const cachedData = formCache.get(memoryCacheKey);
+          renderFormFromCache(cachedData, courseId);
+          return;
+        }
+
+        // Fetch from API
         try {
-          console.log("Loading form:", { courseId, formType, formId });
-
-          currentCourseId = courseId;
-          currentFormType = formType;
-          currentFormId = formId;
-
-          // Show loading state
-          const formContainer = document.getElementById("form-container");
-          const questionsContainer = document.getElementById(
-            "questions-container",
-          );
-          formContainer.classList.remove("hidden");
-          questionsContainer.innerHTML =
-            '<div class="text-center py-8"><p class="text-gray-400">Loading form...</p></div>';
-
-          // Get form data with specific form_id
           const response = await fetch(
             `${API.faculty_dynamic_forms}?form_type=${formType}&form_id=${formId}&course_id=${courseId}`,
           );
           const data = await response.json();
 
           if (!data.active) {
-            questionsContainer.innerHTML = `
-                    <div class="text-center py-8 text-gray-600">
-                        <p>${data.message || "No active form available."}</p>
-                    </div>
-                `;
+            showFormError(data.message || "No active form available.");
             return;
           }
 
           if (!data.forms || data.forms.length === 0) {
-            questionsContainer.innerHTML = `
-                    <div class="text-center py-8 text-gray-600">
-                        <p>No form data found.</p>
-                    </div>
-                `;
+            showFormError("No form data found.");
             return;
           }
 
           currentFormData = data;
 
-          // Use the first form (should be the one we requested)
-          const form = data.forms[0];
+          // Cache the form data
+          cacheForm(formType, formId, data);
+          formCache.set(memoryCacheKey, data);
 
-          // Update form header
-          document.getElementById("form-title").textContent = form.name;
-          document.getElementById("form-description").textContent =
-            form.description || "";
-
-          // Find the selected course
-          const courseSelect = document.getElementById("course-select");
-          const selectedOption =
-            courseSelect.options[courseSelect.selectedIndex];
-          const courseText = selectedOption.textContent;
-
-          document.getElementById("course-info").textContent =
-            `Course: ${courseText} | Form Type: ${formType.toUpperCase()}`;
-
-          // Render questions
-          renderQuestions(form.questions);
+          renderForm(data, courseId);
         } catch (error) {
           console.error("Failed to load form:", error);
-          const questionsContainer = document.getElementById(
-            "questions-container",
-          );
-          questionsContainer.innerHTML = `
-                <div class="text-center py-8 text-gray-600">
-                    <p>Failed to load form. Please try again.</p>
-                    <p class="text-sm text-gray-500 mt-2">Error: ${error.message}</p>
-                    <button onclick="location.reload()" class="mt-4 px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700">
-                        Reload Page
-                    </button>
-                </div>
-            `;
+          showFormError("Failed to load form. Please try again.");
         }
       }
 
-      function renderQuestions(questions) {
+      function showFormLoading() {
+        const formContainer = document.getElementById("form-container");
+        const questionsContainer = document.getElementById(
+          "questions-container",
+        );
+
+        formContainer.classList.remove("hidden");
+
+        // Show optimized loading skeleton
+        questionsContainer.innerHTML = `
+          <div class="animate-pulse space-y-4">
+            <div class="bg-gray-200 h-6 rounded w-3/4"></div>
+            <div class="bg-gray-200 h-4 rounded w-full"></div>
+            <div class="bg-gray-200 h-20 rounded"></div>
+            <div class="bg-gray-200 h-6 rounded w-1/2"></div>
+            <div class="bg-gray-200 h-4 rounded w-full"></div>
+            <div class="bg-gray-200 h-16 rounded"></div>
+          </div>
+        `;
+      }
+
+      function showFormError(message) {
+        const questionsContainer = document.getElementById(
+          "questions-container",
+        );
+        questionsContainer.innerHTML = `
+          <div class="text-center py-8 text-gray-600">
+            <p>${message}</p>
+            <button onclick="retryLoadForm()" class="mt-4 px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700">
+              Retry
+            </button>
+          </div>
+        `;
+      }
+
+      function renderFormFromCache(data, courseId) {
+        // Show form immediately from cache
+        renderForm(data, courseId);
+
+        // Refresh in background to ensure data is up-to-date
+        setTimeout(() => {
+          refreshFormInBackground(courseId, currentFormType, currentFormId);
+        }, 1000);
+      }
+
+      async function refreshFormInBackground(courseId, formType, formId) {
+        try {
+          const response = await fetch(
+            `${API.faculty_dynamic_forms}?form_type=${formType}&form_id=${formId}&course_id=${courseId}`,
+          );
+          const data = await response.json();
+
+          if (data.active && data.forms && data.forms.length > 0) {
+            // Update cache with fresh data
+            cacheForm(formType, formId, data);
+            formCache.set(`${formType}-${formId}`, data);
+          }
+        } catch (error) {
+          // Silently fail - we already have cached data
+          console.log("Background refresh failed, using cached data");
+        }
+      }
+
+      function renderForm(data, courseId) {
+        const form = data.forms[0];
+
+        // Update form header
+        document.getElementById("form-title").textContent = form.name;
+        document.getElementById("form-description").textContent =
+          form.description || "";
+
+        // Find the selected course
+        const courseSelect = document.getElementById("course-select");
+        const selectedOption = courseSelect.options[courseSelect.selectedIndex];
+        const courseText = selectedOption ? selectedOption.textContent : "";
+
+        document.getElementById("course-info").textContent =
+          `Course: ${courseText} | Form Type: ${currentFormType.toUpperCase()}`;
+
+        // Render questions with optimized DOM manipulation
+        renderQuestionsOptimized(form.questions);
+      }
+
+      // Optimized question rendering using DocumentFragment
+      function renderQuestionsOptimized(questions) {
         const container = document.getElementById("questions-container");
-        container.innerHTML = "";
 
+        // Use DocumentFragment to batch DOM updates
+        const fragment = document.createDocumentFragment();
         let currentSection = null;
-        let questionCount = 0;
+        let sectionContent = null;
 
-        questions.forEach((question, index) => {
+        questions.forEach((question) => {
           // Handle section headers
           if (question.question_type === "section_header") {
-            if (currentSection) {
-              container.appendChild(currentSection);
+            if (currentSection && sectionContent) {
+              currentSection.appendChild(sectionContent);
+              fragment.appendChild(currentSection);
             }
+
             currentSection = document.createElement("div");
             currentSection.className = "form-section";
+            sectionContent = document.createDocumentFragment();
 
             const header = document.createElement("div");
-            header.className = "mb-6 mt-4";
+            header.className = "mb-6";
             header.innerHTML = `
-                    <h3 class="text-lg font-bold text-gray-900">${question.question_text}</h3>
-                    ${question.help_text ? `<p class="text-sm text-gray-600 mt-1">${question.help_text}</p>` : ""}
-                `;
-            currentSection.appendChild(header);
-
+              <h3 class="text-lg font-bold text-gray-900">${question.question_text}</h3>
+              ${question.help_text ? `<p class="text-sm text-gray-600 mt-1">${question.help_text}</p>` : ""}
+            `;
+            sectionContent.appendChild(header);
             return;
           }
 
@@ -495,215 +655,141 @@
           if (!currentSection) {
             currentSection = document.createElement("div");
             currentSection.className = "form-section";
+            sectionContent = document.createDocumentFragment();
           }
 
+          // Use template strings for faster rendering
+          const questionHtml = createQuestionHTML(question);
           const questionDiv = document.createElement("div");
           questionDiv.className = "mb-6";
           questionDiv.id = `question-${question.id}`;
           questionDiv.dataset.questionType = question.question_type;
+          questionDiv.innerHTML = questionHtml;
 
-          const label = document.createElement("label");
-          label.className = "block text-sm font-medium text-gray-700 mb-2";
-          label.innerHTML = `${question.question_text} ${question.required ? '<span class="text-red-500">*</span>' : ""}`;
-
-          if (question.help_text) {
-            const helpText = document.createElement("p");
-            helpText.className = "text-sm text-gray-500 mb-2";
-            helpText.textContent = question.help_text;
-            questionDiv.appendChild(helpText);
-          }
-
-          questionDiv.appendChild(label);
-
-          // Add input based on question type
-          let inputElement;
-          switch (question.question_type) {
-            case "text":
-              inputElement = document.createElement("input");
-              inputElement.type = "text";
-              inputElement.className =
-                "w-full border border-gray-300 rounded-lg p-2 mt-1";
-              inputElement.name = `question_${question.id}`;
-              if (question.required) inputElement.required = true;
-              break;
-
-            case "textarea":
-              inputElement = document.createElement("textarea");
-              inputElement.rows = 4;
-              inputElement.className =
-                "w-full border border-gray-300 rounded-lg p-2 mt-1";
-              inputElement.name = `question_${question.id}`;
-              if (question.required) inputElement.required = true;
-              break;
-
-            case "radio":
-              const radioGroup = document.createElement("div");
-              radioGroup.className = "space-y-2 mt-2";
-
-              const options = question.options
-                ? question.options.split(",")
-                : [];
-              options.forEach((option, i) => {
-                const optionDiv = document.createElement("div");
-                optionDiv.className = "flex items-center";
-
-                const radio = document.createElement("input");
-                radio.type = "radio";
-                radio.name = `question_${question.id}`;
-                radio.value = option.trim();
-                radio.id = `question_${question.id}_${i}`;
-                radio.className = "mr-2";
-                if (question.required) radio.required = true;
-
-                const optionLabel = document.createElement("label");
-                optionLabel.htmlFor = radio.id;
-                optionLabel.textContent = option.trim();
-                optionLabel.className = "text-gray-700";
-
-                optionDiv.appendChild(radio);
-                optionDiv.appendChild(optionLabel);
-                radioGroup.appendChild(optionDiv);
-              });
-
-              questionDiv.appendChild(radioGroup);
-              inputElement = null;
-              break;
-
-            case "checkbox":
-              const checkboxGroup = document.createElement("div");
-              checkboxGroup.className = "space-y-2 mt-2";
-
-              const checkOptions = question.options
-                ? question.options.split(",")
-                : [];
-              checkOptions.forEach((option, i) => {
-                const optionDiv = document.createElement("div");
-                optionDiv.className = "flex items-center";
-
-                const checkbox = document.createElement("input");
-                checkbox.type = "checkbox";
-                checkbox.name = `question_${question.id}[]`;
-                checkbox.value = option.trim();
-                checkbox.id = `question_${question.id}_${i}`;
-                checkbox.className = "mr-2";
-
-                const optionLabel = document.createElement("label");
-                optionLabel.htmlFor = checkbox.id;
-                optionLabel.textContent = option.trim();
-                optionLabel.className = "text-gray-700";
-
-                optionDiv.appendChild(checkbox);
-                optionDiv.appendChild(optionLabel);
-                checkboxGroup.appendChild(optionDiv);
-              });
-
-              questionDiv.appendChild(checkboxGroup);
-              inputElement = null;
-              break;
-
-            case "select":
-              inputElement = document.createElement("select");
-              inputElement.className =
-                "w-full border border-gray-300 rounded-lg p-2 mt-1";
-              inputElement.name = `question_${question.id}`;
-              if (question.required) inputElement.required = true;
-
-              const defaultOption = document.createElement("option");
-              defaultOption.value = "";
-              defaultOption.textContent = "Select an option...";
-              inputElement.appendChild(defaultOption);
-
-              const selectOptions = question.options
-                ? question.options.split(",")
-                : [];
-              selectOptions.forEach((option) => {
-                const opt = document.createElement("option");
-                opt.value = option.trim();
-                opt.textContent = option.trim();
-                inputElement.appendChild(opt);
-              });
-              break;
-
-            case "clo_percentage":
-              const cloContainer = document.createElement("div");
-              cloContainer.className = "mt-2";
-
-              cloContainer.innerHTML = `
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">CLO 1 Percentage (%)</label>
-                <input type="number" 
-                       name="question_${question.id}_clo1" 
-                       min="0" max="100" step="0.1"
-                       class="w-full border border-gray-300 rounded-lg p-2 clo-percentage-input"
-                       placeholder="Enter percentage for CLO 1"
-                       ${question.required ? "required" : ""}
-                       data-question-id="${question.id}">
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">CLO 2 Percentage (%)</label>
-                <input type="number" 
-                       name="question_${question.id}_clo2" 
-                       min="0" max="100" step="0.1"
-                       class="w-full border border-gray-300 rounded-lg p-2 clo-percentage-input"
-                       placeholder="Enter percentage for CLO 2"
-                       ${question.required ? "required" : ""}
-                       data-question-id="${question.id}">
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">CLO 3 Percentage (%)</label>
-                <input type="number" 
-                       name="question_${question.id}_clo3" 
-                       min="0" max="100" step="0.1"
-                       class="w-full border border-gray-300 rounded-lg p-2 clo-percentage-input"
-                       placeholder="Enter percentage for CLO 3"
-                       ${question.required ? "required" : ""}
-                       data-question-id="${question.id}">
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">CLO 4 Percentage (%)</label>
-                <input type="number" 
-                       name="question_${question.id}_clo4" 
-                       min="0" max="100" step="0.1"
-                       class="w-full border border-gray-300 rounded-lg p-2 clo-percentage-input"
-                       placeholder="Enter percentage for CLO 4"
-                       ${question.required ? "required" : ""}
-                       data-question-id="${question.id}">
-            </div>
-        </div>
-        ${question.help_text ? `<p class="text-xs text-gray-500 mt-2">${question.help_text}</p>` : ""}
-    `;
-
-              questionDiv.appendChild(cloContainer);
-              inputElement = null;
-              break;
-
-            default:
-              inputElement = document.createElement("input");
-              inputElement.type = "text";
-              inputElement.className =
-                "w-full border border-gray-300 rounded-lg p-2 mt-1";
-              inputElement.name = `question_${question.id}`;
-              if (question.required) inputElement.required = true;
-          }
-
-          if (inputElement) {
-            questionDiv.appendChild(inputElement);
-          }
-
-          currentSection.appendChild(questionDiv);
+          sectionContent.appendChild(questionDiv);
         });
 
         // Add the last section
-        if (currentSection) {
-          container.appendChild(currentSection);
+        if (currentSection && sectionContent) {
+          currentSection.appendChild(sectionContent);
+          fragment.appendChild(currentSection);
         }
+
+        // Single DOM update
+        container.innerHTML = "";
+        container.appendChild(fragment);
+      }
+
+      // Pre-compiled HTML templates for different question types
+      function createQuestionHTML(question) {
+        const baseName = `question_${question.id}`;
+        const required = question.required ? "required" : "";
+        const requiredStar = question.required
+          ? '<span class="text-red-500">*</span>'
+          : "";
+
+        let html = `
+          <label class="block text-sm font-medium text-gray-700 mb-2">
+            ${question.question_text} ${requiredStar}
+          </label>
+        `;
+
+        if (question.help_text) {
+          html += `<p class="text-sm text-gray-500 mb-2">${question.help_text}</p>`;
+        }
+
+        switch (question.question_type) {
+          case "text":
+            html += `<input type="text" name="${baseName}" ${required} class="w-full border border-gray-300 rounded-lg p-2 mt-1">`;
+            break;
+
+          case "textarea":
+            html += `<textarea name="${baseName}" ${required} rows="4" class="w-full border border-gray-300 rounded-lg p-2 mt-1"></textarea>`;
+            break;
+
+          case "radio":
+            const radioOptions = question.options
+              ? question.options.split(",")
+              : [];
+            html += '<div class="space-y-2 mt-2">';
+            radioOptions.forEach((option, i) => {
+              const trimmedOption = option.trim();
+              html += `
+                <div class="flex items-center">
+                  <input type="radio" id="${baseName}_${i}" name="${baseName}" value="${trimmedOption}" ${required} class="mr-2">
+                  <label for="${baseName}_${i}" class="text-gray-700">${trimmedOption}</label>
+                </div>
+              `;
+            });
+            html += "</div>";
+            break;
+
+          case "checkbox":
+            const checkOptions = question.options
+              ? question.options.split(",")
+              : [];
+            html += '<div class="space-y-2 mt-2">';
+            checkOptions.forEach((option, i) => {
+              const trimmedOption = option.trim();
+              html += `
+                <div class="flex items-center">
+                  <input type="checkbox" id="${baseName}_${i}" name="${baseName}[]" value="${trimmedOption}" class="mr-2">
+                  <label for="${baseName}_${i}" class="text-gray-700">${trimmedOption}</label>
+                </div>
+              `;
+            });
+            html += "</div>";
+            break;
+
+          case "select":
+            const selectOptions = question.options
+              ? question.options.split(",")
+              : [];
+            html += `<select name="${baseName}" ${required} class="w-full border border-gray-300 rounded-lg p-2 mt-1">`;
+            html += '<option value="">Select an option...</option>';
+            selectOptions.forEach((option) => {
+              const trimmedOption = option.trim();
+              html += `<option value="${trimmedOption}">${trimmedOption}</option>`;
+            });
+            html += "</select>";
+            break;
+
+          case "clo_percentage":
+            html += `
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                ${[1, 2, 3, 4]
+                  .map(
+                    (i) => `
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">CLO ${i} Percentage (%)</label>
+                    <input type="number" 
+                           name="${baseName}_clo${i}" 
+                           min="0" max="100" step="0.1"
+                           class="w-full border border-gray-300 rounded-lg p-2 clo-percentage-input"
+                           placeholder="Enter percentage for CLO ${i}"
+                           ${required}
+                           data-question-id="${question.id}">
+                  </div>
+                `,
+                  )
+                  .join("")}
+              </div>
+            `;
+            break;
+
+          default:
+            html += `<input type="text" name="${baseName}" ${required} class="w-full border border-gray-300 rounded-lg p-2 mt-1">`;
+        }
+
+        return html;
       }
 
       function hideForm() {
         document.getElementById("form-container").classList.add("hidden");
       }
 
+      // Keep the rest of your existing functions (showNotification, saveForm, getCookie, etc.)
+      // These remain the same as in your working version
       function showNotification(message, type = "info") {
         // Remove any existing notification
         const existing = document.querySelector(".form-notification");
@@ -719,17 +805,17 @@
         const notification = document.createElement("div");
         notification.className = `form-notification fixed top-4 right-4 px-4 py-3 rounded-lg shadow-lg border ${colors[type]} z-50 flex items-center`;
         notification.innerHTML = `
-        ${
-          type === "success"
-            ? '<i class="fas fa-check-circle mr-2"></i>'
-            : type === "error"
-              ? '<i class="fas fa-exclamation-circle mr-2"></i>'
-              : type === "warning"
-                ? '<i class="fas fa-exclamation-triangle mr-2"></i>'
-                : '<i class="fas fa-info-circle mr-2"></i>'
-        }
-        <span>${message}</span>
-    `;
+          ${
+            type === "success"
+              ? '<i class="fas fa-check-circle mr-2"></i>'
+              : type === "error"
+                ? '<i class="fas fa-exclamation-circle mr-2"></i>'
+                : type === "warning"
+                  ? '<i class="fas fa-exclamation-triangle mr-2"></i>'
+                  : '<i class="fas fa-info-circle mr-2"></i>'
+          }
+          <span>${message}</span>
+        `;
 
         document.body.appendChild(notification);
 
@@ -927,6 +1013,7 @@
           );
         }
       }
+
       function getCookie(name) {
         let cookieValue = null;
         if (document.cookie && document.cookie !== "") {
@@ -942,6 +1029,57 @@
           }
         }
         return cookieValue;
+      }
+
+      function showFormSelectionModal(forms, courseId, formType) {
+        let modalHtml = `
+          <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white rounded-lg p-6 max-w-md w-full">
+              <h3 class="text-lg font-semibold mb-4">Select a Form</h3>
+              <div class="space-y-3">
+        `;
+
+        forms.forEach((form) => {
+          modalHtml += `
+            <button onclick="selectForm(${form.id}, ${courseId}, '${formType}')" 
+                    class="w-full text-left p-3 border border-gray-300 rounded hover:bg-gray-50">
+              <div class="font-medium">${form.name}</div>
+              <div class="text-sm text-gray-600">${form.description || "No description"}</div>
+            </button>
+          `;
+        });
+
+        modalHtml += `
+              </div>
+              <div class="mt-6 flex justify-end">
+                <button onclick="closeModal()" class="px-4 py-2 text-gray-600 hover:text-gray-800">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+
+        const modalDiv = document.createElement("div");
+        modalDiv.innerHTML = modalHtml;
+        document.body.appendChild(modalDiv);
+
+        window.selectForm = function (formId, courseId, formType) {
+          currentFormId = formId;
+          currentCourseId = courseId;
+          loadFormForCourse(courseId, formType, formId);
+          document.body.removeChild(modalDiv);
+        };
+
+        window.closeModal = function () {
+          document.body.removeChild(modalDiv);
+        };
+      }
+
+      function retryLoadForm() {
+        if (currentCourseId && currentFormId && currentFormType) {
+          loadFormForCourse(currentCourseId, currentFormType, currentFormId);
+        }
       }
     </script>
   </body>
