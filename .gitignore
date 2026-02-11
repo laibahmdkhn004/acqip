@@ -31,7 +31,7 @@ venv.bak/
 # =========================================
 # Django stuff:
 *.log
-staticfiles/
+
 media/
 
 # If using collectstatic --> STATIC_ROOT directory
