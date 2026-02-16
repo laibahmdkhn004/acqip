@@ -4,8 +4,9 @@ from . import api_views
 
 urlpatterns = [
     # root route
-    path("", views.home, name="home"),
-
+    path("", views.landing_page, name="home"),  # Landing page as home
+    path("dashboard/", views.dashboard, name="dashboard"),  # Your existing dashboard
+    
     # authentication
     path("register/", views.register, name="register"),
     path("login/", views.CustomLoginView.as_view(), name="login"),
@@ -91,12 +92,7 @@ urlpatterns = [
     path("api/crc/update-course-outline/", api_views.api_crc_update_course_outline, name="api_crc_update_course_outline"),
     path("api/crc/course-outline-submissions/", api_views.api_crc_course_outline_submissions, name="api_crc_course_outline_submissions"),
     path("api/crc/form-submissions/", api_views.api_crc_form_submissions, name="api_crc_form_submissions"),
-    path("api/crc/analytics/", api_views.api_crc_analytics, name="api_crc_analytics"),
-    path("api/crc/export-analytics/", api_views.api_crc_export_analytics, name="api_crc_export_analytics"),
-    
-    # CRC Comparison API
-    path("api/crc/compare-outlines/", api_views.api_crc_compare_outlines, name="api_crc_compare_outlines"),
-    
+   
     # Form Publishing APIs
     path("api/publish-form/<int:form_id>/", api_views.api_publish_form, name="api_publish_form"),
     path("api/unpublish-form/<int:form_id>/", api_views.api_unpublish_form, name="api_unpublish_form"),
@@ -121,4 +117,24 @@ urlpatterns = [
     
     # Form availability endpoint
     path("api/form-availability/", api_views.api_form_availability, name="api_form_availability"),
+    
+    # Department update endpoint
+    path("api/departments/<int:department_id>/update/", api_views.api_department_update, name="api_department_update"),
+
+# Add these to your urlpatterns in urls.py:
+
+    # New Analysis and Reporting URLs
+    path("api/crc/analysis/submissions-over-time/", api_views.api_analysis_submissions_over_time, name="api_analysis_submissions_over_time"),
+    path("api/crc/analysis/form-status/", api_views.api_analysis_form_status, name="api_analysis_form_status"),
+    path("api/crc/analysis/clo-achievement/", api_views.api_analysis_clo_achievement, name="api_analysis_clo_achievement"),
+    path("api/crc/compare-outlines/", api_views.api_compare_outlines, name="api_compare_outlines"),
+    path("api/crc/generate-cqi-report/", api_views.api_generate_cqi_report, name="api_generate_cqi_report"),
+# Add these new URLs
+path("api/crc/analysis/detailed-clo/<int:clo_number>/", api_views.api_analysis_detailed_clo, name="api_analysis_detailed_clo"),
+path("api/crc/analysis/clo-trends/", api_views.api_analysis_clo_trends, name="api_analysis_clo_trends"),
+
+path("api/crc/analysis/clo-by-course/", api_views.api_analysis_clo_by_course, name="api_analysis_clo_by_course"),
+
+
+
 ]

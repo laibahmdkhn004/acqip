@@ -1,5 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import AbstractUser
+from django.db.models import JSONField
+import json  # Add this import
 
 class User(AbstractUser):
     ROLE_ADMIN = "admin"
@@ -20,7 +22,7 @@ class User(AbstractUser):
 
 class Department(models.Model):
     name = models.CharField(max_length=200)
-    code = models.CharField(max_length=20, unique=True)
+    code = models.CharField(max_length=20, unique=True ,null=True, blank=True)
     description = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     
@@ -94,6 +96,7 @@ class FormQuestion(models.Model):
         ('radio', 'Radio Buttons'),
         ('section_header', 'Section Header'),
         ('file', 'File Upload'),
+        ('clo_percentage', 'CLO Percentage'),  # Fixed typo here
     ]
     
     form = models.ForeignKey(DynamicForm, on_delete=models.CASCADE, related_name='questions')
@@ -112,6 +115,17 @@ class FormQuestion(models.Model):
     
     def __str__(self):
         return f"{self.form.name} - {self.question_text[:50]}"
+    
+    def get_config_dict(self):
+        """Safely get config as dictionary"""
+        if self.config:
+            if isinstance(self.config, str):
+                try:
+                    return json.loads(self.config)
+                except:
+                    return {}
+            return self.config
+        return {}
 
 
 class DynamicFormSubmission(models.Model):
@@ -155,6 +169,25 @@ class FormAnswer(models.Model):
     
     def __str__(self):
         return f"Answer for {self.question.question_text[:50]}"
+    
+    def get_answer_display(self):
+        """Get answer in displayable format"""
+        if self.answer_data:
+            if isinstance(self.answer_data, dict):
+                # For CLO percentage
+                if 'clo1' in self.answer_data or 'clo2' in self.answer_data:
+                    clo_text = []
+                    for i in range(1, 5):
+                        clo_key = f'clo{i}'
+                        if clo_key in self.answer_data:
+                            value = self.answer_data[clo_key]
+                            clo_text.append(f"CLO{i}: {value}%")
+                    return ', '.join(clo_text)
+                return str(self.answer_data)
+            elif isinstance(self.answer_data, list):
+                return ', '.join(map(str, self.answer_data))
+            return str(self.answer_data)
+        return self.answer_text
 
 
 class CourseOutline(models.Model):

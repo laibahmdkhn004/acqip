@@ -1,5 +1,89 @@
 ﻿import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Generic AI Configuration - Works with any provider
+AI_PROVIDER = os.getenv('AI_PROVIDER', 'openai').lower()  # openai, openrouter, deepseek, anthropic, etc.
+AI_API_KEY = os.getenv('AI_API_KEY')
+AI_BASE_URL = os.getenv('AI_BASE_URL')
+AI_MODEL = os.getenv('AI_MODEL', 'gpt-4')
+
+# Provider-specific configurations
+AI_CONFIGS = {
+    'openai': {
+        'model': AI_MODEL,
+        'api_key': AI_API_KEY,
+        'api_base': 'https://api.openai.com/v1',
+        'provider': 'openai'
+    },
+    'openrouter': {
+        'model': AI_MODEL,
+        'api_key': AI_API_KEY,
+        'api_base': 'https://openrouter.ai/api/v1',
+        'provider': 'openrouter'
+    },
+    'deepseek': {
+        'model': AI_MODEL,
+        'api_key': AI_API_KEY,
+        'api_base': 'https://api.deepseek.com',
+        'provider': 'deepseek'
+    },
+    'anthropic': {
+        'model': AI_MODEL,
+        'api_key': AI_API_KEY,
+        'api_base': 'https://api.anthropic.com',
+        'provider': 'anthropic'
+    },
+    'groq': {
+        'model': AI_MODEL,
+        'api_key': AI_API_KEY,
+        'api_base': 'https://api.groq.com/openai/v1',
+        'provider': 'groq'
+    },
+    'ollama': {
+        'model': AI_MODEL,
+        'api_key': None,
+        'api_base': 'http://localhost:11434/v1',
+        'provider': 'ollama'
+    },
+    'together': {
+        'model': AI_MODEL,
+        'api_key': AI_API_KEY,
+        'api_base': 'https://api.together.xyz/v1',
+        'provider': 'together'
+    },
+    'huggingface': {
+        'model': AI_MODEL,
+        'api_key': AI_API_KEY,
+        'api_base': 'https://api-inference.huggingface.co/v1',
+        'provider': 'huggingface'
+    }
+}
+
+# Get current provider config
+AI_CONFIG = AI_CONFIGS.get(AI_PROVIDER, AI_CONFIGS['openai'])
+
+# Override with environment variables if provided
+if AI_BASE_URL:
+    AI_CONFIG['api_base'] = AI_BASE_URL
+if AI_MODEL:
+    AI_CONFIG['model'] = AI_MODEL
+
+# LiteLLM Configuration
+LITELLM_CONFIG = {
+    'api_key': AI_CONFIG['api_key'],
+    'api_base': AI_CONFIG['api_base'],
+    'timeout': 30.0,
+    'max_retries': 2,
+}
+
+# Feature flags
+FEATURE_FLAGS = {
+    'ai_cqi_reports': bool(AI_API_KEY),
+    'ai_analysis': bool(AI_API_KEY),
+}
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -15,9 +99,7 @@ DEBUG = True
 
 ALLOWED_HOSTS = []
 
-
 # Application definition
-
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -58,10 +140,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'acqip.wsgi.application'
 
-
 # Database
-# https://docs.djangoproject.com/en/5.0/ref/settings/#databases
-
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
@@ -69,10 +148,7 @@ DATABASES = {
     }
 }
 
-
 # Password validation
-# https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators
-
 AUTH_PASSWORD_VALIDATORS = [
     {
         'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
@@ -88,22 +164,13 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-
 # Internationalization
-# https://docs.djangoproject.com/en/5.0/topics/i18n/
-
 LANGUAGE_CODE = 'en-us'
-
 TIME_ZONE = 'UTC'
-
 USE_I18N = True
-
 USE_TZ = True
 
-
 # Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/5.0/howto/static-files/
-
 STATIC_URL = 'static/'
 STATICFILES_DIRS = [
     os.path.join(BASE_DIR, 'static'),
@@ -114,8 +181,6 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 # Default primary key field type
-# https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
-
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Custom user model

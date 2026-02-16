@@ -115,6 +115,19 @@
           <button type="submit" class="w-full bg-purple-600 hover:bg-purple-700 text-white py-2.5 rounded-lg font-medium transition">
             Login
           </button>
+
+          <!-- Register link -->
+          <div class="text-center pt-3 border-t border-gray-200">
+            <p class="text-gray-600 text-xs">
+              Don't have an account?
+              <a
+                href="{% url 'register' %}"
+                class="font-medium text-purple-600 hover:text-purple-700 ml-1"
+              >
+                Create one
+              </a>
+            </p>
+          </div>
         </form>
       </div>
     </div>

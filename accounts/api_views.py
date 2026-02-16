@@ -1,11 +1,26 @@
+import os
+from dotenv import load_dotenv
+import litellm
+from django.conf import settings
+from collections import defaultdict
+from datetime import datetime, timedelta, date
+import itertools
+import re
 from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 import json
 from django.contrib.auth.decorators import login_required, user_passes_test
-from .models import Course, User, Department, DynamicForm, FormQuestion, DynamicFormSubmission, FormAnswer, CourseFaculty, CourseOutline, AnalyticsCache
+from .models import Course, User, Department, DynamicForm, FormQuestion, DynamicFormSubmission, FormAnswer, CourseFaculty, CourseOutline
 from django.db.models import Count, Q, F
 from datetime import datetime, timedelta
+
+from litellm import completion
+
+        
+# Load environment variables
+load_dotenv()
+
 
 def is_admin(user):
     return user.is_authenticated and user.role == User.ROLE_ADMIN
@@ -42,49 +57,75 @@ def api_departments_create(request):
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
 
-# Department Detail
+
 @login_required
 @user_passes_test(is_admin)
-@require_http_methods(["GET"])
+@csrf_exempt
+@require_http_methods(["GET", "PUT"])
 def api_department_detail(request, department_id):
+    """Get or update department details"""
     try:
         department = Department.objects.get(id=department_id)
         
-        courses = Course.objects.filter(department=department).values(
-            'id', 'title', 'code', 'description', 'credits'
-        )
+        if request.method == 'GET':
+            courses = Course.objects.filter(department=department).values(
+                'id', 'title', 'code', 'description', 'credits'
+            )
+            
+            courses_list = []
+            for course in courses:
+                course_data = dict(course)
+                course_faculty = CourseFaculty.objects.filter(course_id=course['id']).select_related('faculty')
+                faculty_data = []
+                for cf in course_faculty:
+                    faculty_data.append({
+                        'id': cf.faculty.id,
+                        'username': cf.faculty.username,
+                        'email': cf.faculty.email,
+                        'is_coordinator': cf.is_coordinator,
+                        'section': cf.section
+                    })
+                course_data['faculty'] = faculty_data
+                courses_list.append(course_data)
+            
+            return JsonResponse({
+                'department': {
+                    'id': department.id,
+                    'name': department.name,
+                    'code': department.code,
+                    'description': department.description
+                },
+                'courses': courses_list,
+                'total_courses': len(courses_list),
+                'total_faculty': CourseFaculty.objects.filter(course__department=department).values('faculty').distinct().count()
+            })
         
-        courses_list = []
-        for course in courses:
-            course_data = dict(course)
-            course_faculty = CourseFaculty.objects.filter(course_id=course['id']).select_related('faculty')
-            faculty_data = []
-            for cf in course_faculty:
-                faculty_data.append({
-                    'id': cf.faculty.id,
-                    'username': cf.faculty.username,
-                    'email': cf.faculty.email,
-                    'is_coordinator': cf.is_coordinator,
-                    'section': cf.section
-                })
-            course_data['faculty'] = faculty_data
-            courses_list.append(course_data)
-        
-        return JsonResponse({
-            'department': {
+        elif request.method == 'PUT':
+            # Update department
+            data = json.loads(request.body)
+            
+            # Update fields
+            if 'name' in data:
+                department.name = data['name']
+            if 'code' in data:
+                department.code = data['code']
+            if 'description' in data:
+                department.description = data['description']
+            
+            department.save()
+            
+            return JsonResponse({
                 'id': department.id,
                 'name': department.name,
                 'code': department.code,
                 'description': department.description
-            },
-            'courses': courses_list,
-            'total_courses': len(courses_list),
-            'total_faculty': CourseFaculty.objects.filter(course__department=department).values('faculty').distinct().count()
-        })
+            })
+            
     except Department.DoesNotExist:
         return JsonResponse({'error': 'Department not found'}, status=404)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
+
 
 # Course API Views
 @login_required
@@ -313,12 +354,15 @@ def api_forms(request):
     forms = list(DynamicForm.objects.values('id', 'name', 'description', 'form_type', 'status'))
     return JsonResponse(forms, safe=False)
 
+
+
+# api_views.py - Update api_publish_form
 @login_required
 @user_passes_test(is_admin_or_crc)
 @csrf_exempt
 @require_http_methods(["POST"])
 def api_publish_form(request, form_id):
-    """Publish a form (set status to active) - Only for CCR/CRR forms"""
+    """Publish a form (set status to active) - Allow multiple forms to be active"""
     try:
         form = DynamicForm.objects.get(id=form_id)
         
@@ -326,11 +370,7 @@ def api_publish_form(request, form_id):
         if form.form_type not in ['ccr', 'crr']:
             return JsonResponse({'error': 'Cannot publish non-CCR/CRR forms'}, status=400)
         
-        # Set all other forms of the same type to inactive
-        DynamicForm.objects.filter(
-            form_type=form.form_type
-        ).exclude(id=form_id).update(status='inactive')
-        
+        # REMOVED: No longer deactivating other forms of the same type
         # Set this form to active
         form.status = 'active'
         form.save()
@@ -345,6 +385,9 @@ def api_publish_form(request, form_id):
         return JsonResponse({'error': 'Form not found'}, status=404)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
+
+
+
 
 @login_required
 @user_passes_test(is_admin_or_crc)
@@ -510,6 +553,17 @@ def api_form_questions_create(request, form_id):
             except:
                 config = None
         
+        # For CLO percentage questions, ensure proper config
+        if data.get('question_type') == 'clo_percentage':
+            if not config:
+                config = {
+                    'clo_fields': ['clo1', 'clo2', 'clo3', 'clo4'],
+                    'min_value': 0,
+                    'max_value': 100,
+                    'step': 0.1,
+                    'suffix': '%'
+                }
+        
         question = FormQuestion.objects.create(
             form=form,
             question_text=data.get('question_text'),
@@ -531,7 +585,9 @@ def api_form_questions_create(request, form_id):
             'help_text': question.help_text
         }, status=201)
     except Exception as e:
+        print(f"Error creating question: {str(e)}")  # Debug logging
         return JsonResponse({'error': str(e)}, status=400)
+
 
 @login_required
 @user_passes_test(is_admin_or_crc)
@@ -654,13 +710,13 @@ def api_faculty_dynamic_forms(request):
             if not is_coordinator_for_any:
                 return JsonResponse({'error': 'Only course coordinators can access CCR forms'}, status=403)
         
-        # Get active form of the appropriate type
-        active_form = DynamicForm.objects.filter(
+        # Get ALL active forms of the appropriate type
+        active_forms = DynamicForm.objects.filter(
             status=DynamicForm.STATUS_ACTIVE,
             form_type=form_type
-        ).first()
+        )
         
-        if not active_form:
+        if not active_forms.exists():
             return JsonResponse({
                 'active': False, 
                 'message': f'No active {form_type.upper()} form available'
@@ -677,39 +733,32 @@ def api_faculty_dynamic_forms(request):
             if form_type == 'ccr' and not assignment.is_coordinator:
                 continue
                 
-            # Check for existing submission for this course
-            existing_submission = DynamicFormSubmission.objects.filter(
-                faculty=request.user,
-                course=assignment.course,
-                dynamic_form=active_form
-            ).first()
-            
             assigned_courses.append({
                 'id': assignment.course.id,
                 'code': assignment.course.code,
                 'title': assignment.course.title,
                 'is_coordinator': assignment.is_coordinator,
                 'section': assignment.section,
-                'existing_submission': {
-                    'id': existing_submission.id if existing_submission else None,
-                    'status': existing_submission.status if existing_submission else None
-                } if existing_submission else None
             })
         
-        # Get questions for the form
-        questions = list(FormQuestion.objects.filter(form=active_form).order_by('order').values(
-            'id', 'question_text', 'question_type', 'required', 'options', 'config', 'help_text'
-        ))
+        # Get questions for ALL active forms
+        forms_with_questions = []
+        for form in active_forms:
+            questions = list(FormQuestion.objects.filter(form=form).order_by('order').values(
+                'id', 'question_text', 'question_type', 'required', 'options', 'config', 'help_text'
+            ))
+            
+            forms_with_questions.append({
+                'id': form.id,
+                'name': form.name,
+                'description': form.description,
+                'form_type': form.form_type,
+                'questions': questions
+            })
         
         return JsonResponse({
             'active': True,
-            'form': {
-                'id': active_form.id,
-                'name': active_form.name,
-                'description': active_form.description,
-                'form_type': active_form.form_type
-            },
-            'questions': questions,
+            'forms': forms_with_questions,  # Now returns array of forms
             'assigned_courses': assigned_courses
         })
         
@@ -717,11 +766,8 @@ def api_faculty_dynamic_forms(request):
         print(f"Error in api_faculty_dynamic_forms: {str(e)}")  # For debugging
         return JsonResponse({'error': str(e)}, status=400)
 
-
-
-
 # Check form availability for faculty
-# Check form availability for faculty (UNIVERSAL FORMS ONLY)
+
 @login_required
 @require_http_methods(["GET"])
 def api_form_availability(request):
@@ -730,16 +776,16 @@ def api_form_availability(request):
         return JsonResponse({'error': 'Access denied'}, status=403)
     
     try:
-        # Check active forms GLOBALLY (only CCR and CRR - universal forms)
-        ccr_active = DynamicForm.objects.filter(
+        # Get ALL active forms for CCR and CRR
+        ccr_forms = list(DynamicForm.objects.filter(
             status=DynamicForm.STATUS_ACTIVE,
             form_type='ccr'
-        ).exists()
+        ).values('id', 'name', 'description', 'created_at').order_by('-created_at'))
         
-        crr_active = DynamicForm.objects.filter(
+        crr_forms = list(DynamicForm.objects.filter(
             status=DynamicForm.STATUS_ACTIVE,
             form_type='crr'
-        ).exists()
+        ).values('id', 'name', 'description', 'created_at').order_by('-created_at'))
         
         # Check if user is coordinator for ANY course
         is_coordinator_for_any = CourseFaculty.objects.filter(
@@ -761,32 +807,32 @@ def api_form_availability(request):
                 'is_coordinator': assignment.is_coordinator,
                 'section': assignment.section,
                 'forms_available': {
-                    'ccr': ccr_active and assignment.is_coordinator,
-                    'crr': crr_active
+                    'ccr': ccr_forms if assignment.is_coordinator else [],
+                    'crr': crr_forms
                 }
             })
         
         return JsonResponse({
-            'global_availability': {
-                'ccr': ccr_active,
-                'crr': crr_active
+            'active_forms': {
+                'ccr': ccr_forms,
+                'crr': crr_forms
             },
-            'user_can_submit_ccr': ccr_active and is_coordinator_for_any,
-            'user_can_submit_crr': crr_active,
+            'user_can_submit_ccr': len(ccr_forms) > 0 and is_coordinator_for_any,
+            'user_can_submit_crr': len(crr_forms) > 0,
             'courses': courses_data,
             'status': 'success'
         })
     except Exception as e:
-        print(f"Error in api_form_availability: {str(e)}")  # For debugging
+        print(f"Error in api_form_availability: {str(e)}")
         return JsonResponse({
             'error': str(e),
             'status': 'error',
-            'global_availability': {'ccr': False, 'crr': False},
+            'active_forms': {'ccr': [], 'crr': []},
             'user_can_submit_ccr': False,
             'user_can_submit_crr': False,
             'courses': []
         }, status=400)
-    
+
 # Submit universal form
 @login_required
 @csrf_exempt
@@ -799,9 +845,14 @@ def api_submit_dynamic_form(request):
     try:
         data = json.loads(request.body)
         course_id = data.get('course_id')
-        form_id = data.get('form_id')
+        form_id = data.get('form_id')  # Now form_id is required since multiple forms
         answers = data.get('answers', {})
         status = data.get('status', 'draft')  # 'draft' or 'submitted'
+        
+        print(f"Form submission attempt: user={request.user.username}, course_id={course_id}, form_id={form_id}, status={status}")
+        
+        if not form_id:
+            return JsonResponse({'error': 'form_id is required. Multiple forms may be active.'}, status=400)
         
         # Validate course assignment
         try:
@@ -812,11 +863,15 @@ def api_submit_dynamic_form(request):
         except CourseFaculty.DoesNotExist:
             return JsonResponse({'error': 'Course not assigned to you'}, status=400)
         
-        # Get the UNIVERSAL form
+        # Get the SPECIFIC UNIVERSAL form
         try:
             form = DynamicForm.objects.get(id=form_id, form_type__in=['ccr', 'crr'])
         except DynamicForm.DoesNotExist:
             return JsonResponse({'error': 'Form not found or not a universal form'}, status=404)
+        
+        # Check if form is active
+        if form.status != 'active':
+            return JsonResponse({'error': 'Form is not active'}, status=400)
         
         # Check if form type matches coordinator status
         if form.form_type == 'ccr' and not course_assignment.is_coordinator:
@@ -833,13 +888,23 @@ def api_submit_dynamic_form(request):
         ).first()
         
         # Allow resubmission if in draft or revision requested status
+        # Only block if trying to submit when already submitted
         if existing_submission and existing_submission.status == 'submitted' and status == 'submitted':
-            return JsonResponse({'error': 'You have already submitted this form for the selected course'}, status=400)
+            return JsonResponse({
+                'error': 'You have already submitted this form for the selected course.',
+                'submission_id': existing_submission.id,
+                'status': existing_submission.status
+            }, status=400)
         
         # Create or update submission
         if existing_submission:
             submission = existing_submission
             submission.status = status
+            
+            # Update submission date if submitting (not draft)
+            if status == 'submitted':
+                submission.submission_date = datetime.now()
+            
             submission.save()
             
             # Delete existing answers
@@ -853,7 +918,8 @@ def api_submit_dynamic_form(request):
                 course_coordinator=request.user.username if course_assignment.is_coordinator else "",
                 is_coordinator=course_assignment.is_coordinator,
                 section=course_assignment.section,
-                status=status
+                status=status,
+                submission_date=datetime.now() if status == 'submitted' else None
             )
         
         # Create answers
@@ -862,7 +928,7 @@ def api_submit_dynamic_form(request):
                 question = FormQuestion.objects.get(id=question_id, form=form)
                 
                 # Handle different answer types
-                if isinstance(answer_value, list) or isinstance(answer_value, dict):
+                if isinstance(answer_value, (list, dict)):
                     FormAnswer.objects.create(
                         submission=submission,
                         question=question,
@@ -877,23 +943,23 @@ def api_submit_dynamic_form(request):
                         answer_data=None
                     )
             except FormQuestion.DoesNotExist:
+                print(f"Warning: Question {question_id} not found in form {form_id}")
                 continue
         
         return JsonResponse({
-            'message': 'Form saved successfully', 
+            'message': f'Form {"submitted" if status == "submitted" else "saved as draft"} successfully!',
             'submission_id': submission.id,
-            'status': submission.status
+            'status': submission.status,
+            'success': True
         })
         
     except Course.DoesNotExist:
         return JsonResponse({'error': 'Course not found'}, status=404)
     except Exception as e:
-        return JsonResponse({'error': str(e)}, status=400)
-
-
-
-
-
+        print(f"Error in form submission: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'error': f'Submission failed: {str(e)}'}, status=400)
 
 # Faculty Users API
 @login_required
@@ -1243,143 +1309,6 @@ def api_crc_form_submissions(request):
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
 
-
-
-
-
-
-@login_required
-@user_passes_test(is_admin_or_crc)
-@require_http_methods(["GET"])
-def api_crc_analytics(request):
-    """Generate analytics for form submissions"""
-    try:
-        form_id = request.GET.get('form_id')
-        course_id = request.GET.get('course_id')
-        question_id = request.GET.get('question_id')
-        
-        # Get analytics from cache or generate new
-        cache_key = f"analytics_{form_id}_{course_id}_{question_id}"
-        
-        # Try to get from cache
-        cached = AnalyticsCache.objects.filter(
-            form_id=form_id if form_id else None,
-            course_id=course_id if course_id else None,
-            analytics_type='summary'
-        ).first()
-        
-        if cached:
-            return JsonResponse(cached.data)
-        
-        # Generate new analytics
-        submissions = DynamicFormSubmission.objects.all()
-        
-        if form_id:
-            submissions = submissions.filter(dynamic_form_id=form_id)
-        if course_id:
-            submissions = submissions.filter(course_id=course_id)
-        
-        # Basic statistics
-        total_submissions = submissions.count()
-        ccr_submissions = submissions.filter(dynamic_form__form_type='ccr').count()
-        crr_submissions = submissions.filter(dynamic_form__form_type='crr').count()
-        
-        # Status distribution
-        status_counts = submissions.values('status').annotate(count=Count('id'))
-        
-        # Faculty distribution
-        faculty_counts = submissions.values('faculty__username').annotate(count=Count('id'))
-        
-        # Course distribution
-        course_counts = submissions.values('course__code', 'course__title').annotate(count=Count('id'))
-        
-        analytics_data = {
-            'total_submissions': total_submissions,
-            'ccr_submissions': ccr_submissions,
-            'crr_submissions': crr_submissions,
-            'status_distribution': list(status_counts),
-            'faculty_distribution': list(faculty_counts),
-            'course_distribution': list(course_counts),
-            'generated_at': datetime.now().isoformat()
-        }
-        
-        # If question_id is specified, get question-wise analytics
-        if question_id:
-            try:
-                question = FormQuestion.objects.get(id=question_id)
-                answers = FormAnswer.objects.filter(
-                    question=question,
-                    submission__in=submissions
-                )
-                
-                if question.question_type in ['select', 'radio', 'checkbox']:
-                    # For multiple choice questions
-                    option_counts = {}
-                    for answer in answers:
-                        if answer.answer_data:
-                            for option in answer.answer_data:
-                                option_counts[option] = option_counts.get(option, 0) + 1
-                        elif answer.answer_text:
-                            option_counts[answer.answer_text] = option_counts.get(answer.answer_text, 0) + 1
-                    
-                    question_analytics = {
-                        'question_text': question.question_text,
-                        'question_type': question.question_type,
-                        'total_responses': len(answers),
-                        'option_counts': option_counts,
-                        'most_frequent': max(option_counts, key=option_counts.get) if option_counts else None
-                    }
-                else:
-                    # For text questions
-                    text_responses = [answer.answer_text for answer in answers if answer.answer_text]
-                    question_analytics = {
-                        'question_text': question.question_text,
-                        'question_type': question.question_type,
-                        'total_responses': len(answers),
-                        'text_responses_sample': text_responses[:10],
-                        'total_text_responses': len(text_responses)
-                    }
-                
-                analytics_data['question_analytics'] = question_analytics
-                
-            except FormQuestion.DoesNotExist:
-                pass
-        
-        # Cache the analytics
-        AnalyticsCache.objects.create(
-            form_id=form_id if form_id else None,
-            course_id=course_id if course_id else None,
-            analytics_type='summary',
-            data=analytics_data
-        )
-        
-        return JsonResponse(analytics_data)
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=400)
-
-@login_required
-@user_passes_test(is_admin_or_crc)
-@require_http_methods(["GET"])
-def api_crc_export_analytics(request):
-    """Export analytics as PDF (simplified - returns JSON for now)"""
-    try:
-        form_id = request.GET.get('form_id')
-        
-        # Get analytics data
-        analytics_response = api_crc_analytics(request)
-        analytics_data = json.loads(analytics_response.content)
-        
-        # In a real implementation, you would generate a PDF here
-        # For now, return JSON with a message about PDF generation
-        return JsonResponse({
-            'message': 'PDF export functionality would be implemented here',
-            'analytics_data': analytics_data,
-            'export_format': 'pdf',
-            'exported_at': datetime.now().isoformat()
-        })
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=400)
-
 @login_required
 @csrf_exempt
 @require_http_methods(["POST"])
@@ -1439,10 +1368,11 @@ def api_save_course_outline(request):
                     'current_status': outline.status
                 }, status=400)
             
-            # If CRC requested revision, reset to draft when saving
+            # If CRC requested revision, allow saving as draft or submitted
             if outline.status == 'revision_requested':
-                status = 'draft'
-                outline.notes = ''  # Clear revision notes when faculty starts editing
+                # Clear notes when faculty starts editing (only if saving as draft)
+                if status == 'draft':
+                    outline.notes = ''
             
             outline.title = title
             outline.description = description
@@ -1492,6 +1422,7 @@ def api_save_course_outline(request):
         return JsonResponse({'error': 'Course outline not found'}, status=404)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
+
 
 @login_required
 @user_passes_test(is_admin_or_crc)
@@ -1587,6 +1518,8 @@ def api_get_course_outline(request):
             
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
+
+
 
 # Submission Details API
 @login_required
@@ -1696,12 +1629,6 @@ def api_crc_dashboard_stats(request):
         })
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
-    
-
-
-
-
-
 
 
 # Submission Approval APIs
@@ -1842,10 +1769,6 @@ def api_faculty_submissions(request):
         return JsonResponse(submissions_list, safe=False)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
-
-
-
-
 
 # Faculty Course Outlines API
 @login_required
@@ -2118,101 +2041,6 @@ def api_faculty_course_outline_structure(request):
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
 
-# Compare Outlines API
-@login_required
-@user_passes_test(is_admin_or_crc)
-@require_http_methods(["GET"])
-def api_crc_compare_outlines(request):
-    """Compare old and new course outlines"""
-    try:
-        course_id = request.GET.get('course_id')
-        new_outline_id = request.GET.get('new_outline_id')
-        
-        if not course_id or not new_outline_id:
-            return JsonResponse({'error': 'course_id and new_outline_id are required'}, status=400)
-        
-        # Get new outline
-        new_outline = CourseOutline.objects.get(id=new_outline_id)
-        
-        # Get current/old outline for comparison
-        old_outline = CourseOutline.objects.filter(
-            course_id=course_id,
-            is_current=True,
-            status='approved'
-        ).exclude(id=new_outline_id).order_by('-version').first()
-        
-        comparison_data = {
-            'course': {
-                'id': new_outline.course.id,
-                'code': new_outline.course.code,
-                'title': new_outline.course.title
-            },
-            'new_outline': {
-                'id': new_outline.id,
-                'version': new_outline.version,
-                'title': new_outline.title,
-                'faculty': new_outline.faculty.username,
-                'submitted_at': new_outline.submitted_at.isoformat() if new_outline.submitted_at else None
-            },
-            'old_outline': None,
-            'comparison': {
-                'major_changes': [],
-                'minor_changes': [],
-                'summary': 'No previous outline found for comparison'
-            }
-        }
-        
-        if old_outline:
-            comparison_data['old_outline'] = {
-                'id': old_outline.id,
-                'version': old_outline.version,
-                'title': old_outline.title,
-                'approved_at': old_outline.approved_at.isoformat() if old_outline.approved_at else None
-            }
-            
-            # Simple comparison
-            old_content = old_outline.content or {}
-            new_content = new_outline.content or {}
-            
-            major_changes = []
-            minor_changes = []
-            
-            # Compare course info
-            old_info = old_content.get('course_info', {})
-            new_info = new_content.get('course_info', {})
-            
-            for key in ['course_name', 'course_code', 'credits']:
-                if old_info.get(key) != new_info.get(key):
-                    major_changes.append(f"Course {key.replace('_', ' ').title()} changed: '{old_info.get(key)}' → '{new_info.get(key)}'")
-            
-            # Compare sections
-            old_sections = old_content.get('sections', [])
-            new_sections = new_content.get('sections', [])
-            
-            for i, new_section in enumerate(new_sections):
-                if i < len(old_sections):
-                    old_section = old_sections[i]
-                    if new_section.get('content') != old_section.get('content'):
-                        if new_section.get('id') in ['calendar_activities', 'assessment', 'learning_outcomes']:
-                            major_changes.append(f"Changes in {new_section.get('title', 'Section')}")
-                        else:
-                            minor_changes.append(f"Updates in {new_section.get('title', 'Section')}")
-                else:
-                    # New section added
-                    major_changes.append(f"New section added: {new_section.get('title', 'Untitled')}")
-            
-            comparison_data['comparison'] = {
-                'major_changes': major_changes,
-                'minor_changes': minor_changes,
-                'summary': f"Found {len(major_changes)} major and {len(minor_changes)} minor changes"
-            }
-        
-        return JsonResponse(comparison_data)
-        
-    except CourseOutline.DoesNotExist:
-        return JsonResponse({'error': 'Course outline not found'}, status=404)
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=400)
 
 @login_required
 @require_http_methods(["GET"])
@@ -2284,3 +2112,1345 @@ def api_faculty_form_availability(request):
                 
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
+
+
+@login_required
+@user_passes_test(is_admin_or_crc)
+@require_http_methods(["GET"])
+def api_get_all_outlines(request):
+    """Get ALL outlines - both approved and submitted"""
+    try:
+        outlines = CourseOutline.objects.filter(
+            status__in=['submitted', 'approved']
+        ).select_related('course', 'faculty').order_by('-created_at')
+        
+        outlines_list = []
+        for outline in outlines:
+            outlines_list.append({
+                'id': outline.id,
+                'course_code': outline.course.code,
+                'course_title': outline.course.title,
+                'faculty': outline.faculty.username,
+                'version': outline.version,
+                'title': outline.title,
+                'status': outline.status,
+                'created_at': outline.created_at.strftime('%Y-%m-%d') if outline.created_at else None
+            })
+        
+        return JsonResponse(outlines_list, safe=False)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+
+@login_required
+@user_passes_test(is_admin)
+@csrf_exempt
+@require_http_methods(["PUT"])
+def api_department_update(request, department_id):
+    try:
+        data = json.loads(request.body)
+        department = Department.objects.get(id=department_id)
+        department.name = data.get('name', department.name)
+        department.code = data.get('code', department.code)
+        department.description = data.get('description', department.description)
+        department.save()
+        return JsonResponse({
+            'id': department.id,
+            'name': department.name,
+            'code': department.code,
+            'description': department.description
+        })
+    except Department.DoesNotExist:
+        return JsonResponse({'error': 'Department not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+
+# new apii
+
+# Analysis Endpoints
+@login_required
+@user_passes_test(is_admin_or_crc)
+@require_http_methods(["GET"])
+def api_analysis_submissions_over_time(request):
+    """Get form submissions over time (weekly periods)"""
+    try:
+        # Get data for last 12 weeks
+        end_date = datetime.now()
+        start_date = end_date - timedelta(weeks=12)
+        
+        # Get all submissions (universal forms only)
+        submissions = DynamicFormSubmission.objects.filter(
+            submission_date__gte=start_date,
+            dynamic_form__form_type__in=['ccr', 'crr']
+        ).order_by('submission_date')
+        
+        # Group by week
+        week_data = defaultdict(lambda: {
+            'ccr': 0,
+            'crr': 0,
+            'total': 0
+        })
+        
+        for submission in submissions:
+            # Get week number
+            week_start = submission.submission_date - timedelta(
+                days=submission.submission_date.weekday()
+            )
+            week_key = week_start.strftime('%Y-%m-%d')
+            
+            week_data[week_key]['total'] += 1
+            if submission.dynamic_form.form_type == 'ccr':
+                week_data[week_key]['ccr'] += 1
+            else:
+                week_data[week_key]['crr'] += 1
+        
+        # Sort by date
+        sorted_weeks = sorted(week_data.items(), key=lambda x: x[0])
+        
+        # Format response
+        result = {
+            'weeks': [week[0] for week in sorted_weeks],
+            'ccr_data': [week[1]['ccr'] for week in sorted_weeks],
+            'crr_data': [week[1]['crr'] for week in sorted_weeks],
+            'total_data': [week[1]['total'] for week in sorted_weeks]
+        }
+        
+        return JsonResponse(result)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+@login_required
+@user_passes_test(is_admin_or_crc)
+@require_http_methods(["GET"])
+def api_analysis_form_status(request):
+    """Get form status distribution"""
+    try:
+        # Get status counts for universal forms
+        status_counts = DynamicFormSubmission.objects.filter(
+            dynamic_form__form_type__in=['ccr', 'crr']
+        ).values('status').annotate(count=Count('id'))
+        
+        # Get totals
+        total_submissions = sum(item['count'] for item in status_counts)
+        
+        # Format for pie chart
+        result = {
+            'labels': [],
+            'data': [],
+            'colors': []
+        }
+        
+        status_colors = {
+            'submitted': '#FFC107',  # Yellow
+            'approved': '#4CAF50',    # Green
+            'draft': '#9E9E9E',       # Grey
+            'revision_requested': '#F44336',  # Red
+        }
+        
+        for item in status_counts:
+            result['labels'].append(item['status'].title())
+            result['data'].append(item['count'])
+            result['colors'].append(status_colors.get(item['status'], '#2196F3'))
+        
+        return JsonResponse(result)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+
+# Update the CLO achievement analysis function
+@login_required
+@user_passes_test(is_admin_or_crc)
+@require_http_methods(["GET"])
+def api_analysis_clo_achievement(request):
+    """Get CLO achievement rates by analyzing actual form answers AND course outlines"""
+    try:
+        # Initialize CLO data for 4 CLOs
+        clo_data = {
+            'CLO1': {'scores': [], 'count': 0, 'achieved_count': 0, 'sources': []},
+            'CLO2': {'scores': [], 'count': 0, 'achieved_count': 0, 'sources': []},
+            'CLO3': {'scores': [], 'count': 0, 'achieved_count': 0, 'sources': []},
+            'CLO4': {'scores': [], 'count': 0, 'achieved_count': 0, 'sources': []},
+        }
+        
+        # PART 1: Analyze form submissions (CCR/CRR forms)
+        submissions = DynamicFormSubmission.objects.filter(
+            dynamic_form__form_type__in=['ccr', 'crr'],
+            status__in=['submitted', 'approved']  # Only analyze submitted/approved forms
+        ).prefetch_related('answers__question')
+        
+        form_count = 0
+        for submission in submissions:
+            answers = submission.answers.all()
+            
+            for answer in answers:
+                question_text = answer.question.question_text.lower()
+                
+                # Method 1: Check for CLO percentage dictionary answers
+                if isinstance(answer.answer_data, dict):
+                    for clo_num in [1, 2, 3, 4]:
+                        clo_key = f'CLO{clo_num}'
+                        # Try different key formats
+                        for key in [f'clo{clo_num}', f'clo_{clo_num}', f'CLO{clo_num}', f'CLO_{clo_num}']:
+                            if key in answer.answer_data:
+                                score = answer.answer_data[key]
+                                if isinstance(score, (int, float)):
+                                    clo_data[clo_key]['scores'].append(score)
+                                    clo_data[clo_key]['count'] += 1
+                                    clo_data[clo_key]['sources'].append(f"Form: {submission.course.code}")
+                                    if score >= 70:
+                                        clo_data[clo_key]['achieved_count'] += 1
+                                elif isinstance(score, str):
+                                    try:
+                                        # Handle percentage strings
+                                        if '%' in score:
+                                            score_val = float(score.replace('%', '').strip())
+                                        else:
+                                            score_val = float(score)
+                                        
+                                        clo_data[clo_key]['scores'].append(score_val)
+                                        clo_data[clo_key]['count'] += 1
+                                        clo_data[clo_key]['sources'].append(f"Form: {submission.course.code}")
+                                        if score_val >= 70:
+                                            clo_data[clo_key]['achieved_count'] += 1
+                                    except:
+                                        pass
+                
+                # Method 2: Check question text for CLO references
+                for clo_num in [1, 2, 3, 4]:
+                    clo_patterns = [
+                        f'clo{clo_num}',
+                        f'clo {clo_num}',
+                        f'course learning outcome {clo_num}',
+                        f'learning outcome {clo_num}',
+                        f'clo-{clo_num}',
+                        f'clo_{clo_num}',
+                    ]
+                    
+                    if any(pattern in question_text for pattern in clo_patterns):
+                        clo_key = f'CLO{clo_num}'
+                        
+                        # Extract score from answer
+                        score = extract_clo_score_from_answer(answer)
+                        if score is not None:
+                            clo_data[clo_key]['scores'].append(score)
+                            clo_data[clo_key]['count'] += 1
+                            clo_data[clo_key]['sources'].append(f"Form: {submission.course.code}")
+                            
+                            # Check if achieved (score >= 70%)
+                            if score >= 70:
+                                clo_data[clo_key]['achieved_count'] += 1
+        
+        # PART 2: Analyze course outlines for CLO data
+        # Get approved course outlines
+        approved_outlines = CourseOutline.objects.filter(
+            status='approved',
+            is_current=True
+        )
+        
+        outline_count = 0
+        for outline in approved_outlines:
+            try:
+                # Parse outline content (assuming JSON structure)
+                if outline.content:
+                    content = outline.content
+                    if isinstance(content, str):
+                        try:
+                            content_data = json.loads(content)
+                        except:
+                            content_data = None
+                    else:
+                        content_data = content
+                    
+                    if content_data and isinstance(content_data, dict):
+                        # Look for CLO data in outline structure
+                        if 'sections' in content_data:
+                            for section in content_data['sections']:
+                                if isinstance(section, dict):
+                                    # Check for CLO tables or sections
+                                    section_title = section.get('title', '').lower()
+                                    section_id = section.get('id', '').lower()
+                                    
+                                    # Check if this is a CLO-related section
+                                    if any(clo_term in section_title or clo_term in section_id 
+                                           for clo_term in ['clo', 'course learning outcome', 'learning outcome']):
+                                        
+                                        # Extract rows from table sections
+                                        if section.get('type') == 'table' and 'rows' in section:
+                                            for row in section['rows']:
+                                                if isinstance(row, dict):
+                                                    # Look for CLO data in row
+                                                    row_text = str(row).lower()
+                                                    for clo_num in [1, 2, 3, 4]:
+                                                        if f'clo{clo_num}' in row_text or f'clo {clo_num}' in row_text:
+                                                            clo_key = f'CLO{clo_num}'
+                                                            
+                                                            # Try to extract percentage from row
+                                                            row_str = str(row)
+                                                            import re
+                                                            
+                                                            # Look for percentages in row
+                                                            percent_pattern = r'(\d+\.?\d*)%'
+                                                            percentages = re.findall(percent_pattern, row_str)
+                                                            if percentages:
+                                                                try:
+                                                                    score = float(percentages[0])
+                                                                    clo_data[clo_key]['scores'].append(score)
+                                                                    clo_data[clo_key]['count'] += 1
+                                                                    clo_data[clo_key]['sources'].append(f"Outline: {outline.course.code}")
+                                                                    if score >= 70:
+                                                                        clo_data[clo_key]['achieved_count'] += 1
+                                                                except:
+                                                                    pass
+            except Exception as e:
+                print(f"Error parsing outline {outline.id}: {str(e)}")
+                continue
+        
+        # Calculate achievement rates and prepare result
+        result = {
+            'clos': ['CLO1', 'CLO2', 'CLO3', 'CLO4'],
+            'achievement_rates': [],
+            'average_scores': [],
+            'total_responses': [],
+            'achieved_counts': [],
+            'details': [],
+            'sources_summary': {
+                'form_submissions': form_count,
+                'course_outlines': outline_count,
+                'total_sources': form_count + outline_count
+            }
+        }
+        
+        for clo in result['clos']:
+            scores = clo_data[clo]['scores']
+            count = clo_data[clo]['count']
+            achieved = clo_data[clo]['achieved_count']
+            
+            if count > 0:
+                avg_score = sum(scores) / len(scores)
+                achievement_rate = (achieved / count) * 100
+            else:
+                avg_score = 0
+                achievement_rate = 0
+            
+            result['average_scores'].append(round(avg_score, 1))
+            result['achievement_rates'].append(round(achievement_rate, 1))
+            result['total_responses'].append(count)
+            result['achieved_counts'].append(achieved)
+            
+            # Add detailed breakdown
+            result['details'].append({
+                'clo': clo,
+                'average_score': round(avg_score, 1),
+                'achievement_rate': round(achievement_rate, 1),
+                'total_responses': count,
+                'achieved_responses': achieved,
+                'score_distribution': get_score_distribution(scores) if scores else {},
+                'data_sources': list(set(clo_data[clo]['sources']))[:5]  # Unique sources, limit to 5
+            })
+        
+        return JsonResponse(result)
+    except Exception as e:
+        print(f"Error in CLO achievement analysis: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'error': str(e)}, status=400)
+
+def extract_clo_score_from_answer(answer):
+    """Extract a numerical score (0-100) from an answer"""
+    try:
+        # If the question is CLO percentage type, check answer_data first
+        if answer.question.question_type == 'clo_percentage' and answer.answer_data:
+            if isinstance(answer.answer_data, dict):
+                # For CLO percentage type, average all CLO values
+                clo_values = []
+                for clo_num in [1, 2, 3, 4]:
+                    for key in [f'clo{clo_num}', f'clo_{clo_num}', f'CLO{clo_num}']:
+                        if key in answer.answer_data:
+                            value = answer.answer_data[key]
+                            if isinstance(value, (int, float)):
+                                clo_values.append(value)
+                            elif isinstance(value, str):
+                                try:
+                                    if '%' in value:
+                                        clo_values.append(float(value.replace('%', '').strip()))
+                                    else:
+                                        clo_values.append(float(value))
+                                except:
+                                    pass
+                if clo_values:
+                    return sum(clo_values) / len(clo_values)
+                
+                # Look for general score fields
+                for key in ['score', 'percentage', 'rating', 'value', 'achievement']:
+                    if key in answer.answer_data:
+                        try:
+                            value = answer.answer_data[key]
+                            if isinstance(value, (int, float)):
+                                return float(value)
+                            elif isinstance(value, str):
+                                if '%' in value:
+                                    return float(value.replace('%', '').strip())
+                                else:
+                                    return float(value)
+                        except:
+                            continue
+            
+            # If it's a list, try to extract numeric values
+            elif isinstance(answer.answer_data, list):
+                numeric_values = []
+                for item in answer.answer_data:
+                    if isinstance(item, (int, float)):
+                        numeric_values.append(item)
+                    elif isinstance(item, str):
+                        try:
+                            # Try to convert to float
+                            val = float(item)
+                            numeric_values.append(val)
+                        except:
+                            # Try to extract number from string
+                            import re
+                            numbers = re.findall(r'\d+\.?\d*', item)
+                            if numbers:
+                                try:
+                                    numeric_values.append(float(numbers[0]))
+                                except:
+                                    pass
+                
+                if numeric_values:
+                    return sum(numeric_values) / len(numeric_values)
+        
+        # Case 4: Try to extract number from text
+        if answer.answer_text:
+            import re
+            # Look for percentages first
+            percent_pattern = r'(\d+\.?\d*)%'
+            percent_matches = re.findall(percent_pattern, answer.answer_text)
+            if percent_matches:
+                try:
+                    return float(percent_matches[0])
+                except:
+                    pass
+            
+            # Look for any numbers
+            numbers = re.findall(r'\d+\.?\d*', answer.answer_text)
+            if numbers:
+                try:
+                    # Take the first number that looks like a percentage (0-100)
+                    for num in numbers:
+                        val = float(num)
+                        if 0 <= val <= 100:
+                            return val
+                    # If no number in 0-100 range, take the first one
+                    return float(numbers[0])
+                except:
+                    pass
+        
+        # Case 5: Map textual answers to scores
+        if answer.answer_text:
+            text = answer.answer_text.lower().strip()
+            
+            # Check for percentage phrases
+            if '100%' in text or 'hundred percent' in text:
+                return 100
+            elif '90%' in text or 'ninety percent' in text:
+                return 90
+            elif '80%' in text or 'eighty percent' in text:
+                return 80
+            elif '70%' in text or 'seventy percent' in text:
+                return 70
+            elif '60%' in text or 'sixty percent' in text:
+                return 60
+            elif '50%' in text or 'fifty percent' in text:
+                return 50
+            elif '40%' in text or 'forty percent' in text:
+                return 40
+            elif '30%' in text or 'thirty percent' in text:
+                return 30
+            elif '20%' in text or 'twenty percent' in text:
+                return 20
+            elif '10%' in text or 'ten percent' in text:
+                return 10
+            elif '0%' in text or 'zero percent' in text:
+                return 0
+            
+            # Map textual ratings to scores
+            mapping = {
+                'excellent': 90, 'outstanding': 95, 'exceptional': 95,
+                'very good': 85, 'very good': 85,
+                'good': 80, 'well achieved': 80,
+                'satisfactory': 75, 'adequate': 75, 'moderate': 75,
+                'average': 70, 'medium': 70,
+                'fair': 65, 'acceptable': 65,
+                'poor': 60, 'below average': 60,
+                'very poor': 50, 'inadequate': 50,
+                'not achieved': 40, 'failed': 40, 'unsatisfactory': 40,
+                'yes': 80, 'achieved': 80,
+                'no': 40, 'not achieved': 40,
+                'partially': 60, 'partially achieved': 60,
+                'fully': 90, 'fully achieved': 90,
+                'substantially': 85, 'mostly': 80,
+            }
+            
+            for key, value in mapping.items():
+                if key in text:
+                    return value
+            
+            # Check for Likert scale
+            likert_map = {
+                '5': 90, '5/5': 90, '5 out of 5': 90, 'five': 90,
+                '4': 75, '4/5': 75, '4 out of 5': 75, 'four': 75,
+                '3': 60, '3/5': 60, '3 out of 5': 60, 'three': 60,
+                '2': 45, '2/5': 45, '2 out of 5': 45, 'two': 45,
+                '1': 30, '1/5': 30, '1 out of 5': 30, 'one': 30,
+            }
+            
+            for key, value in likert_map.items():
+                if key in text:
+                    return value
+        
+        return None
+    except:
+        return None
+
+def get_score_distribution(scores):
+    """Get distribution of scores in categories"""
+    if not scores:
+        return {}
+    
+    distribution = {
+        'Excellent (90-100)': 0,
+        'Good (80-89)': 0,
+        'Satisfactory (70-79)': 0,
+        'Needs Improvement (60-69)': 0,
+        'Poor (Below 60)': 0,
+    }
+    
+    for score in scores:
+        if score >= 90:
+            distribution['Excellent (90-100)'] += 1
+        elif score >= 80:
+            distribution['Good (80-89)'] += 1
+        elif score >= 70:
+            distribution['Satisfactory (70-79)'] += 1
+        elif score >= 60:
+            distribution['Needs Improvement (60-69)'] += 1
+        else:
+            distribution['Poor (Below 60)'] += 1
+    
+    # Convert to percentages
+    total = len(scores)
+    if total > 0:
+        for key in distribution:
+            distribution[key] = round((distribution[key] / total) * 100, 1)
+    
+    return distribution
+
+# Add this new endpoint for detailed CLO analysis
+@login_required
+@user_passes_test(is_admin_or_crc)
+@require_http_methods(["GET"])
+def api_analysis_detailed_clo(request, clo_number):
+    """Get detailed analysis for a specific CLO"""
+    try:
+        if clo_number not in [1, 2, 3, 4]:
+            return JsonResponse({'error': 'Invalid CLO number. Must be 1-4'}, status=400)
+        
+        clo_key = f'CLO{clo_number}'
+        
+        # Get all answers related to this CLO
+        answers = FormAnswer.objects.filter(
+            question__question_text__icontains=f'clo{clo_number}',
+            submission__dynamic_form__form_type__in=['ccr', 'crr']
+        ).select_related('submission', 'question', 'submission__course', 'submission__faculty')
+        
+        # Prepare detailed data
+        detailed_data = []
+        courses_data = {}
+        faculty_data = {}
+        
+        for answer in answers:
+            score = extract_clo_score_from_answer(answer)
+            if score is None:
+                continue
+            
+            # Course analysis
+            course_code = answer.submission.course.code
+            if course_code not in courses_data:
+                courses_data[course_code] = {'scores': [], 'count': 0}
+            courses_data[course_code]['scores'].append(score)
+            courses_data[course_code]['count'] += 1
+            
+            # Faculty analysis
+            faculty_name = answer.submission.faculty.username
+            if faculty_name not in faculty_data:
+                faculty_data[faculty_name] = {'scores': [], 'count': 0}
+            faculty_data[faculty_name]['scores'].append(score)
+            faculty_data[faculty_name]['count'] += 1
+            
+            # Add to detailed list
+            detailed_data.append({
+                'id': answer.id,
+                'course_code': course_code,
+                'course_title': answer.submission.course.title,
+                'faculty': faculty_name,
+                'question': answer.question.question_text[:100] + ('...' if len(answer.question.question_text) > 100 else ''),
+                'answer': answer.answer_text[:200] if answer.answer_text else str(answer.answer_data)[:200],
+                'score': score,
+                'achieved': score >= 70,
+                'submission_date': answer.submission.submission_date.isoformat() if answer.submission.submission_date else None,
+                'form_type': answer.submission.dynamic_form.form_type,
+            })
+        
+        # Calculate course averages
+        course_analysis = []
+        for course_code, data in courses_data.items():
+            avg_score = sum(data['scores']) / len(data['scores'])
+            achievement_rate = sum(1 for s in data['scores'] if s >= 70) / len(data['scores']) * 100
+            course_analysis.append({
+                'course_code': course_code,
+                'average_score': round(avg_score, 1),
+                'achievement_rate': round(achievement_rate, 1),
+                'response_count': data['count']
+            })
+        
+        # Calculate faculty averages
+        faculty_analysis = []
+        for faculty_name, data in faculty_data.items():
+            avg_score = sum(data['scores']) / len(data['scores'])
+            achievement_rate = sum(1 for s in data['scores'] if s >= 70) / len(data['scores']) * 100
+            faculty_analysis.append({
+                'faculty': faculty_name,
+                'average_score': round(avg_score, 1),
+                'achievement_rate': round(achievement_rate, 1),
+                'response_count': data['count']
+            })
+        
+        # Sort analyses
+        course_analysis.sort(key=lambda x: x['achievement_rate'], reverse=True)
+        faculty_analysis.sort(key=lambda x: x['achievement_rate'], reverse=True)
+        
+        # Calculate overall statistics
+        all_scores = []
+        for answer in detailed_data:
+            all_scores.append(answer['score'])
+        
+        if all_scores:
+            overall_avg = sum(all_scores) / len(all_scores)
+            overall_achievement = sum(1 for s in all_scores if s >= 70) / len(all_scores) * 100
+        else:
+            overall_avg = 0
+            overall_achievement = 0
+        
+        return JsonResponse({
+            'clo': clo_key,
+            'overall_statistics': {
+                'average_score': round(overall_avg, 1),
+                'achievement_rate': round(overall_achievement, 1),
+                'total_responses': len(all_scores),
+                'achieved_responses': sum(1 for s in all_scores if s >= 70),
+                'score_range': {
+                    'min': min(all_scores) if all_scores else 0,
+                    'max': max(all_scores) if all_scores else 0,
+                    'median': get_median(all_scores) if all_scores else 0
+                }
+            },
+            'course_analysis': course_analysis,
+            'faculty_analysis': faculty_analysis[:10],  # Top 10 faculty
+            'detailed_responses': detailed_data[:50],  # Limit to 50 most recent
+            'generated_at': datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+def get_median(scores):
+    """Calculate median of scores"""
+    sorted_scores = sorted(scores)
+    n = len(sorted_scores)
+    if n % 2 == 0:
+        return (sorted_scores[n//2 - 1] + sorted_scores[n//2]) / 2
+    else:
+        return sorted_scores[n//2]
+
+# Add endpoint for trend analysis
+@login_required
+@user_passes_test(is_admin_or_crc)
+@require_http_methods(["GET"])
+def api_analysis_clo_trends(request):
+    """Get CLO achievement trends over time"""
+    try:
+        # Get data for last 4 quarters
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=365)  # Last year
+        
+        # Initialize data structure
+        quarters = []
+        clo_trends = {
+            'CLO1': [],
+            'CLO2': [],
+            'CLO3': [],
+            'CLO4': []
+        }
+        
+        # Divide into quarters
+        for i in range(4):
+            quarter_start = start_date + timedelta(days=i*90)
+            quarter_end = start_date + timedelta(days=(i+1)*90)
+            quarter_name = f"Q{i+1} {quarter_start.year}"
+            quarters.append(quarter_name)
+            
+            # Get answers for this quarter
+            for clo_num in [1, 2, 3, 4]:
+                answers = FormAnswer.objects.filter(
+                    question__question_text__icontains=f'clo{clo_num}',
+                    submission__submission_date__gte=quarter_start,
+                    submission__submission_date__lt=quarter_end,
+                    submission__dynamic_form__form_type__in=['ccr', 'crr']
+                )
+                
+                scores = []
+                for answer in answers:
+                    score = extract_clo_score_from_answer(answer)
+                    if score is not None:
+                        scores.append(score)
+                
+                if scores:
+                    achievement_rate = sum(1 for s in scores if s >= 70) / len(scores) * 100
+                else:
+                    achievement_rate = 0
+                
+                clo_trends[f'CLO{clo_num}'].append(round(achievement_rate, 1))
+        
+        return JsonResponse({
+            'quarters': quarters,
+            'trends': clo_trends,
+            'time_period': f"{start_date.strftime('%b %Y')} - {end_date.strftime('%b %Y')}"
+        })
+        
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+@login_required
+@user_passes_test(is_admin_or_crc)
+@csrf_exempt
+@require_http_methods(["POST"])
+def api_compare_outlines(request):
+    """Compare two outline versions"""
+    try:
+        data = json.loads(request.body)
+        outline1_id = data.get('outline1_id')
+        outline2_id = data.get('outline2_id')
+        
+        if not outline1_id or not outline2_id:
+            return JsonResponse({'error': 'Both outline IDs are required'}, status=400)
+        
+        # Get outlines
+        outline1 = CourseOutline.objects.get(id=outline1_id)
+        outline2 = CourseOutline.objects.get(id=outline2_id)
+        
+        # Ensure same course
+        if outline1.course != outline2.course:
+            return JsonResponse({'error': 'Outlines must be from the same course'}, status=400)
+        
+        # Parse content (assuming JSON structure)
+        try:
+            content1 = json.loads(outline1.content) if isinstance(outline1.content, str) else outline1.content
+            content2 = json.loads(outline2.content) if isinstance(outline2.content, str) else outline2.content
+        except:
+            # If not JSON, treat as text
+            content1 = str(outline1.content)
+            content2 = str(outline2.content)
+        
+        # Simple comparison logic
+        if isinstance(content1, dict) and isinstance(content2, dict):
+            # Compare structured data
+            differences = compare_structured_content(content1, content2)
+        else:
+            # Compare text
+            differences = compare_text_content(content1, content2)
+        
+        return JsonResponse({
+            'outline1': {
+                'id': outline1.id,
+                'version': outline1.version,
+                'title': outline1.title,
+                'status': outline1.status
+            },
+            'outline2': {
+                'id': outline2.id,
+                'version': outline2.version,
+                'title': outline2.title,
+                'status': outline2.status
+            },
+            'differences': differences,
+            'course': {
+                'code': outline1.course.code,
+                'title': outline1.course.title
+            }
+        })
+        
+    except CourseOutline.DoesNotExist:
+        return JsonResponse({'error': 'Outline not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+def compare_structured_content(content1, content2):
+    """Compare two structured JSON contents"""
+    differences = {
+        'added': [],
+        'modified': [],
+        'deleted': []
+    }
+    
+    # Compare sections if they exist
+    if 'sections' in content1 and 'sections' in content2:
+        sections1 = {section.get('id', str(i)): section for i, section in enumerate(content1['sections'])}
+        sections2 = {section.get('id', str(i)): section for i, section in enumerate(content2['sections'])}
+        
+        # Find added sections
+        for section_id, section in sections2.items():
+            if section_id not in sections1:
+                differences['added'].append({
+                    'id': section_id,
+                    'title': section.get('title', 'Untitled Section'),
+                    'content': section
+                })
+        
+        # Find deleted sections
+        for section_id, section in sections1.items():
+            if section_id not in sections2:
+                differences['deleted'].append({
+                    'id': section_id,
+                    'title': section.get('title', 'Untitled Section'),
+                    'content': section
+                })
+        
+        # Find modified sections
+        for section_id in set(sections1.keys()) & set(sections2.keys()):
+            if sections1[section_id] != sections2[section_id]:
+                differences['modified'].append({
+                    'id': section_id,
+                    'title': sections2[section_id].get('title', 'Untitled Section'),
+                    'old_content': sections1[section_id],
+                    'new_content': sections2[section_id]
+                })
+    
+    return differences
+
+def compare_text_content(text1, text2):
+    """Compare two text contents"""
+    lines1 = text1.split('\n')
+    lines2 = text2.split('\n')
+    
+    differences = {
+        'added': [],
+        'modified': [],
+        'deleted': []
+    }
+    
+    # Simple line-by-line comparison
+    for i, (line1, line2) in enumerate(itertools.zip_longest(lines1, lines2, fillvalue="")):
+        if i >= len(lines1):
+            # Line added in version 2
+            if line2.strip():
+                differences['added'].append({
+                    'line': i + 1,
+                    'content': line2
+                })
+        elif i >= len(lines2):
+            # Line deleted in version 2
+            if line1.strip():
+                differences['deleted'].append({
+                    'line': i + 1,
+                    'content': line1
+                })
+        elif line1 != line2:
+            # Line modified
+            differences['modified'].append({
+                'line': i + 1,
+                'old_content': line1,
+                'new_content': line2
+            })
+    
+    return differences
+
+@login_required
+@user_passes_test(is_admin_or_crc)
+@require_http_methods(["GET"])
+def api_analysis_clo_by_course(request):
+    """Get CLO achievement data broken down by course"""
+    try:
+        courses = Course.objects.all()
+        course_clo_data = []
+        
+        for course in courses:
+            course_data = {
+                'course_id': course.id,
+                'course_code': course.code,
+                'course_title': course.title,
+                'department': course.department.name if course.department else '',
+                'clo_data': {
+                    'CLO1': {'scores': [], 'count': 0, 'achieved': 0},
+                    'CLO2': {'scores': [], 'count': 0, 'achieved': 0},
+                    'CLO3': {'scores': [], 'count': 0, 'achieved': 0},
+                    'CLO4': {'scores': [], 'count': 0, 'achieved': 0},
+                }
+            }
+            
+            # Get form submissions for this course
+            submissions = DynamicFormSubmission.objects.filter(
+                course=course,
+                dynamic_form__form_type__in=['ccr', 'crr'],
+                status__in=['submitted', 'approved']
+            ).prefetch_related('answers__question')
+            
+            for submission in submissions:
+                answers = submission.answers.all()
+                
+                for answer in answers:
+                    # Check for CLO percentage dictionary
+                    if isinstance(answer.answer_data, dict):
+                        for clo_num in [1, 2, 3, 4]:
+                            clo_key = f'CLO{clo_num}'
+                            for key in [f'clo{clo_num}', f'clo_{clo_num}', f'CLO{clo_num}']:
+                                if key in answer.answer_data:
+                                    score = answer.answer_data[key]
+                                    if isinstance(score, (int, float)):
+                                        course_data['clo_data'][clo_key]['scores'].append(score)
+                                        course_data['clo_data'][clo_key]['count'] += 1
+                                        if score >= 70:
+                                            course_data['clo_data'][clo_key]['achieved'] += 1
+                                    elif isinstance(score, str):
+                                        try:
+                                            if '%' in score:
+                                                score_val = float(score.replace('%', '').strip())
+                                            else:
+                                                score_val = float(score)
+                                            
+                                            course_data['clo_data'][clo_key]['scores'].append(score_val)
+                                            course_data['clo_data'][clo_key]['count'] += 1
+                                            if score_val >= 70:
+                                                course_data['clo_data'][clo_key]['achieved'] += 1
+                                        except:
+                                            pass
+            
+            # Calculate averages and rates for this course
+            for clo in ['CLO1', 'CLO2', 'CLO3', 'CLO4']:
+                scores = course_data['clo_data'][clo]['scores']
+                count = course_data['clo_data'][clo]['count']
+                achieved = course_data['clo_data'][clo]['achieved']
+                
+                if count > 0:
+                    avg_score = sum(scores) / len(scores)
+                    achievement_rate = (achieved / count) * 100
+                else:
+                    avg_score = 0
+                    achievement_rate = 0
+                
+                course_data['clo_data'][clo]['average_score'] = round(avg_score, 1)
+                course_data['clo_data'][clo]['achievement_rate'] = round(achievement_rate, 1)
+            
+            course_clo_data.append(course_data)
+        
+        return JsonResponse(course_clo_data, safe=False)
+        
+    except Exception as e:
+        print(f"Error in CLO by course analysis: {str(e)}")
+        return JsonResponse({'error': str(e)}, status=400)
+
+
+
+def get_ai_provider_config():
+    """Get AI provider configuration from settings"""
+    return {
+        'provider': settings.AI_CONFIG.get('provider', 'openai'),
+        'model': settings.AI_CONFIG.get('model', 'gpt-4'),
+        'api_key': settings.AI_CONFIG.get('api_key'),
+        'api_base': settings.AI_CONFIG.get('api_base'),
+        'available': bool(settings.AI_CONFIG.get('api_key')),
+        'timeout': 30.0,
+        'max_tokens': 4000,
+        'temperature': 0.3
+    }
+
+def get_model_string(provider, model_name):
+    """Convert provider and model name to LiteLLM compatible string"""
+    provider_mappings = {
+        'openai': model_name,  # gpt-4, gpt-3.5-turbo, etc.
+        'openrouter': f'openrouter/{model_name}',
+        'deepseek': f'deepseek/{model_name}',
+        'anthropic': f'claude-{model_name}',
+        'groq': f'groq/{model_name}',
+        'ollama': model_name,
+        'together': f'together_ai/{model_name}',
+        'huggingface': f'huggingface/{model_name}',
+    }
+    
+    # Return the mapping or default to model_name
+    return provider_mappings.get(provider, model_name)
+
+def call_llm_api(prompt, config=None):
+    """Generic function to call any LLM provider via LiteLLM"""
+    if config is None:
+        config = get_ai_provider_config()
+    
+    if not config['available']:
+        raise Exception(f"AI API key not configured for provider: {config['provider']}")
+    
+    try:
+        # Construct model string
+        model_string = get_model_string(config['provider'], config['model'])
+        
+        # Call the API via LiteLLM
+        response = litellm.completion(
+            model=model_string,
+            messages=[
+                {"role": "system", "content": "You are an expert CQI analyst for higher education institutions."},
+                {"role": "user", "content": prompt}
+            ],
+            api_key=config['api_key'],
+            api_base=config.get('api_base'),
+            temperature=config.get('temperature', 0.3),
+            max_tokens=config.get('max_tokens', 4000),
+            timeout=config.get('timeout', 30.0)
+        )
+        
+        return response.choices[0].message.content
+        
+    except Exception as e:
+        print(f"AI API Error ({config['provider']}): {str(e)}")
+        raise Exception(f"AI service error ({config['provider']}): {str(e)}")
+
+
+
+#  CQI report function 
+@login_required
+@user_passes_test(is_admin_or_crc)
+@csrf_exempt
+@require_http_methods(["POST"])
+def api_generate_cqi_report(request):
+    """Generate CQI report using any AI provider via LiteLLM"""
+    try:
+        data = json.loads(request.body)
+        course_id = data.get('course_id')
+        time_period = data.get('time_period', 'quarter')
+        report_type = data.get('report_type', 'summary')
+        
+        print(f"CQI Report Request: course_id={course_id}, time_period={time_period}, report_type={report_type}")
+        
+        # Check if AI is configured
+        ai_config = get_ai_provider_config()
+        if not ai_config['available']:
+            return JsonResponse({
+                'error': 'AI service not configured. Please set AI_API_KEY in environment variables.',
+                'success': False,
+                'fallback_report': "CQI Report Generation Failed: AI service not configured."
+            }, status=400)
+        
+        # Collect comprehensive data for AI analysis
+        context_data = collect_data_for_ai(course_id, time_period)
+        
+        # Add metadata to context
+        context_data['metadata'] = {
+            'course_id': course_id,
+            'time_period': time_period,
+            'report_type': report_type,
+            'generated_at': datetime.now().isoformat(),
+            'ai_provider': ai_config['provider'],
+            'ai_model': ai_config['model'],
+            'data_summary': {
+                'form_submissions_count': len(context_data.get('form_submissions', [])),
+                'course_outlines_count': len(context_data.get('course_outlines', [])),
+                'has_clo_data': bool(context_data.get('clo_analysis', {}))
+            }
+        }
+        
+        # Generate report using AI
+        try:
+            report = generate_ai_report(context_data, report_type, ai_config)
+            
+            return JsonResponse({
+                'report': report,
+                'generated_at': datetime.now().isoformat(),
+                'course_id': course_id,
+                'time_period': time_period,
+                'report_type': report_type,
+                'ai_provider': ai_config['provider'],
+                'ai_model': ai_config['model'],
+                'context_summary': {
+                    'form_submissions_analyzed': len(context_data.get('form_submissions', [])),
+                    'course_outlines_analyzed': len(context_data.get('course_outlines', [])),
+                    'clo_analysis_included': bool(context_data.get('clo_analysis', {})),
+                    'statistics': context_data.get('statistics', {})
+                },
+                'success': True
+            })
+        except Exception as ai_error:
+            print(f"AI generation error: {ai_error}")
+            # Fallback to manual report
+            fallback_report = generate_fallback_report(context_data, report_type)
+            return JsonResponse({
+                'report': fallback_report,
+                'generated_at': datetime.now().isoformat(),
+                'course_id': course_id,
+                'time_period': time_period,
+                'report_type': report_type,
+                'note': f'Generated using fallback method due to AI error: {str(ai_error)}',
+                'success': False,
+                'error': str(ai_error)
+            })
+        
+    except Exception as e:
+        print(f"Error in CQI report generation: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({
+            'error': str(e),
+            'message': 'Failed to generate report. Please try again.',
+            'success': False,
+            'fallback_report': f"CQI Report Generation Failed\n\nError: {str(e)}"
+        }, status=400)
+
+
+
+def generate_ai_report(context_data, report_type="summary", ai_config=None):
+    """Generate report using any AI provider"""
+    if ai_config is None:
+        ai_config = get_ai_provider_config()
+    
+    # Create prompt based on report type
+    if report_type == "summary":
+        sections = """
+        1. Executive Summary (2-3 paragraphs)
+        2. Key Findings (Bulleted list of 5-7 key points)
+        3. Recommendations for Improvement (3-5 actionable recommendations)
+        """
+    elif report_type == "detailed":
+        sections = """
+        1. Executive Summary
+        2. Key Findings and Analysis
+        3. Submissions Analysis (CCR vs CRR forms comparison)
+        4. Course Outline Quality Assessment
+        5. Faculty Engagement Analysis
+        6. CLO Achievement Analysis
+        7. Recommendations for Improvement
+        8. Action Items and Timeline
+        """
+    elif report_type == "recommendations":
+        sections = """
+        1. Key Recommendations (Prioritized list)
+        2. Implementation Strategy
+        3. Expected Outcomes
+        4. Timeline and Resources Required
+        """
+    else:
+        sections = """
+        1. Executive Summary
+        2. Key Findings
+        3. Recommendations for Improvement
+        4. Action Items
+        """
+    
+    # Create the prompt
+    prompt = f"""
+    ROLE: You are a CQI (Continuous Quality Improvement) analyst for an academic institution.
+    
+    TASK: Analyze the following academic data and generate a comprehensive CQI report.
+    
+    REPORT TYPE: {report_type.upper()}
+    
+    AI CONFIGURATION:
+    - Provider: {ai_config['provider']}
+    - Model: {ai_config['model']}
+    
+    DATA TO ANALYZE:
+    {json.dumps(context_data, indent=2)}
+    
+    REPORT STRUCTURE:
+    {sections}
+    
+    REPORT REQUIREMENTS:
+    1. Be specific, actionable, and evidence-based
+    2. Use academic and professional language
+    3. Include quantitative data from the provided statistics
+    4. Provide clear recommendations with implementation steps
+    5. Consider institutional constraints and practical feasibility
+    6. Highlight both strengths and areas for improvement
+    7. Include metrics and KPIs where relevant
+    
+    FORMATTING:
+    - Use clear headings and subheadings
+    - Use bullet points for lists
+    - Keep paragraphs concise (3-5 sentences)
+    
+    TONE: Professional, analytical, constructive, and solution-oriented
+    
+    IMPORTANT: Base all analysis ONLY on the provided data. Do not fabricate or assume data not present.
+    """
+    
+    print(f"Generating {report_type} report with {ai_config['provider']} ({ai_config['model']})...")
+    
+    # Call the generic LLM function
+    return call_llm_api(prompt, ai_config)
+
+def generate_fallback_report(context_data, report_type):
+    """Generate a manual fallback report if AI fails"""
+    stats = context_data.get('statistics', {})
+    course = context_data.get('course', {})
+    
+    base_report = f"""
+    CQI REPORT - MANUAL GENERATION
+    
+    Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+    Report Type: {report_type.upper()}
+    
+    """
+    
+    if course:
+        base_report += f"Course: {course.get('code', 'N/A')} - {course.get('title', 'N/A')}\n"
+        base_report += f"Department: {course.get('department', 'N/A')}\n\n"
+    
+    if report_type == "summary":
+        return base_report + f"""
+    Executive Summary:
+    This report analyzes quality metrics based on {stats.get('total_submissions', 0)} form submissions 
+    and {len(context_data.get('outlines', []))} course outlines.
+    
+    Key Findings:
+    1. Total submissions: {stats.get('total_submissions', 0)}
+    2. Approved submissions: {stats.get('approved_submissions', 0)} ({stats.get('total_submissions', 1) and (stats.get('approved_submissions', 0)/stats.get('total_submissions', 1))*100:.1f}%)
+    3. Pending review: {stats.get('pending_submissions', 0)}
+    4. Revision requests: {stats.get('revision_requests', 0)}
+    
+    Recommendations:
+    1. Review submission processes for efficiency
+    2. Provide faculty training on form completion
+    3. Implement regular quality checks
+    """
+    elif report_type == "detailed":
+        return base_report + f"""
+    DETAILED ANALYSIS REPORT
+    
+    Statistics Overview:
+    - Total Submissions: {stats.get('total_submissions', 0)}
+    - Approved: {stats.get('approved_submissions', 0)}
+    - Pending: {stats.get('pending_submissions', 0)}
+    - Revision Requests: {stats.get('revision_requests', 0)}
+    
+    Data Sources:
+    - Course Outlines: {len(context_data.get('outlines', []))}
+    - Recent Submissions: {len(context_data.get('submissions', []))}
+    
+    Analysis:
+    1. Submission patterns show consistent faculty engagement
+    2. Approval rates indicate quality of submissions
+    3. Revision requests highlight areas for improvement
+    
+    Action Items:
+    1. Schedule faculty training sessions
+    2. Review and update submission guidelines
+    3. Implement automated quality checks
+    """
+    else:  # recommendations
+        return base_report + f"""
+    RECOMMENDATIONS REPORT
+    
+    Based on analysis of {stats.get('total_submissions', 0)} submissions:
+    
+    1. PRIORITY RECOMMENDATIONS:
+       - Implement submission quality checklist
+       - Provide faculty feedback within 48 hours
+       - Standardize evaluation criteria
+    
+    2. MEDIUM-TERM ACTIONS:
+       - Develop training modules
+       - Create submission templates
+       - Establish quality benchmarks
+    
+    3. LONG-TERM GOALS:
+       - Automate quality assessment
+       - Integrate with learning management system
+       - Establish continuous improvement cycle
+    """
+
+
+
+def collect_data_for_ai(course_id, time_period):
+    """Collect data for AI analysis"""
+    data = {}
+    
+    # Get course information
+    if course_id:
+        try:
+            course = Course.objects.get(id=course_id)
+            data['course'] = {
+                'code': course.code,
+                'title': course.title,
+                'department': course.department.name if course.department else None,
+                'credits': course.credits
+            }
+            
+            # Get course outlines
+            outlines = CourseOutline.objects.filter(course=course).order_by('-version')
+            data['outlines'] = []
+            for outline in outlines[:5]:  # Last 5 versions
+                data['outlines'].append({
+                    'version': outline.version,
+                    'status': outline.status,
+                    'title': outline.title,
+                    'created_at': outline.created_at.isoformat() if outline.created_at else None,
+                    'notes': outline.notes
+                })
+        except Course.DoesNotExist:
+            pass
+    
+    # Get form submissions - CREATE THE BASE QUERYSET
+    if course_id:
+        submissions_qs = DynamicFormSubmission.objects.filter(
+            course_id=course_id,
+            dynamic_form__form_type__in=['ccr', 'crr']
+        ).select_related('faculty', 'dynamic_form')
+    else:
+        submissions_qs = DynamicFormSubmission.objects.filter(
+            dynamic_form__form_type__in=['ccr', 'crr']
+        ).select_related('faculty', 'dynamic_form', 'course')
+    
+    # Apply time filter - CREATE A NEW QUERYSET FOR FILTERING
+    filtered_submissions = submissions_qs
+    if time_period != 'all':
+        if time_period == 'week':
+            start_date = datetime.now() - timedelta(days=7)
+        elif time_period == 'month':
+            start_date = datetime.now() - timedelta(days=30)
+        elif time_period == 'quarter':
+            start_date = datetime.now() - timedelta(days=90)
+        else:
+            start_date = datetime.now() - timedelta(days=7)  # Default to week
+        
+        filtered_submissions = submissions_qs.filter(submission_date__gte=start_date)
+    
+    # Calculate statistics FIRST (before slicing)
+    data['statistics'] = {
+        'total_submissions': filtered_submissions.count(),
+        'approved_submissions': filtered_submissions.filter(status='approved').count(),
+        'pending_submissions': filtered_submissions.filter(status='submitted').count(),
+        'revision_requests': filtered_submissions.filter(status='revision_requested').count()
+    }
+    
+    # Now get submission data (slice after calculations)
+    data['submissions'] = []
+    # Use list() to evaluate the queryset for slicing
+    submissions_list = list(filtered_submissions.order_by('-submission_date')[:50])
+    
+    for submission in submissions_list:
+        data['submissions'].append({
+            'form_type': submission.dynamic_form.form_type,
+            'form_name': submission.dynamic_form.name,
+            'faculty': submission.faculty.username,
+            'status': submission.status,
+            'submission_date': submission.submission_date.isoformat() if submission.submission_date else None,
+            'course': submission.course.code if course_id is None else None
+        })
+    
+    return data
