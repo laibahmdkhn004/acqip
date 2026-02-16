@@ -28,14 +28,43 @@ def register(request):
         form = UserRegisterForm()
     return render(request, "accounts/register.html", {"form": form})
 
+
 class CustomLoginView(LoginView):
     template_name = "accounts/login.html"
-    
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['role_choices'] = User.ROLE_CHOICES
         return context
 
+    def form_valid(self, form):
+        """Check that the user's role matches the role from the URL parameter."""
+        # First authenticate the user normally
+        response = super().form_valid(form)
+
+        # Get the role from POST (submitted form) or fallback to GET
+        requested_role = self.request.POST.get('role') or self.request.GET.get('role')
+        if requested_role:
+            # Map display role to internal role code
+            role_map = {
+                'Faculty': User.ROLE_FACULTY,
+                'CRC': User.ROLE_CRC_MEMBER,
+                'Admin': User.ROLE_ADMIN,
+            }
+            internal_role = role_map.get(requested_role)
+
+            # Check if the user's role matches
+            if internal_role and self.request.user.role != internal_role:
+                # Log the user out (they were authenticated but wrong role)
+                from django.contrib.auth import logout
+                logout(self.request)
+
+                # Add error message and re-render form
+                form.add_error(None, f"This login page is for {requested_role} only. You are registered as a different role.")
+                return self.form_invalid(form)
+
+        return response
+    
 @require_http_methods(["GET"])
 def logout_view(request):
     logout(request)
