@@ -23,7 +23,7 @@
     <nav class="bg-purple-700 text-white p-4">
         <div class="container mx-auto flex justify-between items-center">
             <div class="flex items-center gap-3">
-                <a href="{% url 'faculty_dashboard' %}" class="hover:bg-white/10 p-2 rounded">
+                <a href="{{ dashboard_home_url }}" class="hover:bg-white/10 p-2 rounded">
                     <i class="fas fa-arrow-left"></i> Back to Dashboard
                 </a>
                 <div>
@@ -67,7 +67,11 @@
                         <span><i class="fas fa-university mr-1"></i> {{ course.department }}</span>
                         <span><i class="fas fa-graduation-cap mr-1"></i> {{ course.credits }} Credits</span>
                         <span class="px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-sm">
+                            {% if is_crc_member %}
+                            <i class="fas fa-user-shield mr-1"></i> CRC
+                            {% else %}
                             <i class="fas fa-crown mr-1"></i> Coordinator
+                            {% endif %}
                         </span>
                     </div>
                 </div>
@@ -348,7 +352,7 @@
                     // If submitted, redirect after 2 seconds
                     if (status === 'submitted') {
                         setTimeout(() => {
-                            window.location.href = "{% url 'faculty_dashboard' %}";
+                            window.location.href = "{{ dashboard_home_url }}";
                         }, 2000);
                     }
                 } else {

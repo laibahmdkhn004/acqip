@@ -125,6 +125,17 @@
         padding-left: 1.5rem;
         margin: 0.5rem 0;
       }
+      .editor-container {
+        min-height: 280px;
+        border: 1px solid #e5e7eb;
+        border-radius: 0.5rem;
+        padding: 0.75rem;
+        background: #fff;
+      }
+      .editor-container:focus {
+        outline: 2px solid #c4b5fd;
+        outline-offset: 0;
+      }
       .modal-overlay {
         z-index: 1000;
       }
@@ -239,9 +250,21 @@
           >
           <a
             href="#"
+            data-page="courses"
+            class="nav-item flex items-center gap-3 p-2 rounded-md hover:bg-gray-50 text-gray-700"
+            ><i class="fas fa-graduation-cap"></i>Courses</a
+          >
+          <a
+            href="#"
             data-page="outline-submissions"
             class="nav-item flex items-center gap-3 p-2 rounded-md hover:bg-gray-50 text-gray-700"
             ><i class="fas fa-file-upload"></i>Outline Submissions</a
+          >
+          <a
+            href="#"
+            data-page="crc-my-course-outlines"
+            class="nav-item flex items-center gap-3 p-2 rounded-md hover:bg-gray-50 text-gray-700"
+            ><i class="fas fa-file-alt"></i>Course Outlines</a
           >
           <a
             href="#"
@@ -288,7 +311,102 @@
           </div>
           <div id="filter-bar" class="mt-4 hidden"></div>
         </section>
-        <section id="content-area"></section>
+        <section id="content-area">
+          <div id="crc-page-root"></div>
+          <div id="crc-course-outline-editor" class="hidden">
+            <div class="bg-white rounded-lg shadow">
+              <div class="p-4 border-b">
+                <div
+                  class="flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                >
+                  <div>
+                    <h3 class="font-semibold" id="crc-editor-title-text">
+                      Create Course Outline
+                    </h3>
+                    <p class="text-sm text-gray-600" id="crc-editor-course-info"></p>
+                    <div id="crc-editor-status-warning" class="mt-2 hidden"></div>
+                  </div>
+                  <div class="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onclick="crcCancelOutlineEditor()"
+                      class="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      id="crc-save-draft-btn"
+                      onclick="crcSaveOutline('draft')"
+                      class="px-4 py-2 bg-amber-600 text-white rounded hover:bg-amber-700"
+                    >
+                      Save Draft
+                    </button>
+                    <button
+                      type="button"
+                      id="crc-submit-outline-btn"
+                      onclick="crcSaveOutline('submitted')"
+                      class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+                    >
+                      Submit for Review
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div class="p-4">
+                <div class="space-y-4">
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2"
+                      >Outline Title *</label
+                    >
+                    <input
+                      type="text"
+                      id="crc-outline-title"
+                      class="w-full px-4 py-2 border rounded"
+                      placeholder="Enter outline title"
+                    />
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2"
+                      >Description</label
+                    >
+                    <textarea
+                      id="crc-outline-description"
+                      class="w-full px-4 py-2 border rounded"
+                      rows="3"
+                      placeholder="Brief description"
+                    ></textarea>
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2"
+                      >Outline Content *</label
+                    >
+                    <div class="editor-toolbar border rounded-t px-1 py-1 bg-gray-50">
+                      <button type="button" class="p-2 m-1 rounded hover:bg-gray-200" onclick="crcFormatText('bold')" title="Bold"><b>B</b></button>
+                      <button type="button" class="p-2 m-1 rounded hover:bg-gray-200" onclick="crcFormatText('italic')" title="Italic"><i>I</i></button>
+                      <button type="button" class="p-2 m-1 rounded hover:bg-gray-200" onclick="crcFormatText('underline')" title="Underline"><u>U</u></button>
+                      <span class="mx-2 text-gray-400">|</span>
+                      <button type="button" class="p-2 m-1 rounded hover:bg-gray-200" onclick="crcFormatHeading('h1')">H1</button>
+                      <button type="button" class="p-2 m-1 rounded hover:bg-gray-200" onclick="crcFormatHeading('h2')">H2</button>
+                      <button type="button" class="p-2 m-1 rounded hover:bg-gray-200" onclick="crcFormatHeading('h3')">H3</button>
+                      <span class="mx-2 text-gray-400">|</span>
+                      <button type="button" class="p-2 m-1 rounded hover:bg-gray-200" onclick="crcFormatList('ul')"><i class="fas fa-list-ul"></i></button>
+                      <button type="button" class="p-2 m-1 rounded hover:bg-gray-200" onclick="crcFormatList('ol')"><i class="fas fa-list-ol"></i></button>
+                      <span class="mx-2 text-gray-400">|</span>
+                      <button type="button" class="p-2 m-1 rounded hover:bg-gray-200" onclick="crcInsertTable()"><i class="fas fa-table"></i></button>
+                      <button type="button" class="p-2 m-1 rounded hover:bg-gray-200" onclick="crcInsertLink()"><i class="fas fa-link"></i></button>
+                    </div>
+                    <div
+                      contenteditable="true"
+                      id="crc-outline-content"
+                      class="editor-container outline-none border border-t-0 rounded-b"
+                    ></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
       </main>
     </div>
 
@@ -313,6 +431,60 @@
           </button>
         </div>
         <div id="modal-body" class="mt-2"></div>
+      </div>
+    </div>
+
+    <div
+      id="faculty-assignment-modal"
+      class="modal-overlay fixed inset-0 bg-black/40 hidden items-center justify-center z-50 p-4"
+    >
+      <div
+        class="bg-white rounded-xl max-w-4xl w-full p-6 shadow-2xl mx-auto max-h-[90vh] overflow-y-auto"
+        style="z-index: 1001"
+      >
+        <div class="flex items-start justify-between mb-4">
+          <h3
+            id="faculty-assignment-title"
+            class="text-xl font-semibold text-gray-900"
+          >
+            Assign Faculty to Course
+          </h3>
+          <button
+            id="close-faculty-assignment-modal"
+            class="text-gray-500 hover:text-gray-700 text-xl p-1"
+            type="button"
+          >
+            ✕
+          </button>
+        </div>
+        <div id="faculty-assignment-body" class="mt-2"></div>
+      </div>
+    </div>
+
+    <div
+      id="crc-my-outline-view-modal"
+      class="modal-overlay fixed inset-0 bg-black/40 hidden items-center justify-center z-50 p-4"
+    >
+      <div
+        class="bg-white rounded-xl max-w-4xl w-full p-6 shadow-2xl mx-auto max-h-[90vh] overflow-y-auto"
+        style="z-index: 1003"
+      >
+        <div class="flex items-start justify-between mb-4">
+          <h3
+            id="crc-my-outline-view-title"
+            class="text-xl font-semibold text-gray-900"
+          >
+            Course Outline
+          </h3>
+          <button
+            type="button"
+            id="close-crc-my-outline-view-modal"
+            class="text-gray-500 hover:text-gray-700 text-xl p-1"
+          >
+            ✕
+          </button>
+        </div>
+        <div id="crc-my-outline-view-content" class="mt-2"></div>
       </div>
     </div>
 
@@ -372,6 +544,18 @@
     <script>
       // API Configuration
       const API = {
+        departments: "{% url 'api_departments' %}",
+        courses: "{% url 'api_courses' %}",
+        courses_create: "{% url 'api_courses_create' %}",
+        course_update: (id) =>
+          `{% url 'api_course_update' 0 %}`.replace("0", String(id)),
+        course_delete: (id) =>
+          `{% url 'api_course_delete' 0 %}`.replace("0", String(id)),
+        course_assign_faculty: (id) =>
+          `{% url 'api_assign_course_faculty' 0 %}`.replace("0", String(id)),
+        course_faculty_assignments: (id) =>
+          `{% url 'api_course_faculty_assignments' 0 %}`.replace("0", String(id)),
+        faculty_users: "{% url 'api_faculty_users' %}",
         crc_faculty_list: "{% url 'api_crc_faculty_list' %}",
         crc_course_catalogue: "{% url 'api_crc_course_catalogue' %}",
         crc_update_course_outline: "{% url 'api_crc_update_course_outline' %}",
@@ -404,6 +588,9 @@
         form_question_delete: (id) => `/api/questions/${id}/delete/`,
         get_course_outline: "{% url 'api_get_course_outline' %}",
         save_course_outline: "{% url 'api_save_course_outline' %}",
+        faculty_course_outlines: "{% url 'api_faculty_course_outlines' %}",
+        faculty_course_outline_structure:
+          "{% url 'api_faculty_course_outline_structure' %}",
         //new
         analysis_submissions_over_time:
           "{% url 'api_analysis_submissions_over_time' %}",
@@ -423,6 +610,11 @@
       // State Management
       let currentPage = "dashboard";
       let allForms = [];
+      let crcCoursesCache = [];
+      const crcOutlineState = {
+        selectedCourse: null,
+        currentOutlineId: null,
+      };
 
       // DOM Elements
       const elements = {
@@ -430,15 +622,43 @@
         modalTitle: document.getElementById("modal-title"),
         modalBody: document.getElementById("modal-body"),
         closeModal: document.getElementById("close-modal"),
+        facultyAssignmentModal: document.getElementById(
+          "faculty-assignment-modal",
+        ),
+        facultyAssignmentTitle: document.getElementById(
+          "faculty-assignment-title",
+        ),
+        facultyAssignmentBody: document.getElementById(
+          "faculty-assignment-body",
+        ),
+        closeFacultyAssignmentModal: document.getElementById(
+          "close-faculty-assignment-modal",
+        ),
         outlineModal: document.getElementById("outline-modal"),
         outlineModalTitle: document.getElementById("outline-modal-title"),
         outlineModalBody: document.getElementById("outline-modal-body"),
         closeOutlineModal: document.getElementById("close-outline-modal"),
+        crcMyOutlineViewModal: document.getElementById(
+          "crc-my-outline-view-modal",
+        ),
+        crcMyOutlineViewTitle: document.getElementById(
+          "crc-my-outline-view-title",
+        ),
+        crcMyOutlineViewContent: document.getElementById(
+          "crc-my-outline-view-content",
+        ),
+        closeCrcMyOutlineViewModal: document.getElementById(
+          "close-crc-my-outline-view-modal",
+        ),
         pageTitle: document.getElementById("page-title"),
         pageSubtitle: document.getElementById("page-subtitle"),
         headerActions: document.getElementById("header-actions"),
         filterBar: document.getElementById("filter-bar"),
         contentArea: document.getElementById("content-area"),
+        pageRoot: document.getElementById("crc-page-root"),
+        crcCourseOutlineEditor: document.getElementById(
+          "crc-course-outline-editor",
+        ),
         sidebar: document.getElementById("sidebar"),
         avatarDropdown: document.getElementById("avatar-dropdown"),
       };
@@ -462,7 +682,20 @@
         return cookieValue;
       }
 
+      function resolveApiRequestUrl(url) {
+        if (url == null || url === "") {
+          return url;
+        }
+        const href = String(url);
+        if (href.startsWith("http://") || href.startsWith("https://")) {
+          return href;
+        }
+        const path = href.startsWith("/") ? href : `/${href}`;
+        return new URL(path, window.location.origin).href;
+      }
+
       async function fetchAPI(url, options = {}) {
+        const requestUrl = resolveApiRequestUrl(url);
         const defaultOptions = {
           headers: {
             "Content-Type": "application/json",
@@ -472,10 +705,30 @@
         };
 
         try {
-          const response = await fetch(url, { ...defaultOptions, ...options });
+          const response = await fetch(requestUrl, {
+            ...defaultOptions,
+            ...options,
+          });
           if (!response.ok) {
             const errorText = await response.text();
             throw new Error(`HTTP ${response.status}: ${errorText}`);
+          }
+          const contentType = (
+            response.headers.get("content-type") || ""
+          ).toLowerCase();
+          if (
+            response.redirected &&
+            (response.url || "").toLowerCase().includes("login")
+          ) {
+            throw new Error(
+              "Session expired or you were signed out. Reload the page and sign in again.",
+            );
+          }
+          if (contentType.includes("text/html")) {
+            const bodyPreview = (await response.text()).slice(0, 240);
+            throw new Error(
+              `Got an HTML page instead of JSON (wrong URL or login required). ${bodyPreview.replace(/</g, "")}`,
+            );
           }
           return await response.json();
         } catch (error) {
@@ -518,7 +771,7 @@
       }
 
       function showError(message) {
-        elements.contentArea.innerHTML = `
+        elements.pageRoot.innerHTML = `
                       <div class="bg-white rounded-lg shadow p-6">
                           <div class="text-center py-8">
                               <i class="fas fa-exclamation-triangle text-yellow-500 text-3xl mb-3"></i>
@@ -578,11 +831,23 @@
         elements.closeModal.addEventListener("click", () =>
           elements.modal.classList.add("hidden"),
         );
-        elements.closeOutlineModal.addEventListener("click", () =>
+        elements.closeFacultyAssignmentModal?.addEventListener("click", () =>
+          elements.facultyAssignmentModal.classList.add("hidden"),
+        );
+        elements.closeOutlineModal?.addEventListener("click", () =>
           elements.outlineModal.classList.add("hidden"),
         );
+        elements.closeCrcMyOutlineViewModal?.addEventListener("click", () =>
+          elements.crcMyOutlineViewModal.classList.add("hidden"),
+        );
 
-        [elements.modal, elements.outlineModal].forEach((modalEl) => {
+        [
+          elements.modal,
+          elements.facultyAssignmentModal,
+          elements.outlineModal,
+          elements.crcMyOutlineViewModal,
+        ].forEach((modalEl) => {
+          if (!modalEl) return;
           modalEl.addEventListener("click", (e) => {
             if (e.target === modalEl) modalEl.classList.add("hidden");
           });
@@ -595,12 +860,16 @@
         elements.headerActions.innerHTML = "";
         elements.filterBar.classList.add("hidden");
         elements.filterBar.innerHTML = "";
+        elements.crcCourseOutlineEditor?.classList.add("hidden");
+        elements.pageRoot?.classList.remove("hidden");
 
         const pageRenderers = {
           dashboard: renderDashboard,
           faculty: renderFacultyPage,
+          courses: renderCoursesPage,
           "course-catalogue": renderCourseCataloguePage,
           "outline-submissions": renderOutlineSubmissionsPage,
+          "crc-my-course-outlines": renderCrcMyCourseOutlinesPage,
           "form-submissions": renderFormSubmissionsPage,
           "form-editor": renderFormEditorPage,
           //new
@@ -629,7 +898,7 @@
           const ccrForms = activeForms.filter((f) => f.form_type === "ccr");
           const crrForms = activeForms.filter((f) => f.form_type === "crr");
 
-          elements.contentArea.innerHTML = `
+          elements.pageRoot.innerHTML = `
                   <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                       <!-- ... existing stats cards ... -->
                   </div>
@@ -754,7 +1023,7 @@
           const facultyData = await fetchAPI(API.crc_faculty_list);
           const faculty = facultyData.faculty || [];
 
-          elements.contentArea.innerHTML = `
+          elements.pageRoot.innerHTML = `
                           <div class="bg-white rounded-lg shadow">
                               <div class="px-6 py-4 border-b flex justify-between items-center">
                                   <h3 class="text-lg font-medium">All Faculty Members</h3>
@@ -847,6 +1116,956 @@
         }
       }
 
+      async function renderCoursesPage() {
+        elements.pageTitle.textContent = "Course Management";
+        elements.pageSubtitle.textContent =
+          "Create and manage courses with faculty assignments";
+        elements.headerActions.innerHTML = `
+          <button type="button" onclick="openCourseCreateModal()" class="px-4 py-2 bg-purple-600 text-white rounded-lg shadow-sm hover:bg-purple-700 transition-colors">
+            Create Course
+          </button>
+        `;
+
+        try {
+          const courses = await fetchAPI(API.courses);
+
+          elements.pageRoot.innerHTML = `
+            <div class="bg-white rounded-lg shadow">
+              <div class="px-6 py-4 border-b">
+                <div class="flex justify-between items-center">
+                  <h3 class="text-lg font-medium">All Courses</h3>
+                  <span class="text-sm text-gray-500">${courses.length} courses</span>
+                </div>
+              </div>
+              <div class="p-6">
+                ${
+                  courses.length > 0
+                    ? `
+                  <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-left">
+                      <thead class="bg-gray-50">
+                        <tr>
+                          <th class="px-4 py-3 font-medium text-gray-700">Code</th>
+                          <th class="px-4 py-3 font-medium text-gray-700">Title</th>
+                          <th class="px-4 py-3 font-medium text-gray-700">Department</th>
+                          <th class="px-4 py-3 font-medium text-gray-700">Coordinator</th>
+                          <th class="px-4 py-3 font-medium text-gray-700">Credits</th>
+                          <th class="px-4 py-3 font-medium text-gray-700">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody class="divide-y divide-gray-200">
+                        ${courses
+                          .map(
+                            (course) => `
+                          <tr class="hover:bg-gray-50">
+                            <td class="px-4 py-3 font-mono font-medium">${course.code}</td>
+                            <td class="px-4 py-3 font-medium">${course.title}</td>
+                            <td class="px-4 py-3">${course.department_code || "N/A"}</td>
+                            <td class="px-4 py-3">
+                              ${
+                                course.course_coordinator_name
+                                  ? `<span class="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full">${course.course_coordinator_name}</span>`
+                                  : '<span class="text-gray-400 text-xs">None</span>'
+                              }
+                            </td>
+                            <td class="px-4 py-3">${course.credits || 3}</td>
+                            <td class="px-4 py-3">
+                              <button type="button" onclick="openCourseFacultyAssignmentModal(${course.id})" class="text-blue-600 hover:text-blue-800 text-sm font-medium mr-3">Assign Faculty</button>
+                              <button type="button" onclick="editCourse(${course.id})" class="text-purple-600 hover:text-purple-800 text-sm font-medium mr-3">Edit</button>
+                              <button type="button" onclick="deleteCourse(${course.id})" class="text-red-600 hover:text-red-800 text-sm font-medium">Delete</button>
+                            </td>
+                          </tr>
+                        `,
+                          )
+                          .join("")}
+                      </tbody>
+                    </table>
+                  </div>
+                `
+                    : `
+                  <div class="text-center py-12">
+                    <i class="fas fa-book text-gray-400 text-5xl mb-4"></i>
+                    <p class="text-gray-500 mb-4">No courses found</p>
+                    <button type="button" onclick="openCourseCreateModal()" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
+                      Create First Course
+                    </button>
+                  </div>
+                `
+                }
+              </div>
+            </div>
+          `;
+        } catch (error) {
+          elements.pageRoot.innerHTML = `
+            <div class="bg-white rounded-lg shadow p-6">
+              <div class="text-center py-8 text-red-600">
+                Error loading courses. Please try again.
+              </div>
+            </div>
+          `;
+        }
+      }
+
+      async function openCourseCreateModal() {
+        try {
+          const departments = await fetchAPI(API.departments);
+
+          elements.modalTitle.textContent = "Create Course";
+          elements.modalBody.innerHTML = `
+            <form id="create-course-form" class="space-y-4">
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">Course Title *</label>
+                  <input type="text" name="title" required class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500" />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">Course Code *</label>
+                  <input type="text" name="code" required class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500" placeholder="e.g., CS101" />
+                </div>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Department *</label>
+                <select name="department_id" required class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
+                  <option value="">Select Department</option>
+                  ${departments
+                    .map(
+                      (dept) =>
+                        `<option value="${dept.id}">${dept.code || "No code"} - ${dept.name}</option>`,
+                    )
+                    .join("")}
+                </select>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Credits</label>
+                <input type="number" name="credits" value="3" min="1" max="6" class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500" />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <textarea name="description" rows="3" class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500" placeholder="Course description..."></textarea>
+              </div>
+              <div class="flex gap-3 justify-end pt-4 border-t">
+                <button type="button" onclick="elements.modal.classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
+                <button type="submit" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">Create Course</button>
+              </div>
+            </form>
+          `;
+
+          elements.modal.classList.remove("hidden");
+
+          document.getElementById("create-course-form").onsubmit = async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = {
+              title: formData.get("title"),
+              code: formData.get("code"),
+              department_id: parseInt(formData.get("department_id"), 10),
+              credits: parseInt(formData.get("credits"), 10) || 3,
+              description: formData.get("description"),
+              faculty_assignments: [],
+            };
+
+            try {
+              await fetchAPI(API.courses_create, {
+                method: "POST",
+                body: JSON.stringify(data),
+              });
+              elements.modal.classList.add("hidden");
+              await renderCoursesPage();
+              showNotification("Course created successfully", "success");
+            } catch (submitError) {
+              showNotification(
+                "Error creating course: " + submitError.message,
+                "error",
+              );
+            }
+          };
+        } catch (error) {
+          showNotification("Error loading form data", "error");
+        }
+      }
+
+      async function editCourse(courseId) {
+        try {
+          const [courses, departments] = await Promise.all([
+            fetchAPI(API.courses),
+            fetchAPI(API.departments),
+          ]);
+
+          const course = courses.find((c) => c.id == courseId);
+          if (!course) throw new Error("Course not found");
+
+          elements.modalTitle.textContent = "Edit Course";
+          elements.modalBody.innerHTML = `
+            <form id="edit-course-form" class="space-y-4">
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">Course Title *</label>
+                  <input type="text" name="title" value="${String(course.title || "").replace(/"/g, "&quot;")}" required class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500" />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">Course Code *</label>
+                  <input type="text" name="code" value="${String(course.code || "").replace(/"/g, "&quot;")}" required class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500" />
+                </div>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Department *</label>
+                <select name="department_id" required class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
+                  ${departments
+                    .map(
+                      (dept) =>
+                        `<option value="${dept.id}" ${dept.id == course.department_id ? "selected" : ""}>${dept.code || "No code"} - ${dept.name}</option>`,
+                    )
+                    .join("")}
+                </select>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Credits</label>
+                <input type="number" name="credits" value="${course.credits || 3}" min="1" max="6" class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500" />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <textarea name="description" rows="3" class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">${String(course.description || "").replace(/</g, "&lt;")}</textarea>
+              </div>
+              <div class="flex gap-3 justify-end pt-4 border-t">
+                <button type="button" onclick="elements.modal.classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
+                <button type="submit" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">Save Changes</button>
+              </div>
+            </form>
+          `;
+
+          elements.modal.classList.remove("hidden");
+
+          document.getElementById("edit-course-form").onsubmit = async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = {
+              title: formData.get("title"),
+              code: formData.get("code"),
+              department_id: parseInt(formData.get("department_id"), 10),
+              credits: parseInt(formData.get("credits"), 10) || 3,
+              description: formData.get("description"),
+            };
+
+            try {
+              await fetchAPI(API.course_update(courseId), {
+                method: "PUT",
+                body: JSON.stringify(data),
+              });
+              elements.modal.classList.add("hidden");
+              await renderCoursesPage();
+              showNotification("Course updated successfully", "success");
+            } catch (submitError) {
+              showNotification(
+                "Error updating course: " + submitError.message,
+                "error",
+              );
+            }
+          };
+        } catch (error) {
+          showNotification("Error loading course data", "error");
+        }
+      }
+
+      async function openCourseFacultyAssignmentModal(courseId) {
+        try {
+          const [courses, faculty, currentAssignments] = await Promise.all([
+            fetchAPI(API.courses),
+            fetchAPI(API.faculty_users),
+            fetchAPI(API.course_faculty_assignments(courseId)).catch(() => []),
+          ]);
+
+          const course = courses.find((c) => c.id == courseId);
+          if (!course) throw new Error("Course not found");
+
+          const facultyList = faculty.results || [];
+          const assignmentsMap = {};
+          currentAssignments.forEach((assign) => {
+            assignmentsMap[assign.faculty_id] = assign;
+          });
+
+          elements.facultyAssignmentTitle.textContent = `Assign Faculty to ${course.title}`;
+          elements.facultyAssignmentBody.innerHTML = `
+            <form id="assign-faculty-form" class="space-y-6">
+              <div class="bg-gray-50 rounded-lg p-4">
+                <h4 class="font-medium">${course.title}</h4>
+                <p class="text-sm text-gray-600">${course.code} • ${course.department_code || ""}</p>
+              </div>
+              <div>
+                <h5 class="font-medium text-gray-900 mb-3">Select Faculty Members</h5>
+                <div class="space-y-3 max-h-96 overflow-y-auto">
+                  ${facultyList
+                    .map((fac) => {
+                      const assignment = assignmentsMap[fac.id];
+                      return `
+                      <div class="border border-gray-200 rounded-lg p-4">
+                        <div class="flex items-center justify-between flex-wrap gap-2">
+                          <div class="flex items-center space-x-3">
+                            <input type="checkbox" name="faculty_ids" value="${fac.id}"
+                              ${assignment ? "checked" : ""}
+                              class="faculty-checkbox rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                            <div>
+                              <div class="font-medium">${fac.username}</div>
+                              <div class="text-sm text-gray-500">${fac.email || ""}</div>
+                              <div class="text-xs text-gray-400">${fac.department || "No department"}</div>
+                            </div>
+                          </div>
+                          <div class="flex items-center space-x-3">
+                            <label class="flex items-center space-x-2">
+                              <input type="checkbox" name="coordinator_${fac.id}"
+                                ${assignment?.is_coordinator ? "checked" : ""}
+                                ${!assignment ? "disabled" : ""}
+                                class="coordinator-checkbox rounded border-gray-300 text-green-600 focus:ring-green-500">
+                              <span class="text-sm text-gray-700">Coordinator</span>
+                            </label>
+                            <input type="text" name="section_${fac.id}" value="${assignment?.section || ""}"
+                              placeholder="Section"
+                              class="section-input w-24 border border-gray-300 px-2 py-1 rounded text-sm ${!assignment ? "opacity-50 cursor-not-allowed" : ""}"
+                              ${!assignment ? "disabled" : ""}>
+                          </div>
+                        </div>
+                      </div>
+                    `;
+                    })
+                    .join("")}
+                </div>
+              </div>
+              <div class="flex gap-3 justify-end pt-4 border-t">
+                <button type="button" onclick="document.getElementById('faculty-assignment-modal').classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
+                <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Save Assignments</button>
+              </div>
+            </form>
+          `;
+
+          elements.facultyAssignmentModal.classList.remove("hidden");
+
+          const assignForm = document.getElementById("assign-faculty-form");
+          assignForm.addEventListener("change", (e) => {
+            if (e.target.classList.contains("faculty-checkbox")) {
+              const facultyId = e.target.value;
+              const coordinatorCheckbox = assignForm.querySelector(
+                `input[name="coordinator_${facultyId}"]`,
+              );
+              const sectionInput = assignForm.querySelector(
+                `input[name="section_${facultyId}"]`,
+              );
+              if (coordinatorCheckbox) {
+                coordinatorCheckbox.disabled = !e.target.checked;
+                if (!e.target.checked) coordinatorCheckbox.checked = false;
+              }
+              if (sectionInput) {
+                sectionInput.disabled = !e.target.checked;
+                if (!e.target.checked) sectionInput.value = "";
+              }
+            }
+          });
+
+          assignForm.onsubmit = async (e) => {
+            e.preventDefault();
+            const formData = new FormData(assignForm);
+            const facultyIds = formData
+              .getAll("faculty_ids")
+              .map((id) => parseInt(id, 10));
+            const facultyAssignments = facultyIds.map((id) => ({
+              faculty_id: id,
+              is_coordinator: formData.get(`coordinator_${id}`) === "on",
+              section: formData.get(`section_${id}`) || "",
+            }));
+
+            try {
+              await fetchAPI(API.course_assign_faculty(courseId), {
+                method: "POST",
+                body: JSON.stringify({
+                  faculty_assignments: facultyAssignments,
+                }),
+              });
+              elements.facultyAssignmentModal.classList.add("hidden");
+              await renderCoursesPage();
+              showNotification(
+                "Faculty assignments updated successfully",
+                "success",
+              );
+            } catch (submitError) {
+              showNotification(
+                "Error updating faculty assignments: " +
+                  submitError.message,
+                "error",
+              );
+            }
+          };
+        } catch (error) {
+          showNotification("Error loading faculty data", "error");
+        }
+      }
+
+      async function deleteCourse(courseId) {
+        if (
+          !confirm(
+            "Are you sure you want to delete this course? This action cannot be undone.",
+          )
+        ) {
+          return;
+        }
+
+        try {
+          await fetchAPI(API.course_delete(courseId), {
+            method: "DELETE",
+          });
+          await renderCoursesPage();
+          showNotification("Course deleted successfully", "success");
+        } catch (error) {
+          showNotification(
+            "Error deleting course: " + error.message,
+            "error",
+          );
+        }
+      }
+
+      function crcOutlineStatusBadgeClass(status) {
+        switch (status) {
+          case "approved":
+            return "bg-green-100 text-green-800";
+          case "submitted":
+            return "bg-blue-100 text-blue-800";
+          case "revision_requested":
+            return "bg-yellow-100 text-yellow-800";
+          default:
+            return "bg-gray-100 text-gray-800";
+        }
+      }
+
+      function closeCrcMyOutlineViewModal() {
+        elements.crcMyOutlineViewModal.classList.add("hidden");
+      }
+
+      async function renderCrcMyCourseOutlinesPage() {
+        elements.pageTitle.textContent = "Course Outlines";
+        elements.pageSubtitle.textContent =
+          "All outlines that have been submitted for review or finalized (submitted, revision requested, or approved), from every author. Drafts stay with authors until they submit. Use New outline for CRC-authored drafts.";
+        elements.headerActions.innerHTML = `
+          <button type="button" onclick="openCrcNewOutlineModal()" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
+            <i class="fas fa-plus mr-2"></i>New outline
+          </button>
+        `;
+
+        try {
+          const outlines = await fetchAPI(API.faculty_course_outlines);
+          const rows =
+            outlines.length === 0
+              ? `
+            <tr>
+              <td colspan="7" class="px-4 py-10 text-center text-gray-500">
+                <p>No submitted or finalized outlines yet.</p>
+                <p class="text-sm mt-2">Drafts are not listed here. After an author submits an outline for review, it appears in this table.</p>
+              </td>
+            </tr>
+          `
+              : outlines
+                  .map((outline) => {
+                    const status = outline.status || "draft";
+                    const canEdit = outline.can_edit === true;
+                    const dateIso =
+                      status === "approved"
+                        ? outline.approved_at || outline.submitted_at
+                        : outline.submitted_at;
+                    const datePrefix =
+                      status === "approved" && outline.approved_at
+                        ? "Approved "
+                        : status === "approved"
+                          ? "Submitted "
+                          : "Submitted ";
+                    const submittedLabel = dateIso
+                      ? `${datePrefix}${new Date(dateIso).toLocaleString(
+                          undefined,
+                          {
+                            year: "numeric",
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          },
+                        )}`
+                      : "—";
+                    const author =
+                      outline.faculty_author_username || "—";
+                    return `
+            <tr class="hover:bg-gray-50">
+              <td class="px-4 py-3 text-sm">
+                <div class="font-medium text-gray-900">${outline.course?.code || ""}</div>
+                <div class="text-gray-600">${outline.course?.title || ""}</div>
+              </td>
+              <td class="px-4 py-3 text-sm">${outline.title || "Untitled"}</td>
+              <td class="px-4 py-3 text-sm">v${outline.version || 1}</td>
+              <td class="px-4 py-3 text-sm text-gray-800">${author}</td>
+              <td class="px-4 py-3">
+                <span class="px-2 py-1 text-xs rounded-full ${crcOutlineStatusBadgeClass(status)}">${status.replace(/_/g, " ")}</span>
+              </td>
+              <td class="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">${submittedLabel}</td>
+              <td class="px-4 py-3 text-sm">
+                <button type="button" onclick="viewCrcMyOutlineDetailModal(${outline.id})" class="text-blue-600 hover:text-blue-900 mr-2">View</button>
+                ${canEdit ? `<button type="button" onclick="openCrcEmbeddedEditorForOutline(${outline.id})" class="text-purple-600 hover:text-purple-900">Edit</button>` : ""}
+              </td>
+            </tr>`;
+                  })
+                  .join("");
+
+          elements.pageRoot.innerHTML = `
+            <div class="bg-white rounded-lg shadow">
+              <div class="px-6 py-4 border-b">
+                <h3 class="text-lg font-medium">Submitted course outlines</h3>
+                <p class="text-sm text-gray-500 mt-1">Submitted, revision requested, and approved — all authors, excluding drafts.</p>
+              </div>
+              <div class="p-6 overflow-x-auto">
+                <table class="min-w-full text-sm text-left">
+                  <thead class="bg-gray-50 text-gray-700">
+                    <tr>
+                      <th class="px-4 py-3 font-medium">Course</th>
+                      <th class="px-4 py-3 font-medium">Title</th>
+                      <th class="px-4 py-3 font-medium">Version</th>
+                      <th class="px-4 py-3 font-medium">Author</th>
+                      <th class="px-4 py-3 font-medium">Status</th>
+                      <th class="px-4 py-3 font-medium">Submitted / approved</th>
+                      <th class="px-4 py-3 font-medium">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-gray-200">${rows}</tbody>
+                </table>
+              </div>
+            </div>`;
+        } catch (e) {
+          showError("Could not load course outlines.");
+        }
+      }
+
+      function crcDefaultOutlineHtml(course) {
+        const dept =
+          course.department_name ||
+          course.department ||
+          course.department_code ||
+          "Not specified";
+        return `
+                        <h2>Course Information</h2>
+                        <p><strong>Course Code:</strong> ${course.code}</p>
+                        <p><strong>Course Title:</strong> ${course.title}</p>
+                        <p><strong>Credits:</strong> ${course.credits ?? ""}</p>
+                        <p><strong>Department:</strong> ${dept}</p>
+                        <br>
+                        <h2>Course Description</h2>
+                        <p>Enter course description here...</p>
+                        <br>
+                        <h2>Learning Outcomes</h2>
+                        <ul>
+                            <li>Outcome 1: [Describe learning outcome]</li>
+                            <li>Outcome 2: [Describe learning outcome]</li>
+                            <li>Outcome 3: [Describe learning outcome]</li>
+                        </ul>
+                        <br>
+                        <h2>Course Schedule</h2>
+                        <table border="1" style="border-collapse: collapse; width: 100%;">
+                            <thead>
+                                <tr>
+                                    <th style="padding: 8px;">Week</th>
+                                    <th style="padding: 8px;">Topic</th>
+                                    <th style="padding: 8px;">Readings</th>
+                                    <th style="padding: 8px;">Assignments</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td style="padding: 8px;">1</td>
+                                    <td style="padding: 8px;">Introduction</td>
+                                    <td style="padding: 8px;">Chapter 1</td>
+                                    <td style="padding: 8px;">Syllabus review</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 8px;">2</td>
+                                    <td style="padding: 8px;">Fundamentals</td>
+                                    <td style="padding: 8px;">Chapter 2</td>
+                                    <td style="padding: 8px;">Assignment 1</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    `;
+      }
+
+      function crcFormatText(command) {
+        document.execCommand(command, false, null);
+        const editor = document.getElementById("crc-outline-content");
+        if (editor) editor.focus();
+      }
+
+      function crcFormatHeading(level) {
+        document.execCommand("formatBlock", false, `<${level}>`);
+        const editor = document.getElementById("crc-outline-content");
+        if (editor) editor.focus();
+      }
+
+      function crcFormatList(type) {
+        document.execCommand(
+          type === "ul" ? "insertUnorderedList" : "insertOrderedList",
+        );
+        const editor = document.getElementById("crc-outline-content");
+        if (editor) editor.focus();
+      }
+
+      function crcInsertTable() {
+        const rows = prompt("Enter number of rows:", "3");
+        const cols = prompt("Enter number of columns:", "3");
+        if (rows && cols) {
+          let tableHTML =
+            '<table border="1" style="border-collapse: collapse; width: 100%;">';
+          tableHTML += "<thead><tr>";
+          for (let c = 0; c < cols; c++) {
+            tableHTML += `<th style="padding: 8px; text-align: left;">Header ${
+              c + 1
+            }</th>`;
+          }
+          tableHTML += "</tr></thead><tbody>";
+          for (let r = 0; r < rows; r++) {
+            tableHTML += "<tr>";
+            for (let c = 0; c < cols; c++) {
+              tableHTML += `<td style="padding: 8px;">Row ${r + 1}, Col ${
+                c + 1
+              }</td>`;
+            }
+            tableHTML += "</tr>";
+          }
+          tableHTML += "</tbody></table>";
+          document.execCommand("insertHTML", false, tableHTML);
+          const editor = document.getElementById("crc-outline-content");
+          if (editor) editor.focus();
+        }
+      }
+
+      function crcInsertLink() {
+        const url = prompt("Enter URL:", "https://");
+        const text = prompt("Enter link text:", "Link");
+        if (url && text) {
+          document.execCommand(
+            "insertHTML",
+            false,
+            `<a href="${url}" target="_blank">${text}</a>`,
+          );
+          const editor = document.getElementById("crc-outline-content");
+          if (editor) editor.focus();
+        }
+      }
+
+      async function crcLoadEmbeddedOutlinePayload(outlinePayload) {
+        const titleInput = document.getElementById("crc-outline-title");
+        const descInput = document.getElementById("crc-outline-description");
+        const contentEditor = document.getElementById("crc-outline-content");
+        const warningDiv = document.getElementById("crc-editor-status-warning");
+        const saveDraftBtn = document.getElementById("crc-save-draft-btn");
+        const submitBtn = document.getElementById("crc-submit-outline-btn");
+
+        if (!outlinePayload || outlinePayload.exists === false) {
+          crcOutlineState.currentOutlineId = null;
+          if (titleInput && crcOutlineState.selectedCourse)
+            titleInput.value = `Course Outline - ${crcOutlineState.selectedCourse.code}`;
+          if (descInput) descInput.value = "";
+          if (contentEditor && crcOutlineState.selectedCourse)
+            contentEditor.innerHTML = crcDefaultOutlineHtml(
+              crcOutlineState.selectedCourse,
+            );
+          if (warningDiv) {
+            warningDiv.innerHTML = "";
+            warningDiv.classList.add("hidden");
+          }
+          if (saveDraftBtn) saveDraftBtn.disabled = false;
+          if (submitBtn) submitBtn.disabled = false;
+          return;
+        }
+
+        crcOutlineState.currentOutlineId = outlinePayload.id;
+        if (crcOutlineState.selectedCourse == null && outlinePayload.course) {
+          crcOutlineState.selectedCourse = {
+            id: outlinePayload.course.id,
+            code: outlinePayload.course.code,
+            title: outlinePayload.course.title,
+            credits: outlinePayload.course.credits,
+            department_name: outlinePayload.course.department || "",
+          };
+        }
+
+        const courseInfo = document.getElementById("crc-editor-course-info");
+        if (courseInfo && crcOutlineState.selectedCourse) {
+          courseInfo.textContent = `${crcOutlineState.selectedCourse.code} - ${crcOutlineState.selectedCourse.title}`;
+        }
+        if (titleInput)
+          titleInput.value =
+            outlinePayload.title ||
+            (crcOutlineState.selectedCourse
+              ? `Course Outline - ${crcOutlineState.selectedCourse.code}`
+              : "");
+        if (descInput) descInput.value = outlinePayload.description || "";
+        if (contentEditor)
+          contentEditor.innerHTML = outlinePayload.content || "";
+
+        const status = outlinePayload.status || "draft";
+        if (warningDiv) {
+          warningDiv.classList.remove("hidden");
+          if (status === "approved") {
+            warningDiv.innerHTML = `
+              <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded">
+                <i class="fas fa-check-circle mr-2"></i>
+                This outline has been approved and cannot be edited.
+              </div>`;
+            if (saveDraftBtn) saveDraftBtn.disabled = true;
+            if (submitBtn) submitBtn.disabled = true;
+          } else if (status === "submitted") {
+            warningDiv.innerHTML = `
+              <div class="bg-blue-100 border border-blue-400 text-blue-700 px-4 py-3 rounded">
+                <i class="fas fa-clock mr-2"></i>
+                This outline is pending review and cannot be edited.
+              </div>`;
+            if (saveDraftBtn) saveDraftBtn.disabled = true;
+            if (submitBtn) submitBtn.disabled = true;
+          } else if (status === "revision_requested") {
+            warningDiv.innerHTML = `
+              <div class="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded">
+                <i class="fas fa-exclamation-triangle mr-2"></i>
+                Revisions requested.
+                ${outlinePayload.notes ? `<p class="mt-2 text-sm"><strong>Notes:</strong> ${outlinePayload.notes}</p>` : ""}
+              </div>`;
+            if (saveDraftBtn) saveDraftBtn.disabled = false;
+            if (submitBtn) submitBtn.disabled = false;
+          } else {
+            warningDiv.innerHTML = "";
+            warningDiv.classList.add("hidden");
+            if (saveDraftBtn) saveDraftBtn.disabled = false;
+            if (submitBtn) submitBtn.disabled = false;
+          }
+        }
+      }
+
+      async function crcShowEmbeddedOutlineEditor(options) {
+        const outlineId = options && options.outlineId ? options.outlineId : null;
+        elements.pageRoot.classList.add("hidden");
+        elements.crcCourseOutlineEditor.classList.remove("hidden");
+
+        const titleEl = document.getElementById("crc-editor-title-text");
+        const warningDiv = document.getElementById("crc-editor-status-warning");
+        if (warningDiv) {
+          warningDiv.innerHTML = "";
+          warningDiv.classList.add("hidden");
+        }
+
+        if (outlineId) {
+          if (titleEl) titleEl.textContent = "Edit Course Outline";
+          const data = await fetchAPI(
+            `${API.get_course_outline}?outline_id=${outlineId}`,
+          );
+          await crcLoadEmbeddedOutlinePayload(data);
+        } else {
+          if (titleEl) titleEl.textContent = "Create Course Outline";
+          const courseInfo = document.getElementById("crc-editor-course-info");
+          if (courseInfo && crcOutlineState.selectedCourse) {
+            courseInfo.textContent = `${crcOutlineState.selectedCourse.code} - ${crcOutlineState.selectedCourse.title}`;
+          }
+          const titleInput = document.getElementById("crc-outline-title");
+          const descInput = document.getElementById("crc-outline-description");
+          const contentEditor = document.getElementById("crc-outline-content");
+          if (titleInput && crcOutlineState.selectedCourse)
+            titleInput.value = `Course Outline - ${crcOutlineState.selectedCourse.code}`;
+          if (descInput) descInput.value = "";
+          if (contentEditor && crcOutlineState.selectedCourse)
+            contentEditor.innerHTML = crcDefaultOutlineHtml(
+              crcOutlineState.selectedCourse,
+            );
+          crcOutlineState.currentOutlineId = null;
+          const saveDraftBtn = document.getElementById("crc-save-draft-btn");
+          const submitBtn = document.getElementById("crc-submit-outline-btn");
+          if (saveDraftBtn) saveDraftBtn.disabled = false;
+          if (submitBtn) submitBtn.disabled = false;
+        }
+      }
+
+      function crcCancelOutlineEditor() {
+        crcOutlineState.selectedCourse = null;
+        crcOutlineState.currentOutlineId = null;
+        elements.crcCourseOutlineEditor.classList.add("hidden");
+        elements.pageRoot.classList.remove("hidden");
+        loadPage("crc-my-course-outlines");
+      }
+
+      async function crcSaveOutline(status) {
+        const titleInput = document.getElementById("crc-outline-title");
+        const descInput = document.getElementById("crc-outline-description");
+        const contentEditor = document.getElementById("crc-outline-content");
+        if (!titleInput || !contentEditor || !crcOutlineState.selectedCourse) {
+          showNotification("Missing course or form data.", "error");
+          return;
+        }
+        const title = titleInput.value.trim();
+        const description = descInput ? descInput.value.trim() : "";
+        const content = contentEditor.innerHTML.trim();
+        if (!title) {
+          showNotification("Outline title is required", "error");
+          return;
+        }
+        if (!content || content === "<br>") {
+          showNotification("Outline content is required", "error");
+          return;
+        }
+        if (
+          status === "submitted" &&
+          !confirm(
+            "Submit this outline for review? You cannot edit it after submission until reviewed.",
+          )
+        ) {
+          return;
+        }
+        const payload = {
+          course_id: crcOutlineState.selectedCourse.id,
+          title,
+          description,
+          content,
+          status,
+        };
+        if (crcOutlineState.currentOutlineId) {
+          payload.outline_id = crcOutlineState.currentOutlineId;
+        }
+        try {
+          const result = await fetchAPI(API.save_course_outline, {
+            method: "POST",
+            body: JSON.stringify(payload),
+          });
+          showNotification(result.message || "Saved", "success");
+          if (result.outline_id) {
+            crcOutlineState.currentOutlineId = result.outline_id;
+          }
+          if (status === "submitted") {
+            crcCancelOutlineEditor();
+          }
+        } catch (e) {
+          showNotification(e.message || "Save failed", "error");
+        }
+      }
+
+      async function openCrcNewOutlineModal() {
+        try {
+          crcCoursesCache = await fetchAPI(API.courses);
+          elements.modalTitle.textContent = "New course outline";
+          const options = crcCoursesCache
+            .map(
+              (c) =>
+                `<option value="${c.id}">${c.code} — ${c.title}</option>`,
+            )
+            .join("");
+          elements.modalBody.innerHTML = `
+            <p class="text-sm text-gray-600 mb-4">Pick a course. The same outline editor as faculty will open with starter content.</p>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Course</label>
+            <select id="crc-new-outline-course" class="w-full border border-gray-300 rounded-lg px-3 py-2 mb-4">
+              <option value="">Select a course</option>
+              ${options}
+            </select>
+            <div class="flex justify-end gap-2 pt-4 border-t">
+              <button type="button" onclick="document.getElementById('modal').classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg">Cancel</button>
+              <button type="button" id="crc-new-outline-confirm" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">Continue</button>
+            </div>`;
+          elements.modal.classList.remove("hidden");
+          const confirmBtn = document.getElementById("crc-new-outline-confirm");
+          confirmBtn.replaceWith(confirmBtn.cloneNode(true));
+          document
+            .getElementById("crc-new-outline-confirm")
+            .addEventListener("click", async () => {
+              const selectedCourseId = document.getElementById(
+                "crc-new-outline-course",
+              ).value;
+              if (!selectedCourseId) {
+                showNotification("Please select a course.", "warning");
+                return;
+              }
+              const course = crcCoursesCache.find(
+                (c) => String(c.id) === String(selectedCourseId),
+              );
+              if (!course) {
+                showNotification("Course not found.", "error");
+                return;
+              }
+              try {
+                const structureUrl = `${API.faculty_course_outline_structure}?course_id=${selectedCourseId}`;
+                const structureResponse = await fetch(
+                  resolveApiRequestUrl(structureUrl),
+                  {
+                    credentials: "include",
+                    headers: { "X-CSRFToken": getCSRFToken() },
+                  },
+                );
+                const data = await structureResponse.json();
+                if (!structureResponse.ok || !data.has_access) {
+                  showNotification(
+                    data.error || "Cannot create outline for this course.",
+                    "error",
+                  );
+                  return;
+                }
+                crcOutlineState.selectedCourse = course;
+                elements.modal.classList.add("hidden");
+                const existingId = data.existing_outline?.id || null;
+                if (existingId) {
+                  await crcShowEmbeddedOutlineEditor({ outlineId: existingId });
+                } else {
+                  await crcShowEmbeddedOutlineEditor({});
+                }
+              } catch (err) {
+                showNotification(
+                  "Failed to load outline template: " + err.message,
+                  "error",
+                );
+              }
+            });
+        } catch (e) {
+          showNotification("Could not load courses.", "error");
+        }
+      }
+
+      async function openCrcEmbeddedEditorForOutline(outlineId) {
+        try {
+          const data = await fetchAPI(
+            `${API.get_course_outline}?outline_id=${outlineId}`,
+          );
+          crcOutlineState.selectedCourse = {
+            id: data.course.id,
+            code: data.course.code,
+            title: data.course.title,
+            credits: data.course.credits,
+            department_name: data.course.department || "",
+          };
+          await crcShowEmbeddedOutlineEditor({ outlineId });
+        } catch (e) {
+          showNotification("Failed to open editor.", "error");
+        }
+      }
+
+      async function viewCrcMyOutlineDetailModal(outlineId) {
+        try {
+          const data = await fetchAPI(
+            `${API.get_course_outline}?outline_id=${outlineId}`,
+          );
+          elements.crcMyOutlineViewTitle.textContent = `Outline — ${data.course?.code || ""}`;
+          const body = elements.crcMyOutlineViewContent;
+          const contentHtml = data.content
+            ? `<div class="border rounded-lg p-4 max-h-96 overflow-y-auto outline-content text-sm">${data.content}</div>`
+            : '<p class="text-gray-500 text-sm">No HTML content saved for this outline.</p>';
+          body.innerHTML = `
+            <div class="space-y-3 text-sm">
+              <p><span class="text-gray-600">Course:</span> <strong>${data.course?.code || ""}</strong> ${data.course?.title || ""}</p>
+              <p><span class="text-gray-600">Title:</span> ${data.title || ""}</p>
+              <p><span class="text-gray-600">Version:</span> ${data.version || 1} &nbsp; <span class="text-gray-600">Status:</span> ${data.status || ""}</p>
+              ${data.notes ? `<div class="p-3 bg-yellow-50 rounded text-yellow-900"><strong>Notes:</strong> ${data.notes}</div>` : ""}
+            </div>
+            <h4 class="font-medium mt-6 mb-2">Content</h4>
+            ${contentHtml}
+            <div class="mt-6 flex justify-end">
+              <button type="button" onclick="closeCrcMyOutlineViewModal()" class="px-4 py-2 border border-gray-300 rounded-lg">Close</button>
+            </div>`;
+          elements.crcMyOutlineViewModal.classList.remove("hidden");
+        } catch (e) {
+          showNotification("Failed to load outline.", "error");
+        }
+      }
+
       async function renderCourseCataloguePage() {
         elements.pageTitle.textContent = "Course Catalogue";
         elements.pageSubtitle.textContent =
@@ -855,7 +2074,7 @@
         try {
           const catalogue = await fetchAPI(API.crc_course_catalogue);
 
-          elements.contentArea.innerHTML = `
+          elements.pageRoot.innerHTML = `
                           <div class="bg-white rounded-lg shadow">
                               <div class="px-6 py-4 border-b flex justify-between items-center">
                                   <h3 class="text-lg font-medium">Course Catalogue</h3>
@@ -982,7 +2201,7 @@
             API.crc_course_outline_submissions,
           );
 
-          elements.contentArea.innerHTML = `
+          elements.pageRoot.innerHTML = `
                           <div class="bg-white rounded-lg shadow">
                               <div class="px-6 py-4 border-b flex justify-between items-center">
                                   <h3 class="text-lg font-medium">Pending Outline Submissions</h3>
@@ -1117,7 +2336,7 @@
             (s) => s.dynamic_form__form_type === "crr",
           ).length;
 
-          elements.contentArea.innerHTML = `
+          elements.pageRoot.innerHTML = `
                           <div class="bg-white rounded-lg shadow mt-4">
                               <div class="px-6 py-4 border-b">
                                   <h3 class="text-lg font-medium">Form Submissions</h3>
@@ -1263,7 +2482,7 @@
         try {
           const dynamicForms = await fetchAPI(API.dynamic_forms);
 
-          elements.contentArea.innerHTML = `
+          elements.pageRoot.innerHTML = `
                           <div class="space-y-6">
                               <div class="bg-white rounded-lg shadow">
                                   <div class="px-6 py-4 border-b">
@@ -2725,7 +3944,7 @@
             (s) => s.dynamic_form__form_type === "crr",
           ).length;
 
-          elements.contentArea.querySelector(
+          elements.pageRoot.querySelector(
             ".bg-white.rounded-lg.shadow.mt-4 .p-6",
           ).innerHTML = `
                           ${
@@ -2841,7 +4060,7 @@
                       `;
 
           // Update counts in header
-          const headerDiv = elements.contentArea.querySelector(
+          const headerDiv = elements.pageRoot.querySelector(
             ".px-6.py-4.border-b",
           );
           if (headerDiv) {
@@ -3256,7 +4475,7 @@
         elements.pageSubtitle.textContent =
           "Analytics and insights for quality improvement";
 
-        elements.contentArea.innerHTML = `
+        elements.pageRoot.innerHTML = `
     <div class="space-y-6">
         <!-- Full width submissions chart on top -->
         <div class="bg-white rounded-lg shadow p-6">
@@ -4013,7 +5232,7 @@
         elements.pageSubtitle.textContent =
           "Compare different versions of course outlines";
 
-        elements.contentArea.innerHTML = `
+        elements.pageRoot.innerHTML = `
         <div class="space-y-6">
             <div class="bg-white rounded-lg shadow p-6">
                 <h3 class="font-medium text-lg mb-4">Compare Outline Versions</h3>
@@ -4283,7 +5502,7 @@
         elements.pageSubtitle.textContent =
           "Generate comprehensive quality improvement reports";
 
-        elements.contentArea.innerHTML = `
+        elements.pageRoot.innerHTML = `
     <div class="space-y-6">
         <div class="bg-white rounded-lg shadow p-6">
             <h3 class="font-medium text-lg mb-4">Generate CQI Report</h3>
@@ -4617,6 +5836,24 @@
       window.resetFormFilters = resetFormFilters;
       window.viewFacultySubmissions = viewFacultySubmissions;
       window.exportFacultyReport = exportFacultyReport;
+
+      window.openCourseCreateModal = openCourseCreateModal;
+      window.editCourse = editCourse;
+      window.openCourseFacultyAssignmentModal =
+        openCourseFacultyAssignmentModal;
+      window.deleteCourse = deleteCourse;
+
+      window.openCrcNewOutlineModal = openCrcNewOutlineModal;
+      window.viewCrcMyOutlineDetailModal = viewCrcMyOutlineDetailModal;
+      window.openCrcEmbeddedEditorForOutline = openCrcEmbeddedEditorForOutline;
+      window.crcCancelOutlineEditor = crcCancelOutlineEditor;
+      window.crcSaveOutline = crcSaveOutline;
+      window.crcFormatText = crcFormatText;
+      window.crcFormatHeading = crcFormatHeading;
+      window.crcFormatList = crcFormatList;
+      window.crcInsertTable = crcInsertTable;
+      window.crcInsertLink = crcInsertLink;
+      window.closeCrcMyOutlineViewModal = closeCrcMyOutlineViewModal;
 
       window.viewCourseOutlines = viewCourseOutlines;
       window.viewOutlineVersion = viewOutlineVersion;
