@@ -4,6 +4,7 @@ from django.contrib.auth import logout
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_http_methods
 from django.http import JsonResponse
+from django.urls import reverse
 from .forms import UserRegisterForm
 from django.contrib.auth.views import LoginView
 from .models import Course, DynamicForm, FormQuestion, DynamicFormSubmission, CourseFaculty, FormAnswer, CourseOutline, User, Department
@@ -215,9 +216,12 @@ def dashboard(request):
                 'answer_count': FormAnswer.objects.filter(submission=sub).count()
             })
         
-        # Get course outlines for coordinators
-        course_outlines = CourseOutline.objects.filter(
+        # Recent course outlines for courses this faculty is assigned to
+        assigned_course_ids = CourseFaculty.objects.filter(
             faculty=request.user
+        ).values_list('course_id', flat=True)
+        course_outlines = CourseOutline.objects.filter(
+            course_id__in=assigned_course_ids
         ).select_related('course').order_by('-created_at')[:5]
         
         formatted_outlines = []
@@ -517,74 +521,71 @@ def course_outline_view(request):
 
 @login_required
 def course_outline_editor(request):
-    """Course Outline Editor for Faculty Coordinators"""
+    """Standalone course outline editor (faculty coordinators only). CRC uses the in-dashboard editor."""
     if request.user.role != User.ROLE_FACULTY:
         messages.error(request, "Access denied.")
-        return redirect('dashboard')
-    
-    course_id = request.GET.get('course_id')
-    outline_id = request.GET.get('outline_id')  # For editing existing outline
-    
+        return redirect("dashboard")
+
+    course_id = request.GET.get("course_id")
+    outline_id = request.GET.get("outline_id")
+
     if not course_id and not outline_id:
         messages.error(request, "Course ID or Outline ID is required.")
-        return redirect('faculty_dashboard')
-    
+        return redirect("faculty_dashboard")
+
     try:
         course = None
         existing_outline = None
-        
+
         if outline_id:
-            # Editing existing outline
-            existing_outline = CourseOutline.objects.get(id=outline_id, faculty=request.user)
+            existing_outline = CourseOutline.objects.get(
+                id=outline_id, faculty=request.user
+            )
             course = existing_outline.course
-            
-            # Check if faculty is coordinator for this course
-            course_assignment = CourseFaculty.objects.get(
+            CourseFaculty.objects.get(
                 faculty=request.user,
                 course=course,
-                is_coordinator=True
+                is_coordinator=True,
             )
         else:
-            # Creating new outline
-            # Check if faculty is coordinator for this course
-            course_assignment = CourseFaculty.objects.get(
+            CourseFaculty.objects.get(
                 faculty=request.user,
                 course_id=course_id,
-                is_coordinator=True
+                is_coordinator=True,
             )
-            
             course = Course.objects.get(id=course_id)
-            
-            # Get existing outline if any
-            existing_outline = CourseOutline.objects.filter(
-                course_id=course_id,
-                faculty=request.user
-            ).order_by('-version').first()
-        
+            existing_outline = (
+                CourseOutline.objects.filter(
+                    course_id=course_id,
+                    faculty=request.user,
+                )
+                .order_by("-version")
+                .first()
+            )
+
         context = {
-            'course': {
-                'id': course.id,
-                'title': course.title,
-                'code': course.code,
-                'credits': course.credits,
-                'department': course.department.name if course.department else ''
+            "course": {
+                "id": course.id,
+                "title": course.title,
+                "code": course.code,
+                "credits": course.credits,
+                "department": course.department.name if course.department else "",
             },
-            'existing_outline': existing_outline,
-            'is_coordinator': True,
-            'faculty_name': request.user.get_full_name() or request.user.username,
+            "existing_outline": existing_outline,
+            "is_coordinator": True,
+            "is_crc_member": False,
+            "faculty_name": request.user.get_full_name() or request.user.username,
+            "dashboard_home_url": reverse("faculty_dashboard"),
         }
-        
-        return render(request, 'accounts/course_outline_editor.html', context)
-        
+
+        return render(request, "accounts/course_outline_editor.html", context)
+
     except CourseFaculty.DoesNotExist:
         messages.error(request, "You are not the coordinator for this course.")
-        return redirect('faculty_dashboard')
-    except (Course.DoesNotExist, CourseOutline.DoesNotExist) as e:
+        return redirect("faculty_dashboard")
+    except (Course.DoesNotExist, CourseOutline.DoesNotExist):
         messages.error(request, "Course or outline not found.")
-        return redirect('faculty_dashboard')
-    except Exception as e:
-        messages.error(request, f"Error: {str(e)}")
-        return redirect('faculty_dashboard')
-    
-
-    
+        return redirect("faculty_dashboard")
+    except Exception as exc:
+        messages.error(request, f"Error: {str(exc)}")
+        return redirect("faculty_dashboard")

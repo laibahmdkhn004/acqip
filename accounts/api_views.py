@@ -28,9 +28,34 @@ def is_admin(user):
 def is_admin_or_crc(user):
     return user.is_authenticated and user.role in [User.ROLE_ADMIN, User.ROLE_CRC_MEMBER]
 
-# Department API Views
+
+def course_outline_to_dict(outline):
+    """Serialize a CourseOutline for JSON APIs (faculty / CRC)."""
+    return {
+        'id': outline.id,
+        'course': {
+            'id': outline.course.id,
+            'code': outline.course.code,
+            'title': outline.course.title,
+        },
+        'version': outline.version,
+        'title': outline.title,
+        'description': outline.description,
+        'content': outline.content,
+        'status': outline.status,
+        'notes': outline.notes,
+        'is_current': outline.is_current,
+        'faculty_author_id': outline.faculty_id,
+        'faculty_author_username': outline.faculty.username,
+        'created_at': outline.created_at.isoformat() if outline.created_at else None,
+        'submitted_at': outline.submitted_at.isoformat() if outline.submitted_at else None,
+        'approved_at': outline.approved_at.isoformat() if outline.approved_at else None,
+    }
+
+
+# Department API Views (list: admin + CRC for course management UI)
 @login_required
-@user_passes_test(is_admin)
+@user_passes_test(is_admin_or_crc)
 @require_http_methods(["GET"])
 def api_departments(request):
     departments = list(Department.objects.values('id', 'name', 'code', 'description'))
@@ -127,9 +152,9 @@ def api_department_detail(request, department_id):
         return JsonResponse({'error': str(e)}, status=400)
 
 
-# Course API Views
+# Course API Views (admin + CRC)
 @login_required
-@user_passes_test(is_admin)
+@user_passes_test(is_admin_or_crc)
 @require_http_methods(["GET"])
 def api_courses(request):
     courses = list(Course.objects.select_related('department').values(
@@ -153,9 +178,9 @@ def api_courses(request):
     
     return JsonResponse(courses, safe=False)
 
-@login_required
-@user_passes_test(is_admin)
 @csrf_exempt
+@login_required
+@user_passes_test(is_admin_or_crc)
 @require_http_methods(["POST"])
 def api_courses_create(request):
     try:
@@ -195,9 +220,9 @@ def api_courses_create(request):
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
 
-@login_required
-@user_passes_test(is_admin)
 @csrf_exempt
+@login_required
+@user_passes_test(is_admin_or_crc)
 @require_http_methods(["PUT"])
 def api_course_update(request, course_id):
     try:
@@ -228,9 +253,9 @@ def api_course_update(request, course_id):
         return JsonResponse({'error': str(e)}, status=400)
 
 # Assign/Update Course Faculty
-@login_required
-@user_passes_test(is_admin)
 @csrf_exempt
+@login_required
+@user_passes_test(is_admin_or_crc)
 @require_http_methods(["POST"])
 def api_assign_course_faculty(request, course_id):
     try:
@@ -272,9 +297,9 @@ def api_assign_course_faculty(request, course_id):
     except Exception as e:
         return JsonResponse({'error': str(e), 'success': False}, status=400)
 
-@login_required
-@user_passes_test(is_admin)
 @csrf_exempt
+@login_required
+@user_passes_test(is_admin_or_crc)
 @require_http_methods(["DELETE"])
 def api_course_delete(request, course_id):
     try:
@@ -963,7 +988,7 @@ def api_submit_dynamic_form(request):
 
 # Faculty Users API
 @login_required
-@user_passes_test(is_admin)
+@user_passes_test(is_admin_or_crc)
 @require_http_methods(["GET"])
 def api_faculty_users(request):
     try:
@@ -976,7 +1001,7 @@ def api_faculty_users(request):
 
 # Course Faculty Assignments API
 @login_required
-@user_passes_test(is_admin)
+@user_passes_test(is_admin_or_crc)
 @require_http_methods(["GET"])
 def api_course_faculty_assignments(request, course_id):
     try:
@@ -1313,8 +1338,8 @@ def api_crc_form_submissions(request):
 @csrf_exempt
 @require_http_methods(["POST"])
 def api_save_course_outline(request):
-    """Save or update course outline (faculty only) - WITH WORKFLOW RESTRICTIONS"""
-    if request.user.role != User.ROLE_FACULTY:
+    """Save or update course outline (faculty coordinators or CRC members)."""
+    if request.user.role not in (User.ROLE_FACULTY, User.ROLE_CRC_MEMBER):
         return JsonResponse({'error': 'Access denied'}, status=403)
     
     try:
@@ -1332,15 +1357,15 @@ def api_save_course_outline(request):
         if not content:
             return JsonResponse({'error': 'content is required'}, status=400)
         
-        # Check if faculty is coordinator for this course
-        try:
-            course_assignment = CourseFaculty.objects.get(
-                faculty=request.user,
-                course_id=course_id,
-                is_coordinator=True
-            )
-        except CourseFaculty.DoesNotExist:
-            return JsonResponse({'error': 'Only course coordinators can save course outlines'}, status=403)
+        if request.user.role == User.ROLE_FACULTY:
+            try:
+                CourseFaculty.objects.get(
+                    faculty=request.user,
+                    course_id=course_id,
+                    is_coordinator=True
+                )
+            except CourseFaculty.DoesNotExist:
+                return JsonResponse({'error': 'Only course coordinators can save course outlines'}, status=403)
         
         course = Course.objects.get(id=course_id)
         
@@ -1476,46 +1501,105 @@ def api_crc_view_outline_content(request, outline_id):
 @login_required
 @require_http_methods(["GET"])
 def api_get_course_outline(request):
-    """Get course outline for faculty"""
-    if request.user.role != User.ROLE_FACULTY:
+    """Get course outline: faculty (assigned/coordinator rules); CRC (any outline by id, own drafts by course)."""
+    if request.user.role not in (User.ROLE_FACULTY, User.ROLE_CRC_MEMBER):
         return JsonResponse({'error': 'Access denied'}, status=403)
-    
+
+    outline_id = request.GET.get('outline_id')
+    course_id = request.GET.get('course_id')
+
     try:
-        course_id = request.GET.get('course_id')
-        
-        # Check if faculty is coordinator for this course
-        try:
-            CourseFaculty.objects.get(
-                faculty=request.user,
+        if request.user.role == User.ROLE_CRC_MEMBER:
+            if outline_id:
+                outline = CourseOutline.objects.select_related('course', 'faculty').get(
+                    id=outline_id
+                )
+                return JsonResponse(course_outline_to_dict(outline))
+            if not course_id:
+                return JsonResponse(
+                    {'error': 'course_id or outline_id is required'},
+                    status=400,
+                )
+            Course.objects.get(id=course_id)
+            outline = CourseOutline.objects.filter(
                 course_id=course_id,
-                is_coordinator=True
-            )
-        except CourseFaculty.DoesNotExist:
-            return JsonResponse({'error': 'Only course coordinators can access course outlines'}, status=403)
-        
-        # Get latest outline for this course by this faculty
-        outline = CourseOutline.objects.filter(
-            course_id=course_id,
-            faculty=request.user
-        ).order_by('-version').first()
-        
-        if outline:
-            outline_data = {
-                'id': outline.id,
-                'version': outline.version,
-                'title': outline.title,
-                'description': outline.description,
-                'content': outline.content,
-                'status': outline.status,
-                'notes': outline.notes,
-                'created_at': outline.created_at.isoformat() if outline.created_at else None,
-                'submitted_at': outline.submitted_at.isoformat() if outline.submitted_at else None,
-                'approved_at': outline.approved_at.isoformat() if outline.approved_at else None
-            }
-            return JsonResponse(outline_data)
-        else:
+                faculty=request.user,
+            ).select_related('course', 'faculty').order_by('-version').first()
+            if outline:
+                return JsonResponse(course_outline_to_dict(outline))
             return JsonResponse({'exists': False})
-            
+
+        def faculty_assigned_to_course(course_pk):
+            return CourseFaculty.objects.filter(
+                faculty=request.user,
+                course_id=course_pk,
+            ).exists()
+
+        def faculty_is_coordinator_for_course(course_pk):
+            return CourseFaculty.objects.filter(
+                faculty=request.user,
+                course_id=course_pk,
+                is_coordinator=True,
+            ).exists()
+
+        if outline_id:
+            outline = CourseOutline.objects.select_related('course', 'faculty').get(
+                id=outline_id
+            )
+            if not faculty_assigned_to_course(outline.course_id):
+                return JsonResponse({'error': 'Access denied'}, status=403)
+            return JsonResponse(course_outline_to_dict(outline))
+
+        if not course_id:
+            return JsonResponse(
+                {'error': 'course_id or outline_id is required'},
+                status=400,
+            )
+
+        if not faculty_assigned_to_course(course_id):
+            return JsonResponse({'error': 'Access denied'}, status=403)
+
+        if faculty_is_coordinator_for_course(course_id):
+            outline = CourseOutline.objects.filter(
+                course_id=course_id,
+                faculty=request.user,
+            ).select_related('course', 'faculty').order_by('-version').first()
+        else:
+            outline = (
+                CourseOutline.objects.filter(
+                    course_id=course_id,
+                    is_current=True,
+                )
+                .select_related('course', 'faculty')
+                .order_by('-version')
+                .first()
+            )
+            if not outline:
+                outline = (
+                    CourseOutline.objects.filter(
+                        course_id=course_id,
+                        status=CourseOutline.STATUS_APPROVED,
+                    )
+                    .select_related('course', 'faculty')
+                    .order_by('-version')
+                    .first()
+                )
+            if not outline:
+                outline = (
+                    CourseOutline.objects.filter(course_id=course_id)
+                    .select_related('course', 'faculty')
+                    .order_by('-version')
+                    .first()
+                )
+
+        if outline:
+            return JsonResponse(course_outline_to_dict(outline))
+        return JsonResponse({'exists': False})
+
+    except Course.DoesNotExist:
+        return JsonResponse({'error': 'Course not found'}, status=404)
+    except CourseOutline.DoesNotExist:
+        return JsonResponse({'error': 'Course outline not found'}, status=404)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
 
@@ -1774,17 +1858,36 @@ def api_faculty_submissions(request):
 @login_required
 @require_http_methods(["GET"])
 def api_faculty_course_outlines(request):
-    """Get all course outlines for the current faculty member"""
-    if request.user.role != User.ROLE_FACULTY:
+    """Faculty: outlines for assigned courses. CRC: all outlines that have entered review (not drafts)."""
+    if request.user.role not in (User.ROLE_FACULTY, User.ROLE_CRC_MEMBER):
         return JsonResponse({'error': 'Access denied'}, status=403)
     
     try:
-        outlines = CourseOutline.objects.filter(
-            faculty=request.user
-        ).select_related('course').order_by('-created_at')
+        if request.user.role == User.ROLE_CRC_MEMBER:
+            outlines = CourseOutline.objects.filter(
+                status__in=[
+                    CourseOutline.STATUS_SUBMITTED,
+                    CourseOutline.STATUS_REVISION,
+                    CourseOutline.STATUS_APPROVED,
+                ]
+            ).select_related('course', 'faculty').order_by('-submitted_at', '-approved_at', '-updated_at', '-id')
+        else:
+            assigned_course_ids = CourseFaculty.objects.filter(
+                faculty=request.user
+            ).values_list('course_id', flat=True)
+
+            outlines = CourseOutline.objects.filter(
+                course_id__in=assigned_course_ids
+            ).select_related('course', 'faculty').order_by('course_id', '-version', '-created_at')
         
         outlines_list = []
         for outline in outlines:
+            is_author = outline.faculty_id == request.user.id
+            can_edit = is_author and outline.status in [
+                CourseOutline.STATUS_DRAFT,
+                CourseOutline.STATUS_REVISION,
+            ]
+            can_submit = can_edit
             outlines_list.append({
                 'id': outline.id,
                 'course': {
@@ -1798,6 +1901,10 @@ def api_faculty_course_outlines(request):
                 'status': outline.status,
                 'is_current': outline.is_current,
                 'notes': outline.notes,
+                'faculty_author_id': outline.faculty_id,
+                'faculty_author_username': outline.faculty.username,
+                'can_edit': can_edit,
+                'can_submit': can_submit,
                 'created_at': outline.created_at.isoformat() if outline.created_at else None,
                 'submitted_at': outline.submitted_at.isoformat() if outline.submitted_at else None,
                 'approved_at': outline.approved_at.isoformat() if outline.approved_at else None
@@ -1887,8 +1994,8 @@ def api_faculty_submissions_list(request):
 @login_required
 @require_http_methods(["GET"])
 def api_faculty_course_outline_structure(request):
-    """Get course outline structure for faculty (coordinators only) - NO TEMPLATE"""
-    if request.user.role != User.ROLE_FACULTY:
+    """Outline starter structure: faculty coordinators or CRC (any course)."""
+    if request.user.role not in (User.ROLE_FACULTY, User.ROLE_CRC_MEMBER):
         return JsonResponse({'error': 'Access denied'}, status=403)
     
     try:
@@ -1897,18 +2004,18 @@ def api_faculty_course_outline_structure(request):
         if not course_id:
             return JsonResponse({'error': 'course_id is required'}, status=400)
         
-        # Check if faculty is coordinator for this course
-        try:
-            course_assignment = CourseFaculty.objects.get(
-                faculty=request.user,
-                course_id=course_id,
-                is_coordinator=True
-            )
-        except CourseFaculty.DoesNotExist:
-            return JsonResponse({
-                'error': 'Only course coordinators can create course outlines',
-                'has_access': False
-            }, status=403)
+        if request.user.role == User.ROLE_FACULTY:
+            try:
+                CourseFaculty.objects.get(
+                    faculty=request.user,
+                    course_id=course_id,
+                    is_coordinator=True
+                )
+            except CourseFaculty.DoesNotExist:
+                return JsonResponse({
+                    'error': 'Only course coordinators can create course outlines',
+                    'has_access': False
+                }, status=403)
         
         course = Course.objects.get(id=course_id)
         

@@ -1,4 +1,4 @@
-﻿﻿{% load static %}
+﻿{% load static %}
 <!doctype html>
 <html lang="en">
   <head>
@@ -747,8 +747,8 @@
                   <div>
                     <h3 class="font-semibold">Course Outlines</h3>
                     <p class="text-sm text-gray-600 mt-1">
-                      Manage your course outlines - only course coordinators can
-                      create outlines
+                      View outlines for every course you are assigned to. Only
+                      course coordinators can create or edit outlines.
                     </p>
                   </div>
                   <button
@@ -2298,6 +2298,19 @@
           );
           if (response.ok) {
             const outline = await response.json();
+            if (outline.exists === false) {
+              state.currentOutline = null;
+              const titleInput = document.getElementById("outline-title");
+              const descInput = document.getElementById("outline-description");
+              const contentEditor = document.getElementById("outline-content");
+              if (titleInput)
+                titleInput.value = `Course Outline - ${state.selectedCourse.code}`;
+              if (descInput) descInput.value = "";
+              if (contentEditor) contentEditor.innerHTML = "";
+              const warningDiv = document.getElementById("editor-status-warning");
+              if (warningDiv) warningDiv.classList.add("hidden");
+              return;
+            }
             state.currentOutline = outline;
 
             const courseInfo = document.getElementById("editor-course-info");
@@ -3064,6 +3077,8 @@
           const response = await fetch("/api/faculty/course-outlines/");
           if (response.ok) {
             const outlines = await response.json();
+            state.outlines = outlines;
+            updateDashboardStats();
             renderOutlinesTable(outlines);
           }
         } catch (error) {
@@ -3093,9 +3108,10 @@
         <td colspan="6" class="px-4 py-8 text-center text-gray-500">
           <div class="flex flex-col items-center">
             <i class="fas fa-file-alt text-3xl text-gray-300 mb-3"></i>
-            <p class="text-gray-500">No course outlines yet</p>
+            <p class="text-gray-500">No outlines for your assigned courses yet</p>
             <p class="text-sm text-gray-400 mt-1">
-              Only course coordinators can create course outlines
+              Coordinators create outlines; all assigned faculty can view them here
+              once they exist.
             </p>
             <button
               onclick="showCreateOutlineModal()"
@@ -3117,11 +3133,8 @@
               : new Date();
             const status = outline.status || "draft";
 
-            // Check if outline can be edited
-            const canEdit =
-              status === "draft" || status === "revision_requested";
-            const canSubmit =
-              status === "draft" || status === "revision_requested";
+            const canEdit = outline.can_edit === true;
+            const canSubmit = outline.can_submit === true;
 
             return `
         <tr class="hover:bg-gray-50">
@@ -3134,6 +3147,11 @@
                 <div class="text-sm text-gray-500 truncate max-w-xs">
                   ${outline.course?.title || "No title"}
                 </div>
+                ${
+                  outline.faculty_author_username
+                    ? `<div class="text-xs text-gray-500 mt-1">Author: ${outline.faculty_author_username}</div>`
+                    : ""
+                }
                 ${
                   outline.is_current
                     ? `
@@ -3243,8 +3261,8 @@
           container.innerHTML = `
                     <div class="text-center py-8 text-gray-400">
                         <i class="fas fa-file-alt text-3xl mb-3"></i>
-                        <p>No course outlines yet</p>
-                        <p class="text-sm mt-2">Only course coordinators can create course outlines</p>
+                        <p>No outlines for your assigned courses yet</p>
+                        <p class="text-sm mt-2 text-gray-500">Coordinators create outlines; assigned faculty can view them here.</p>
                     </div>
                 `;
           return;
@@ -3260,11 +3278,8 @@
               : null;
             const status = outline.status || "draft";
 
-            // Check if outline can be edited
-            const canEdit =
-              status === "draft" || status === "revision_requested";
-            const canSubmit =
-              status === "draft" || status === "revision_requested";
+            const canEdit = outline.can_edit === true;
+            const canSubmit = outline.can_submit === true;
 
             return `
                     <div class="border rounded p-4 mb-4 hover:shadow">
@@ -3293,8 +3308,11 @@
                                 <p class="text-gray-600 mb-2">${
                                   outline.description || "No description"
                                 }</p>
-                                
-                                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                ${
+                                  outline.faculty_author_username
+                                    ? `<p class="text-xs text-gray-500 mb-2">Author: ${outline.faculty_author_username}</p>`
+                                    : ""
+                                }
                                     <div class="text-center p-2 bg-gray-50 rounded">
                                         <div class="text-xs text-gray-600">Version</div>
                                         <div class="font-bold">${
@@ -3451,56 +3469,44 @@
 
       async function viewOutlineDetails(outlineId) {
         try {
-          // Try to find the outline in state.outlines first
           const outline = state.outlines.find((o) => o.id == outlineId);
 
           if (outline && outline.content) {
-            // We have the outline with content, show it
             showOutlineInModal(outline);
             openOutlineViewModal();
-          } else {
-            // Fetch the outline details from the server
-            // Find the course for this outline
-            const foundOutline = state.outlines.find((o) => o.id == outlineId);
-            if (!foundOutline) {
-              throw new Error("Outline not found in local data");
-            }
+            return;
+          }
 
-            // Use course_id to fetch the latest outline
-            const courseId = foundOutline.course?.id;
-            if (!courseId) {
-              throw new Error("Course ID not found");
-            }
+          const title = document.getElementById("course-outline-view-title");
+          const content = document.getElementById(
+            "course-outline-view-content",
+          );
 
-            // Show loading
-            const title = document.getElementById("course-outline-view-title");
-            const content = document.getElementById(
-              "course-outline-view-content",
-            );
-
-            if (title) title.textContent = "Loading Course Outline...";
-            if (content) {
-              content.innerHTML = `
+          if (title) title.textContent = "Loading Course Outline...";
+          if (content) {
+            content.innerHTML = `
                     <div class="flex justify-center items-center h-64">
                         <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
                     </div>
                 `;
+          }
+
+          openOutlineViewModal();
+
+          const response = await fetch(
+            `/api/get-course-outline/?outline_id=${outlineId}`,
+            { credentials: "include" },
+          );
+
+          if (response.ok) {
+            const outlineData = await response.json();
+            if (outlineData.error) {
+              throw new Error(outlineData.error);
             }
-
-            // Open modal
-            openOutlineViewModal();
-
-            // Fetch outline using course_id
-            const response = await fetch(
-              `/api/get-course-outline/?course_id=${courseId}`,
-            );
-
-            if (response.ok) {
-              const outlineData = await response.json();
-              showOutlineInModal(outlineData);
-            } else {
-              throw new Error("Failed to fetch outline");
-            }
+            showOutlineInModal(outlineData);
+          } else {
+            const errBody = await response.json().catch(() => ({}));
+            throw new Error(errBody.error || "Failed to fetch outline");
           }
         } catch (error) {
           console.error("Error in viewOutlineDetails:", error);
@@ -3564,6 +3570,16 @@
                             ${outline.status ? outline.status.replace(/_/g, " ") : "Unknown"}
                         </span>
                     </div>
+                    ${
+                      outline.faculty_author_username
+                        ? `
+                    <div>
+                        <span class="text-gray-600">Prepared by:</span>
+                        <div class="font-medium">${outline.faculty_author_username}</div>
+                    </div>
+                    `
+                        : ""
+                    }
                     <div>
                         <span class="text-gray-600">Created:</span>
                         <div class="font-medium">${createdDate}</div>
