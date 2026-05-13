@@ -3,3 +3,5 @@ python-decouple
 litellm
 openai
 python-dotenv
+Markdown
+fpdf2
