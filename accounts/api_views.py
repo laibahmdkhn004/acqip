@@ -2280,49 +2280,79 @@ def api_department_update(request, department_id):
 @user_passes_test(is_admin_or_crc)
 @require_http_methods(["GET"])
 def api_analysis_submissions_over_time(request):
-    """Get form submissions over time (weekly periods)"""
+    """Get form submissions over time (weekly periods).
+
+    Always returns a contiguous timeline of the configured number of weeks so
+    that the chart shows the full window even when most weeks have no data.
+    Optional query params:
+        - ``course_id``: restrict the chart to a single course.
+        - ``weeks``: number of weeks of history to include (default 12, capped
+          between 4 and 52).
+    """
     try:
-        # Get data for last 12 weeks
-        end_date = datetime.now()
-        start_date = end_date - timedelta(weeks=12)
-        
-        # Get all submissions (universal forms only)
+        selected_course_id = request.GET.get('course_id')
+        try:
+            weeks_window = int(request.GET.get('weeks', 12))
+        except (TypeError, ValueError):
+            weeks_window = 12
+        weeks_window = max(4, min(weeks_window, 52))
+
+        # Anchor the timeline on the Monday of the current week so each bucket
+        # represents a full ISO week (Mon-Sun). Use timezone-aware "now" when
+        # USE_TZ is enabled to avoid Django's naive-datetime warning.
+        if getattr(settings, 'USE_TZ', False):
+            from django.utils import timezone
+            today = timezone.localtime(timezone.now())
+        else:
+            today = datetime.now()
+        current_week_start = (today - timedelta(days=today.weekday())).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        earliest_week_start = current_week_start - timedelta(weeks=weeks_window - 1)
+
+        # Pre-seed every week in the window with zeroes so the chart always
+        # renders a continuous x-axis instead of a single floating point.
+        ordered_week_keys = []
+        week_data = {}
+        for week_offset in range(weeks_window):
+            week_start = earliest_week_start + timedelta(weeks=week_offset)
+            week_key = week_start.strftime('%Y-%m-%d')
+            ordered_week_keys.append(week_key)
+            week_data[week_key] = {'ccr': 0, 'crr': 0, 'total': 0}
+
         submissions = DynamicFormSubmission.objects.filter(
-            submission_date__gte=start_date,
-            dynamic_form__form_type__in=['ccr', 'crr']
-        ).order_by('submission_date')
-        
-        # Group by week
-        week_data = defaultdict(lambda: {
-            'ccr': 0,
-            'crr': 0,
-            'total': 0
-        })
-        
+            submission_date__gte=earliest_week_start,
+            dynamic_form__form_type__in=['ccr', 'crr'],
+        ).select_related('dynamic_form').order_by('submission_date')
+
+        if selected_course_id:
+            submissions = submissions.filter(course_id=selected_course_id)
+
         for submission in submissions:
-            # Get week number
-            week_start = submission.submission_date - timedelta(
+            submission_week_start = submission.submission_date - timedelta(
                 days=submission.submission_date.weekday()
             )
-            week_key = week_start.strftime('%Y-%m-%d')
-            
-            week_data[week_key]['total'] += 1
+            submission_week_start = submission_week_start.replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+            week_key = submission_week_start.strftime('%Y-%m-%d')
+            # Submissions slightly older than the window can be safely ignored.
+            bucket = week_data.get(week_key)
+            if bucket is None:
+                continue
+            bucket['total'] += 1
             if submission.dynamic_form.form_type == 'ccr':
-                week_data[week_key]['ccr'] += 1
+                bucket['ccr'] += 1
             else:
-                week_data[week_key]['crr'] += 1
-        
-        # Sort by date
-        sorted_weeks = sorted(week_data.items(), key=lambda x: x[0])
-        
-        # Format response
+                bucket['crr'] += 1
+
         result = {
-            'weeks': [week[0] for week in sorted_weeks],
-            'ccr_data': [week[1]['ccr'] for week in sorted_weeks],
-            'crr_data': [week[1]['crr'] for week in sorted_weeks],
-            'total_data': [week[1]['total'] for week in sorted_weeks]
+            'weeks': ordered_week_keys,
+            'ccr_data': [week_data[week_key]['ccr'] for week_key in ordered_week_keys],
+            'crr_data': [week_data[week_key]['crr'] for week_key in ordered_week_keys],
+            'total_data': [week_data[week_key]['total'] for week_key in ordered_week_keys],
         }
-        
+
         return JsonResponse(result)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
@@ -2331,12 +2361,22 @@ def api_analysis_submissions_over_time(request):
 @user_passes_test(is_admin_or_crc)
 @require_http_methods(["GET"])
 def api_analysis_form_status(request):
-    """Get form status distribution"""
+    """Get form status distribution.
+
+    Optional query param ``course_id`` restricts the chart to a single course.
+    """
     try:
+        selected_course_id = request.GET.get('course_id')
+
         # Get status counts for universal forms
-        status_counts = DynamicFormSubmission.objects.filter(
+        status_queryset = DynamicFormSubmission.objects.filter(
             dynamic_form__form_type__in=['ccr', 'crr']
-        ).values('status').annotate(count=Count('id'))
+        )
+
+        if selected_course_id:
+            status_queryset = status_queryset.filter(course_id=selected_course_id)
+
+        status_counts = status_queryset.values('status').annotate(count=Count('id'))
         
         # Get totals
         total_submissions = sum(item['count'] for item in status_counts)
@@ -2370,8 +2410,13 @@ def api_analysis_form_status(request):
 @user_passes_test(is_admin_or_crc)
 @require_http_methods(["GET"])
 def api_analysis_clo_achievement(request):
-    """Get CLO achievement rates by analyzing actual form answers AND course outlines"""
+    """Get CLO achievement rates by analyzing actual form answers AND course outlines.
+
+    Optional query param ``course_id`` restricts the analysis to a single course.
+    """
     try:
+        selected_course_id = request.GET.get('course_id')
+
         # Initialize CLO data for 4 CLOs
         clo_data = {
             'CLO1': {'scores': [], 'count': 0, 'achieved_count': 0, 'sources': []},
@@ -2379,12 +2424,15 @@ def api_analysis_clo_achievement(request):
             'CLO3': {'scores': [], 'count': 0, 'achieved_count': 0, 'sources': []},
             'CLO4': {'scores': [], 'count': 0, 'achieved_count': 0, 'sources': []},
         }
-        
+
         # PART 1: Analyze form submissions (CCR/CRR forms)
         submissions = DynamicFormSubmission.objects.filter(
             dynamic_form__form_type__in=['ccr', 'crr'],
             status__in=['submitted', 'approved']  # Only analyze submitted/approved forms
         ).prefetch_related('answers__question')
+
+        if selected_course_id:
+            submissions = submissions.filter(course_id=selected_course_id)
         
         form_count = 0
         for submission in submissions:
@@ -2454,6 +2502,9 @@ def api_analysis_clo_achievement(request):
             status='approved',
             is_current=True
         )
+
+        if selected_course_id:
+            approved_outlines = approved_outlines.filter(course_id=selected_course_id)
         
         outline_count = 0
         for outline in approved_outlines:
@@ -3081,6 +3132,118 @@ def compare_text_content(text1, text2):
             })
     
     return differences
+
+@login_required
+@user_passes_test(is_admin_or_crc)
+@require_http_methods(["GET"])
+def api_analysis_course_submissions(request):
+    """Return CCR/CRR submissions for a single course along with all answers.
+
+    This powers the per-course detail panel on the Analysis Dashboard so the
+    CRC member can drill into every dynamically created form submission for
+    the selected course.
+    """
+    try:
+        selected_course_id = request.GET.get('course_id')
+        if not selected_course_id:
+            return JsonResponse({'error': 'course_id is required'}, status=400)
+
+        try:
+            course = Course.objects.select_related('department').get(id=selected_course_id)
+        except Course.DoesNotExist:
+            return JsonResponse({'error': 'Course not found'}, status=404)
+
+        submissions = DynamicFormSubmission.objects.filter(
+            course_id=selected_course_id,
+            dynamic_form__form_type__in=['ccr', 'crr'],
+        ).select_related(
+            'faculty', 'dynamic_form'
+        ).prefetch_related('answers__question').order_by('-submission_date')
+
+        ccr_count = 0
+        crr_count = 0
+        approved_count = 0
+        submitted_count = 0
+        draft_count = 0
+        revision_count = 0
+
+        submissions_payload = []
+        for submission in submissions:
+            form_type = submission.dynamic_form.form_type
+            if form_type == 'ccr':
+                ccr_count += 1
+            elif form_type == 'crr':
+                crr_count += 1
+
+            if submission.status == 'approved':
+                approved_count += 1
+            elif submission.status == 'submitted':
+                submitted_count += 1
+            elif submission.status == 'draft':
+                draft_count += 1
+            elif submission.status == 'revision_requested':
+                revision_count += 1
+
+            answers_payload = []
+            for answer in submission.answers.all():
+                answers_payload.append({
+                    'question_id': answer.question.id,
+                    'question_text': answer.question.question_text,
+                    'question_type': answer.question.question_type,
+                    'order': answer.question.order,
+                    'answer_text': answer.answer_text,
+                    'answer_data': answer.answer_data,
+                    'has_file': bool(answer.file_upload),
+                    'file_url': answer.file_upload.url if answer.file_upload else None,
+                })
+
+            answers_payload.sort(key=lambda item: item.get('order') or 0)
+
+            submissions_payload.append({
+                'submission_id': submission.id,
+                'form_id': submission.dynamic_form.id,
+                'form_name': submission.dynamic_form.name,
+                'form_type': form_type,
+                'form_type_label': submission.dynamic_form.get_form_type_display(),
+                'faculty_username': submission.faculty.username,
+                'faculty_email': submission.faculty.email,
+                'faculty_department': submission.faculty.department,
+                'is_coordinator': submission.is_coordinator,
+                'section': submission.section,
+                'status': submission.status,
+                'status_label': submission.get_status_display(),
+                'submission_date': submission.submission_date.isoformat() if submission.submission_date else None,
+                'updated_at': submission.updated_at.isoformat() if submission.updated_at else None,
+                'answers': answers_payload,
+            })
+
+        total_submissions = len(submissions_payload)
+        approval_rate = round((approved_count / total_submissions) * 100, 1) if total_submissions else 0
+
+        return JsonResponse({
+            'course': {
+                'id': course.id,
+                'code': course.code,
+                'title': course.title,
+                'description': course.description,
+                'credits': course.credits,
+                'department': course.department.name if course.department else '',
+            },
+            'summary': {
+                'total_submissions': total_submissions,
+                'ccr_submissions': ccr_count,
+                'crr_submissions': crr_count,
+                'approved': approved_count,
+                'submitted': submitted_count,
+                'draft': draft_count,
+                'revision_requested': revision_count,
+                'approval_rate': approval_rate,
+            },
+            'submissions': submissions_payload,
+        })
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
 
 @login_required
 @user_passes_test(is_admin_or_crc)
