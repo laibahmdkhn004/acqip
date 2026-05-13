@@ -5825,6 +5825,19 @@
           return;
         }
 
+        const compareButton = document.getElementById("compare-button");
+        const originalButtonHTML = compareButton ? compareButton.innerHTML : "";
+        if (compareButton) {
+          compareButton.disabled = true;
+          compareButton.innerHTML = `
+            <span class="inline-flex items-center justify-center gap-2">
+              <span class="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+              Analyzing with AI...
+            </span>`;
+        }
+
+        showComparisonLoadingState();
+
         try {
           const comparison = await fetchAPI(API.compare_outlines, {
             method: "POST",
@@ -5833,11 +5846,310 @@
               outline2_id: outline2Id,
             }),
           });
-
           displayComparisonResults(comparison);
         } catch (error) {
+          console.error("Outline comparison error:", error);
           showNotification("Error comparing outlines", "error");
+          showComparisonErrorState(error);
+        } finally {
+          if (compareButton) {
+            compareButton.disabled = false;
+            compareButton.innerHTML = originalButtonHTML || "Compare Outlines";
+          }
         }
+      }
+
+      function showComparisonLoadingState() {
+        document
+          .getElementById("comparison-results")
+          .classList.remove("hidden");
+        document.getElementById("comparison-content").innerHTML = `
+          <div class="flex flex-col items-center justify-center py-12 text-gray-600">
+            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mb-4"></div>
+            <p class="font-medium">AI is comparing your outlines...</p>
+            <p class="text-sm text-gray-500 mt-2">This usually takes 5-15 seconds.</p>
+          </div>
+        `;
+      }
+
+      function showComparisonErrorState(error) {
+        document
+          .getElementById("comparison-results")
+          .classList.remove("hidden");
+        document.getElementById("comparison-content").innerHTML = `
+          <div class="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
+            <i class="fas fa-exclamation-triangle text-red-500 text-3xl mb-2"></i>
+            <p class="font-medium text-red-800">Comparison failed</p>
+            <p class="text-sm text-red-700 mt-1">${escapeHtml(error?.message || "Unknown error")}</p>
+            <button onclick="compareOutlines()" class="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">
+              <i class="fas fa-redo mr-1"></i> Try Again
+            </button>
+          </div>
+        `;
+      }
+
+      function getOutlineStatusBadgeClass(status) {
+        switch ((status || "").toLowerCase()) {
+          case "approved":
+            return "bg-green-100 text-green-800";
+          case "submitted":
+            return "bg-yellow-100 text-yellow-800";
+          case "revision_requested":
+            return "bg-red-100 text-red-800";
+          default:
+            return "bg-gray-100 text-gray-800";
+        }
+      }
+
+      function getSeverityBadgeClass(severity) {
+        switch ((severity || "").toLowerCase()) {
+          case "high":
+            return "bg-red-100 text-red-800";
+          case "medium":
+            return "bg-yellow-100 text-yellow-800";
+          case "low":
+            return "bg-emerald-100 text-emerald-800";
+          default:
+            return "bg-gray-100 text-gray-700";
+        }
+      }
+
+      function buildOutlineHeaderCard(outlineMeta, label) {
+        if (!outlineMeta) {
+          return "";
+        }
+        const statusBadgeClass = getOutlineStatusBadgeClass(outlineMeta.status);
+        const createdAtFormatted = outlineMeta.created_at
+          ? new Date(outlineMeta.created_at).toLocaleDateString()
+          : "";
+        return `
+          <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <div class="text-xs font-medium uppercase tracking-wide text-gray-500">${label}</div>
+            <div class="text-base font-semibold text-gray-900 mt-1">
+              v${escapeHtml(String(outlineMeta.version ?? ""))} - ${escapeHtml(outlineMeta.title || "Untitled")}
+            </div>
+            <div class="flex items-center flex-wrap gap-2 mt-2 text-xs text-gray-600">
+              <span class="px-2 py-1 rounded-full font-medium ${statusBadgeClass}">${escapeHtml(outlineMeta.status || "")}</span>
+              ${outlineMeta.faculty ? `<span><i class="fas fa-user mr-1"></i>${escapeHtml(outlineMeta.faculty)}</span>` : ""}
+              ${createdAtFormatted ? `<span><i class="fas fa-calendar mr-1"></i>${createdAtFormatted}</span>` : ""}
+              ${outlineMeta.is_current ? '<span class="px-2 py-1 rounded-full bg-blue-100 text-blue-800 font-medium">Current</span>' : ""}
+            </div>
+          </div>
+        `;
+      }
+
+      function buildAiSummarySection(aiPayload, comparison) {
+        if (!aiPayload) {
+          return "";
+        }
+        const similarityScore = Number(aiPayload.similarity_score) || 0;
+        const changeLevel = (aiPayload.overall_change_level || "moderate").toLowerCase();
+        const changeBadgeClass = {
+          minimal: "bg-emerald-100 text-emerald-800",
+          minor: "bg-emerald-100 text-emerald-800",
+          moderate: "bg-yellow-100 text-yellow-800",
+          major: "bg-red-100 text-red-800",
+          significant: "bg-red-100 text-red-800",
+        }[changeLevel] || "bg-yellow-100 text-yellow-800";
+
+        const themesMarkup = Array.isArray(aiPayload.key_themes) && aiPayload.key_themes.length > 0
+          ? `<div class="flex flex-wrap gap-2 mt-3">
+               ${aiPayload.key_themes
+                 .map(
+                   (theme) =>
+                     `<span class="px-2 py-1 text-xs rounded-full bg-indigo-100 text-indigo-800">${escapeHtml(theme)}</span>`,
+                 )
+                 .join("")}
+             </div>`
+          : "";
+
+        return `
+          <div class="bg-gradient-to-r from-purple-50 via-indigo-50 to-blue-50 border border-purple-100 rounded-lg p-5">
+            <div class="flex items-center justify-between flex-wrap gap-3">
+              <div class="flex items-center gap-2">
+                <i class="fas fa-robot text-purple-600 text-lg"></i>
+                <h4 class="font-semibold text-gray-900">AI Comparison Summary</h4>
+                <span class="px-2 py-1 text-xs rounded-full bg-purple-100 text-purple-800">
+                  ${escapeHtml(comparison.ai_provider || "AI")}${comparison.ai_model ? " · " + escapeHtml(comparison.ai_model) : ""}
+                </span>
+              </div>
+              <span class="px-3 py-1 rounded-full text-xs font-semibold ${changeBadgeClass} uppercase tracking-wide">
+                ${escapeHtml(changeLevel)} change
+              </span>
+            </div>
+            <p class="text-sm text-gray-800 mt-3 leading-relaxed">
+              ${escapeHtml(aiPayload.summary || "No summary generated.")}
+            </p>
+            <div class="mt-4">
+              <div class="flex items-center justify-between text-xs text-gray-600 mb-1">
+                <span>Similarity score</span>
+                <span class="font-semibold text-gray-800">${similarityScore.toFixed(1)}%</span>
+              </div>
+              <div class="w-full bg-white rounded-full h-2.5 border border-purple-100 overflow-hidden">
+                <div class="h-2.5 ${similarityScore >= 75 ? "bg-emerald-500" : similarityScore >= 50 ? "bg-yellow-500" : "bg-red-500"}"
+                     style="width: ${Math.max(0, Math.min(100, similarityScore))}%"></div>
+              </div>
+            </div>
+            ${themesMarkup}
+          </div>
+        `;
+      }
+
+      function buildAiSectionBlock(title, iconClass, accentClasses, items, type) {
+        if (!Array.isArray(items) || items.length === 0) {
+          return "";
+        }
+        const cards = items
+          .map((item) => {
+            const severityClass = getSeverityBadgeClass(item.severity);
+            const severityBadge = item.severity
+              ? `<span class="px-2 py-0.5 text-xs rounded-full font-medium ${severityClass}">${escapeHtml(item.severity)}</span>`
+              : "";
+            let comparisonMarkup = "";
+            if (type === "modified") {
+              const oldSummary = item.old_summary || "";
+              const newSummary = item.new_summary || "";
+              if (oldSummary || newSummary) {
+                comparisonMarkup = `
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+                    <div class="bg-white rounded-lg p-3 border border-gray-200">
+                      <div class="text-xs font-medium text-gray-500 mb-1">Outline A</div>
+                      <div class="text-sm text-gray-800 whitespace-pre-wrap">${escapeHtml(oldSummary)}</div>
+                    </div>
+                    <div class="bg-white rounded-lg p-3 border border-gray-200">
+                      <div class="text-xs font-medium text-gray-500 mb-1">Outline B</div>
+                      <div class="text-sm text-gray-800 whitespace-pre-wrap">${escapeHtml(newSummary)}</div>
+                    </div>
+                  </div>
+                `;
+              }
+            }
+            return `
+              <div class="bg-white rounded-lg border ${accentClasses.border} p-4">
+                <div class="flex items-start justify-between gap-3">
+                  <div class="font-medium text-gray-900">${escapeHtml(item.title || "Untitled section")}</div>
+                  ${severityBadge}
+                </div>
+                ${item.description ? `<p class="text-sm text-gray-700 mt-2 leading-relaxed">${escapeHtml(item.description)}</p>` : ""}
+                ${comparisonMarkup}
+              </div>
+            `;
+          })
+          .join("");
+
+        return `
+          <div>
+            <div class="flex items-center gap-2 mb-3">
+              <i class="${iconClass} ${accentClasses.icon}"></i>
+              <h4 class="font-medium ${accentClasses.text}">${escapeHtml(title)} (${items.length})</h4>
+            </div>
+            <div class="space-y-3">${cards}</div>
+          </div>
+        `;
+      }
+
+      function buildRecommendationsBlock(recommendations) {
+        if (!Array.isArray(recommendations) || recommendations.length === 0) {
+          return "";
+        }
+        return `
+          <div class="bg-blue-50 border border-blue-100 rounded-lg p-5">
+            <div class="flex items-center gap-2 mb-3">
+              <i class="fas fa-lightbulb text-blue-600"></i>
+              <h4 class="font-medium text-blue-900">AI Recommendations</h4>
+            </div>
+            <ul class="space-y-2 text-sm text-gray-800">
+              ${recommendations
+                .map(
+                  (recommendationItem) =>
+                    `<li class="flex items-start gap-2"><i class="fas fa-check-circle text-blue-500 mt-0.5"></i><span>${escapeHtml(recommendationItem)}</span></li>`,
+                )
+                .join("")}
+            </ul>
+          </div>
+        `;
+      }
+
+      function buildFallbackDifferencesBlock(differences) {
+        if (!differences) {
+          return "";
+        }
+        const addedCount = (differences.added || []).length;
+        const modifiedCount = (differences.modified || []).length;
+        const deletedCount = (differences.deleted || []).length;
+
+        if (addedCount === 0 && modifiedCount === 0 && deletedCount === 0) {
+          return `
+            <details class="bg-white border border-gray-200 rounded-lg">
+              <summary class="cursor-pointer px-4 py-3 text-sm text-gray-700 hover:bg-gray-50">
+                <i class="fas fa-code-branch mr-2 text-gray-500"></i> Structural diff (0 differences)
+              </summary>
+              <div class="px-4 py-3 text-sm text-gray-500">No structural differences detected.</div>
+            </details>
+          `;
+        }
+
+        return `
+          <details class="bg-white border border-gray-200 rounded-lg">
+            <summary class="cursor-pointer px-4 py-3 text-sm text-gray-700 hover:bg-gray-50">
+              <i class="fas fa-code-branch mr-2 text-gray-500"></i>
+              Structural diff (${addedCount} added, ${modifiedCount} modified, ${deletedCount} removed)
+            </summary>
+            <div class="px-4 py-4 space-y-3">
+              ${addedCount > 0
+                ? `<div>
+                     <div class="text-xs font-medium text-green-700 mb-2">Added</div>
+                     ${(differences.added || [])
+                       .map(
+                         (item) => `
+                          <div class="border-l-4 border-green-500 bg-green-50 rounded p-2 mb-2">
+                            <div class="font-medium text-sm">${escapeHtml(item.title || `Section ${item.id || ""}`)}</div>
+                            <pre class="text-xs text-gray-600 mt-1 whitespace-pre-wrap">${escapeHtml(JSON.stringify(item.content, null, 2))}</pre>
+                          </div>`,
+                       )
+                       .join("")}
+                   </div>`
+                : ""}
+              ${modifiedCount > 0
+                ? `<div>
+                     <div class="text-xs font-medium text-yellow-700 mb-2">Modified</div>
+                     ${(differences.modified || [])
+                       .map(
+                         (item) => `
+                          <div class="border-l-4 border-yellow-500 bg-yellow-50 rounded p-2 mb-2">
+                            <div class="font-medium text-sm">${escapeHtml(item.title || `Section ${item.id || ""}`)}</div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
+                              <div>
+                                <div class="text-xs font-medium text-gray-500">Outline A</div>
+                                <pre class="text-xs text-gray-600 mt-1 whitespace-pre-wrap">${escapeHtml(JSON.stringify(item.old_content, null, 2))}</pre>
+                              </div>
+                              <div>
+                                <div class="text-xs font-medium text-gray-500">Outline B</div>
+                                <pre class="text-xs text-gray-600 mt-1 whitespace-pre-wrap">${escapeHtml(JSON.stringify(item.new_content, null, 2))}</pre>
+                              </div>
+                            </div>
+                          </div>`,
+                       )
+                       .join("")}
+                   </div>`
+                : ""}
+              ${deletedCount > 0
+                ? `<div>
+                     <div class="text-xs font-medium text-red-700 mb-2">Removed</div>
+                     ${(differences.deleted || [])
+                       .map(
+                         (item) => `
+                          <div class="border-l-4 border-red-500 bg-red-50 rounded p-2 mb-2">
+                            <div class="font-medium text-sm">${escapeHtml(item.title || `Section ${item.id || ""}`)}</div>
+                            <pre class="text-xs text-gray-600 mt-1 whitespace-pre-wrap">${escapeHtml(JSON.stringify(item.content, null, 2))}</pre>
+                          </div>`,
+                       )
+                       .join("")}
+                   </div>`
+                : ""}
+            </div>
+          </details>
+        `;
       }
 
       function displayComparisonResults(comparison) {
@@ -5845,107 +6157,90 @@
           .getElementById("comparison-results")
           .classList.remove("hidden");
 
-        let content = `
-        <div class="mb-6 p-4 bg-gray-50 rounded-lg">
-            <div class="grid grid-cols-2 gap-4">
-                <div>
-                    <h4 class="font-medium text-gray-900">Outline 1</h4>
-                    <p class="text-sm">Version ${comparison.outline1.version} - ${comparison.outline1.title}</p>
-                    <span class="px-2 py-1 text-xs rounded ${
-                      comparison.outline1.status === "approved"
-                        ? "bg-green-100 text-green-800"
-                        : comparison.outline1.status === "submitted"
-                          ? "bg-yellow-100 text-yellow-800"
-                          : "bg-gray-100 text-gray-800"
-                    }">
-                        ${comparison.outline1.status}
-                    </span>
+        if (!comparison) {
+          document.getElementById("comparison-content").innerHTML = `
+            <div class="text-center py-8 text-gray-500">No comparison data received.</div>
+          `;
+          return;
+        }
+
+        const aiPayload = comparison.ai;
+        const isAiMode = comparison.comparison_mode === "ai" && aiPayload;
+        const fallbackNotice = !isAiMode
+          ? `
+            <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <div class="flex items-start gap-3">
+                <i class="fas fa-exclamation-triangle text-yellow-500 mt-0.5"></i>
+                <div class="text-sm text-yellow-800">
+                  <p class="font-medium">AI comparison unavailable</p>
+                  <p class="mt-1">${escapeHtml(comparison.ai_unavailable_reason || "Falling back to a structural diff. Configure an AI provider to enable AI comparison.")}</p>
                 </div>
-                <div>
-                    <h4 class="font-medium text-gray-900">Outline 2</h4>
-                    <p class="text-sm">Version ${comparison.outline2.version} - ${comparison.outline2.title}</p>
-                    <span class="px-2 py-1 text-xs rounded ${
-                      comparison.outline2.status === "approved"
-                        ? "bg-green-100 text-green-800"
-                        : comparison.outline2.status === "submitted"
-                          ? "bg-yellow-100 text-yellow-800"
-                          : "bg-gray-100 text-gray-800"
-                    }">
-                        ${comparison.outline2.status}
-                    </span>
-                </div>
+              </div>
             </div>
-        </div>
-        
-        <div class="space-y-4">
-    `;
+          `
+          : "";
 
-        // Display differences
-        if (comparison.differences.added.length > 0) {
-          content += `
-            <div>
-                <h4 class="font-medium text-green-700 mb-2">Added Content (${comparison.differences.added.length})</h4>
-                <div class="bg-green-50 border border-green-200 rounded-lg p-4 space-y-2">
+        const courseLabel = comparison.course
+          ? `${escapeHtml(comparison.course.code || "")} - ${escapeHtml(comparison.course.title || "")}`
+          : "";
+
+        const headerCardsMarkup = `
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            ${buildOutlineHeaderCard(comparison.outline1, "Outline A")}
+            ${buildOutlineHeaderCard(comparison.outline2, "Outline B")}
+          </div>
         `;
-          comparison.differences.added.forEach((item) => {
-            content += `<div class="p-2 bg-white rounded border-l-4 border-green-500">
-                <div class="font-medium">${item.title || `Section ${item.id}`}</div>
-                <pre class="text-xs text-gray-600 mt-1 whitespace-pre-wrap">${JSON.stringify(item.content, null, 2)}</pre>
-            </div>`;
-          });
-          content += `</div></div>`;
-        }
 
-        if (comparison.differences.modified.length > 0) {
-          content += `
-            <div>
-                <h4 class="font-medium text-yellow-700 mb-2">Modified Content (${comparison.differences.modified.length})</h4>
-                <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 space-y-2">
+        const sectionsMarkup = isAiMode
+          ? `
+            ${buildAiSectionBlock(
+              "Added Sections",
+              "fas fa-plus-circle",
+              { border: "border-emerald-200", icon: "text-emerald-600", text: "text-emerald-700" },
+              aiPayload.added_sections,
+              "added",
+            )}
+            ${buildAiSectionBlock(
+              "Modified Sections",
+              "fas fa-edit",
+              { border: "border-yellow-200", icon: "text-yellow-600", text: "text-yellow-700" },
+              aiPayload.modified_sections,
+              "modified",
+            )}
+            ${buildAiSectionBlock(
+              "Removed Sections",
+              "fas fa-minus-circle",
+              { border: "border-red-200", icon: "text-red-600", text: "text-red-700" },
+              aiPayload.removed_sections,
+              "removed",
+            )}
+            ${buildRecommendationsBlock(aiPayload.recommendations)}
+          `
+          : "";
+
+        const emptyAiResults =
+          isAiMode &&
+          (!aiPayload.added_sections || aiPayload.added_sections.length === 0) &&
+          (!aiPayload.modified_sections || aiPayload.modified_sections.length === 0) &&
+          (!aiPayload.removed_sections || aiPayload.removed_sections.length === 0);
+
+        const fallbackBlock = buildFallbackDifferencesBlock(comparison.differences || {});
+
+        document.getElementById("comparison-content").innerHTML = `
+          <div class="space-y-5">
+            ${courseLabel ? `<p class="text-sm text-gray-500"><i class="fas fa-book mr-1"></i>${courseLabel}</p>` : ""}
+            ${fallbackNotice}
+            ${headerCardsMarkup}
+            ${isAiMode ? buildAiSummarySection(aiPayload, comparison) : ""}
+            ${sectionsMarkup}
+            ${emptyAiResults
+              ? `<div class="text-center py-6 text-gray-500 border border-dashed border-gray-200 rounded-lg">
+                   The AI did not find any meaningful differences between these outlines.
+                 </div>`
+              : ""}
+            ${fallbackBlock}
+          </div>
         `;
-          comparison.differences.modified.forEach((item) => {
-            content += `<div class="p-2 bg-white rounded border-l-4 border-yellow-500">
-                <div class="font-medium">${item.title || `Section ${item.id}`}</div>
-                <div class="grid grid-cols-2 gap-4 mt-2">
-                    <div>
-                        <div class="text-xs font-medium text-gray-500">Old Version</div>
-                        <pre class="text-xs text-gray-600 mt-1 whitespace-pre-wrap">${JSON.stringify(item.old_content, null, 2)}</pre>
-                    </div>
-                    <div>
-                        <div class="text-xs font-medium text-gray-500">New Version</div>
-                        <pre class="text-xs text-gray-600 mt-1 whitespace-pre-wrap">${JSON.stringify(item.new_content, null, 2)}</pre>
-                    </div>
-                </div>
-            </div>`;
-          });
-          content += `</div></div>`;
-        }
-
-        if (comparison.differences.deleted.length > 0) {
-          content += `
-            <div>
-                <h4 class="font-medium text-red-700 mb-2">Deleted Content (${comparison.differences.deleted.length})</h4>
-                <div class="bg-red-50 border border-red-200 rounded-lg p-4 space-y-2">
-        `;
-          comparison.differences.deleted.forEach((item) => {
-            content += `<div class="p-2 bg-white rounded border-l-4 border-red-500">
-                <div class="font-medium">${item.title || `Section ${item.id}`}</div>
-                <pre class="text-xs text-gray-600 mt-1 whitespace-pre-wrap">${JSON.stringify(item.content, null, 2)}</pre>
-            </div>`;
-          });
-          content += `</div></div>`;
-        }
-
-        if (
-          comparison.differences.added.length === 0 &&
-          comparison.differences.modified.length === 0 &&
-          comparison.differences.deleted.length === 0
-        ) {
-          content += `<div class="text-center py-8 text-gray-500">No differences found between the two versions.</div>`;
-        }
-
-        content += `</div>`;
-
-        document.getElementById("comparison-content").innerHTML = content;
       }
 
       // CQI Report Page

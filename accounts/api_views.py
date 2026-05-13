@@ -2994,64 +2994,307 @@ def api_analysis_clo_trends(request):
 @csrf_exempt
 @require_http_methods(["POST"])
 def api_compare_outlines(request):
-    """Compare two outline versions"""
+    """Compare two course outline versions using an LLM.
+
+    The configured AI provider (via LiteLLM) is used to produce a rich
+    qualitative comparison: an executive summary, a similarity score, the
+    added / modified / removed sections with natural-language explanations,
+    and improvement recommendations.
+
+    When the AI is unavailable (no API key, network error, malformed
+    response, ...) the function falls back to the structural diff helpers
+    so the UI keeps working.
+    """
     try:
         data = json.loads(request.body)
         outline1_id = data.get('outline1_id')
         outline2_id = data.get('outline2_id')
-        
+
         if not outline1_id or not outline2_id:
             return JsonResponse({'error': 'Both outline IDs are required'}, status=400)
-        
-        # Get outlines
-        outline1 = CourseOutline.objects.get(id=outline1_id)
-        outline2 = CourseOutline.objects.get(id=outline2_id)
-        
-        # Ensure same course
-        if outline1.course != outline2.course:
+
+        first_outline = CourseOutline.objects.select_related('course', 'faculty').get(id=outline1_id)
+        second_outline = CourseOutline.objects.select_related('course', 'faculty').get(id=outline2_id)
+
+        if first_outline.course_id != second_outline.course_id:
             return JsonResponse({'error': 'Outlines must be from the same course'}, status=400)
-        
-        # Parse content (assuming JSON structure)
-        try:
-            content1 = json.loads(outline1.content) if isinstance(outline1.content, str) else outline1.content
-            content2 = json.loads(outline2.content) if isinstance(outline2.content, str) else outline2.content
-        except:
-            # If not JSON, treat as text
-            content1 = str(outline1.content)
-            content2 = str(outline2.content)
-        
-        # Simple comparison logic
-        if isinstance(content1, dict) and isinstance(content2, dict):
-            # Compare structured data
-            differences = compare_structured_content(content1, content2)
-        else:
-            # Compare text
-            differences = compare_text_content(content1, content2)
-        
-        return JsonResponse({
-            'outline1': {
-                'id': outline1.id,
-                'version': outline1.version,
-                'title': outline1.title,
-                'status': outline1.status
-            },
-            'outline2': {
-                'id': outline2.id,
-                'version': outline2.version,
-                'title': outline2.title,
-                'status': outline2.status
-            },
-            'differences': differences,
+
+        parsed_first_content = _parse_outline_content(first_outline.content)
+        parsed_second_content = _parse_outline_content(second_outline.content)
+
+        outline_meta = {
+            'outline1': _serialize_outline_meta(first_outline),
+            'outline2': _serialize_outline_meta(second_outline),
             'course': {
-                'code': outline1.course.code,
-                'title': outline1.course.title
+                'code': first_outline.course.code,
+                'title': first_outline.course.title,
+            },
+            'compared_at': datetime.now().isoformat(),
+        }
+
+        ai_config = get_ai_provider_config()
+        ai_payload = None
+        ai_error_message = None
+
+        if ai_config.get('available'):
+            try:
+                ai_payload = _generate_ai_outline_comparison(
+                    first_outline,
+                    second_outline,
+                    parsed_first_content,
+                    parsed_second_content,
+                    ai_config,
+                )
+            except Exception as ai_exc:
+                ai_error_message = str(ai_exc)
+                print(f"AI outline comparison failed: {ai_error_message}")
+        else:
+            ai_error_message = (
+                f"AI provider '{ai_config.get('provider', 'unknown')}' is not configured."
+            )
+
+        fallback_differences = _build_fallback_differences(
+            parsed_first_content,
+            parsed_second_content,
+        )
+
+        if ai_payload is not None:
+            response_body = {
+                **outline_meta,
+                'comparison_mode': 'ai',
+                'ai_provider': ai_config.get('provider'),
+                'ai_model': ai_config.get('model'),
+                'ai': ai_payload,
+                'differences': fallback_differences,
             }
-        })
-        
+        else:
+            response_body = {
+                **outline_meta,
+                'comparison_mode': 'fallback',
+                'ai_provider': ai_config.get('provider'),
+                'ai_model': ai_config.get('model'),
+                'ai_unavailable_reason': ai_error_message,
+                'differences': fallback_differences,
+            }
+
+        return JsonResponse(response_body)
+
     except CourseOutline.DoesNotExist:
         return JsonResponse({'error': 'Outline not found'}, status=404)
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON body'}, status=400)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
+
+
+def _serialize_outline_meta(outline):
+    return {
+        'id': outline.id,
+        'version': outline.version,
+        'title': outline.title,
+        'status': outline.status,
+        'is_current': outline.is_current,
+        'faculty': outline.faculty.username if outline.faculty_id else '',
+        'created_at': outline.created_at.isoformat() if outline.created_at else None,
+        'updated_at': outline.updated_at.isoformat() if outline.updated_at else None,
+        'submitted_at': outline.submitted_at.isoformat() if outline.submitted_at else None,
+        'approved_at': outline.approved_at.isoformat() if outline.approved_at else None,
+    }
+
+
+def _parse_outline_content(raw_content):
+    """Return outline content as a dict if it looks like JSON, otherwise as text."""
+    if raw_content in (None, ''):
+        return ''
+    if isinstance(raw_content, dict) or isinstance(raw_content, list):
+        return raw_content
+    if isinstance(raw_content, str):
+        candidate = raw_content.strip()
+        if candidate.startswith('{') or candidate.startswith('['):
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                return raw_content
+        return raw_content
+    return str(raw_content)
+
+
+def _build_fallback_differences(parsed_first_content, parsed_second_content):
+    """Always compute structural/textual diffs so we have data even without AI."""
+    try:
+        if isinstance(parsed_first_content, dict) and isinstance(parsed_second_content, dict):
+            return compare_structured_content(parsed_first_content, parsed_second_content)
+        first_text = parsed_first_content if isinstance(parsed_first_content, str) else json.dumps(parsed_first_content, indent=2)
+        second_text = parsed_second_content if isinstance(parsed_second_content, str) else json.dumps(parsed_second_content, indent=2)
+        return compare_text_content(first_text, second_text)
+    except Exception as exc:
+        print(f"Fallback diff failed: {exc}")
+        return {'added': [], 'modified': [], 'deleted': []}
+
+
+def _build_outline_excerpt_for_ai(parsed_content, character_limit=8000):
+    """Format outline content for inclusion in the LLM prompt with a length cap."""
+    if isinstance(parsed_content, (dict, list)):
+        try:
+            text = json.dumps(parsed_content, indent=2, ensure_ascii=False)
+        except (TypeError, ValueError):
+            text = str(parsed_content)
+    else:
+        text = str(parsed_content or '')
+
+    if len(text) > character_limit:
+        return text[:character_limit] + "\n... [truncated] ..."
+    return text
+
+
+def _extract_json_from_ai_response(raw_text):
+    """Extract the first valid JSON object from a LLM response.
+
+    LLMs occasionally wrap JSON in markdown fences or add commentary. This
+    helper tolerates both.
+    """
+    if raw_text is None:
+        raise ValueError("Empty AI response")
+
+    text = raw_text.strip()
+    if not text:
+        raise ValueError("Empty AI response")
+
+    fence_match = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", text, re.IGNORECASE)
+    if fence_match:
+        return json.loads(fence_match.group(1))
+
+    first_brace = text.find('{')
+    last_brace = text.rfind('}')
+    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+        candidate = text[first_brace:last_brace + 1]
+        return json.loads(candidate)
+
+    return json.loads(text)
+
+
+def _normalize_ai_comparison_payload(payload):
+    """Coerce the AI response into the shape the frontend expects."""
+    if not isinstance(payload, dict):
+        raise ValueError("AI response is not a JSON object")
+
+    def _coerce_string(value, default=""):
+        if value is None:
+            return default
+        if isinstance(value, (dict, list)):
+            return json.dumps(value, ensure_ascii=False)
+        return str(value)
+
+    def _coerce_list_of_dicts(items, required_keys):
+        normalized_items = []
+        if not isinstance(items, list):
+            return normalized_items
+        for entry in items:
+            if not isinstance(entry, dict):
+                continue
+            normalized_entry = {}
+            for required_key in required_keys:
+                normalized_entry[required_key] = _coerce_string(entry.get(required_key, ""))
+            optional_severity = entry.get('severity') or entry.get('impact')
+            if optional_severity:
+                normalized_entry['severity'] = _coerce_string(optional_severity)
+            normalized_items.append(normalized_entry)
+        return normalized_items
+
+    try:
+        similarity_value = float(payload.get('similarity_score', 0))
+    except (TypeError, ValueError):
+        similarity_value = 0.0
+    similarity_value = max(0.0, min(100.0, similarity_value))
+
+    overall_change_level = _coerce_string(
+        payload.get('overall_change_level') or payload.get('change_level') or 'moderate'
+    ).lower()
+    if overall_change_level not in {'minimal', 'minor', 'moderate', 'major', 'significant'}:
+        overall_change_level = 'moderate'
+
+    key_themes = payload.get('key_themes') or payload.get('themes') or []
+    if not isinstance(key_themes, list):
+        key_themes = [key_themes]
+    key_themes = [_coerce_string(theme) for theme in key_themes if theme]
+
+    recommendations = payload.get('recommendations') or []
+    if not isinstance(recommendations, list):
+        recommendations = [recommendations]
+    recommendations = [_coerce_string(item) for item in recommendations if item]
+
+    return {
+        'summary': _coerce_string(payload.get('summary'), default=""),
+        'similarity_score': round(similarity_value, 1),
+        'overall_change_level': overall_change_level,
+        'key_themes': key_themes,
+        'added_sections': _coerce_list_of_dicts(
+            payload.get('added_sections') or payload.get('added') or [],
+            ['title', 'description'],
+        ),
+        'removed_sections': _coerce_list_of_dicts(
+            payload.get('removed_sections') or payload.get('deleted') or payload.get('removed') or [],
+            ['title', 'description'],
+        ),
+        'modified_sections': _coerce_list_of_dicts(
+            payload.get('modified_sections') or payload.get('modified') or payload.get('changed') or [],
+            ['title', 'description', 'old_summary', 'new_summary'],
+        ),
+        'recommendations': recommendations,
+    }
+
+
+def _generate_ai_outline_comparison(
+    first_outline,
+    second_outline,
+    parsed_first_content,
+    parsed_second_content,
+    ai_config,
+):
+    """Call the LLM to produce a structured comparison of two outlines."""
+    first_excerpt = _build_outline_excerpt_for_ai(parsed_first_content)
+    second_excerpt = _build_outline_excerpt_for_ai(parsed_second_content)
+
+    prompt = (
+        "You are an expert academic curriculum reviewer comparing two versions of a "
+        "course outline. Produce a precise, professional analysis.\n\n"
+        f"Course: {first_outline.course.code} - {first_outline.course.title}\n\n"
+        "=== OUTLINE A (older / left side) ===\n"
+        f"Version: {first_outline.version}\n"
+        f"Title: {first_outline.title}\n"
+        f"Status: {first_outline.status}\n"
+        f"Author: {first_outline.faculty.username if first_outline.faculty_id else 'Unknown'}\n"
+        "Content:\n"
+        f"{first_excerpt}\n\n"
+        "=== OUTLINE B (newer / right side) ===\n"
+        f"Version: {second_outline.version}\n"
+        f"Title: {second_outline.title}\n"
+        f"Status: {second_outline.status}\n"
+        f"Author: {second_outline.faculty.username if second_outline.faculty_id else 'Unknown'}\n"
+        "Content:\n"
+        f"{second_excerpt}\n\n"
+        "Compare Outline B against Outline A and respond with ONLY valid JSON, no "
+        "Markdown fences, with the following shape:\n"
+        "{\n"
+        '  "summary": "2-4 sentence executive summary of how Outline B differs from Outline A",\n'
+        '  "similarity_score": 0-100 (higher means more similar),\n'
+        '  "overall_change_level": "minimal" | "minor" | "moderate" | "major",\n'
+        '  "key_themes": ["short bullet phrases of the main themes of change"],\n'
+        '  "added_sections": [ { "title": "...", "description": "what was added and why it matters", "severity": "low|medium|high" } ],\n'
+        '  "removed_sections": [ { "title": "...", "description": "what was removed and the impact", "severity": "low|medium|high" } ],\n'
+        '  "modified_sections": [ { "title": "...", "description": "nature of the change", "old_summary": "what Outline A said", "new_summary": "what Outline B says", "severity": "low|medium|high" } ],\n'
+        '  "recommendations": ["actionable improvement recommendations for the new outline"]\n'
+        "}\n"
+        "Focus on pedagogically meaningful differences (CLOs, assessment weighting, "
+        "topics, contact hours, references). Ignore trivial formatting/whitespace changes. "
+        "If a category has no items, return an empty list. Keep descriptions concise "
+        "(<= 2 sentences). Output only the JSON object."
+    )
+
+    raw_response = call_llm_api(prompt, ai_config)
+    parsed_response = _extract_json_from_ai_response(raw_response)
+    normalized_response = _normalize_ai_comparison_payload(parsed_response)
+    return normalized_response
 
 def compare_structured_content(content1, content2):
     """Compare two structured JSON contents"""
