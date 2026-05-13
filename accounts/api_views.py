@@ -6,7 +6,12 @@ from collections import defaultdict
 from datetime import datetime, timedelta, date
 import itertools
 import re
+
+import html as html_module
+import markdown
+
 from django.http import JsonResponse, HttpResponse
+from fpdf import FPDF
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 import json
@@ -3637,7 +3642,80 @@ def call_llm_api(prompt, config=None):
 
 
 
-#  CQI report function 
+#  CQI report function
+
+def markdown_to_cqi_html(markdown_text):
+    """Convert CQI Markdown (tables, lists) to HTML for the CRC dashboard."""
+    if not markdown_text:
+        return ""
+    return markdown.markdown(
+        markdown_text,
+        extensions=[
+            "markdown.extensions.tables",
+            "markdown.extensions.nl2br",
+            "markdown.extensions.sane_lists",
+        ],
+    )
+
+
+# PDF core fonts (Times, Helvetica) only cover Latin-1; normalize or use TTF for Unicode.
+_CQI_PDF_UNICODE_REPLACEMENTS = (
+    ("\u2014", "--"),  # em dash
+    ("\u2013", "-"),  # en dash
+    ("\u2212", "-"),  # minus sign
+    ("\u2018", "'"),
+    ("\u2019", "'"),
+    ("\u201c", '"'),
+    ("\u201d", '"'),
+    ("\u2026", "..."),
+    ("\u00a0", " "),
+    ("\u200b", ""),
+    ("\ufeff", ""),
+    ("\u221a", "Y"),  # square root / checkmark-like in reports
+    ("\u2713", "Y"),
+    ("\u2714", "Y"),
+    ("\u2717", "N"),
+    ("\u2718", "N"),
+)
+
+
+def _normalize_html_for_core_pdf_fonts(html_text):
+    out = html_text
+    for before_char, after_char in _CQI_PDF_UNICODE_REPLACEMENTS:
+        out = out.replace(before_char, after_char)
+    return out
+
+
+def _register_dejavu_fonts_if_available(pdf_document):
+    """
+    Register DejaVu TrueType fonts when present on the server so write_html supports
+    full Unicode (em dash, check marks, etc.).
+    """
+    font_pairs = (
+        (
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        ),
+        (
+            "/usr/share/fonts/TTF/DejaVuSans.ttf",
+            "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+        ),
+    )
+    for regular_font_path, bold_font_path in font_pairs:
+        if not os.path.isfile(regular_font_path):
+            continue
+        bold_path = (
+            bold_font_path if os.path.isfile(bold_font_path) else regular_font_path
+        )
+        try:
+            pdf_document.add_font("DejaVuSans", "", regular_font_path)
+            pdf_document.add_font("DejaVuSans", "B", bold_path)
+            return True
+        except Exception:
+            continue
+    return False
+
+
 @login_required
 @user_passes_test(is_admin_or_crc)
 @csrf_exempt
@@ -3682,15 +3760,18 @@ def api_generate_cqi_report(request):
         # Generate report using AI
         try:
             report = generate_ai_report(context_data, report_type, ai_config)
-            
+            report_html = markdown_to_cqi_html(report)
+
             return JsonResponse({
                 'report': report,
+                'report_html': report_html,
                 'generated_at': datetime.now().isoformat(),
                 'course_id': course_id,
                 'time_period': time_period,
                 'report_type': report_type,
                 'ai_provider': ai_config['provider'],
                 'ai_model': ai_config['model'],
+                'cover': context_data.get('cover'),
                 'context_summary': {
                     'form_submissions_analyzed': len(context_data.get('form_submissions', [])),
                     'course_outlines_analyzed': len(context_data.get('course_outlines', [])),
@@ -3703,15 +3784,18 @@ def api_generate_cqi_report(request):
             print(f"AI generation error: {ai_error}")
             # Fallback to manual report
             fallback_report = generate_fallback_report(context_data, report_type)
+            fallback_html = markdown_to_cqi_html(fallback_report)
             return JsonResponse({
                 'report': fallback_report,
+                'report_html': fallback_html,
                 'generated_at': datetime.now().isoformat(),
                 'course_id': course_id,
                 'time_period': time_period,
                 'report_type': report_type,
                 'note': f'Generated using fallback method due to AI error: {str(ai_error)}',
                 'success': False,
-                'error': str(ai_error)
+                'error': str(ai_error),
+                'cover': context_data.get('cover'),
             })
         
     except Exception as e:
@@ -3726,244 +3810,630 @@ def api_generate_cqi_report(request):
         }, status=400)
 
 
+def build_clo_analysis_for_cqi_submissions(filtered_submissions_queryset):
+    """Summarize CLO-related answers for CQI context (submissions in the selected window)."""
+    clo_data = {
+        f"CLO{i}": {"scores": [], "achieved_count": 0, "count": 0}
+        for i in range(1, 5)
+    }
+    submissions_scoped = filtered_submissions_queryset.filter(
+        status__in=["submitted", "approved"]
+    ).prefetch_related("answers__question")
 
-def generate_ai_report(context_data, report_type="summary", ai_config=None):
-    """Generate report using any AI provider"""
-    if ai_config is None:
-        ai_config = get_ai_provider_config()
-    
-    # Create prompt based on report type
-    if report_type == "summary":
-        sections = """
-        1. Executive Summary (2-3 paragraphs)
-        2. Key Findings (Bulleted list of 5-7 key points)
-        3. Recommendations for Improvement (3-5 actionable recommendations)
-        """
-    elif report_type == "detailed":
-        sections = """
-        1. Executive Summary
-        2. Key Findings and Analysis
-        3. Submissions Analysis (CCR vs CRR forms comparison)
-        4. Course Outline Quality Assessment
-        5. Faculty Engagement Analysis
-        6. CLO Achievement Analysis
-        7. Recommendations for Improvement
-        8. Action Items and Timeline
-        """
-    elif report_type == "recommendations":
-        sections = """
-        1. Key Recommendations (Prioritized list)
-        2. Implementation Strategy
-        3. Expected Outcomes
-        4. Timeline and Resources Required
-        """
-    else:
-        sections = """
-        1. Executive Summary
-        2. Key Findings
-        3. Recommendations for Improvement
-        4. Action Items
-        """
-    
-    # Create the prompt
-    prompt = f"""
-    ROLE: You are a CQI (Continuous Quality Improvement) analyst for an academic institution.
-    
-    TASK: Analyze the following academic data and generate a comprehensive CQI report.
-    
-    REPORT TYPE: {report_type.upper()}
-    
-    AI CONFIGURATION:
-    - Provider: {ai_config['provider']}
-    - Model: {ai_config['model']}
-    
-    DATA TO ANALYZE:
-    {json.dumps(context_data, indent=2)}
-    
-    REPORT STRUCTURE:
-    {sections}
-    
-    REPORT REQUIREMENTS:
-    1. Be specific, actionable, and evidence-based
-    2. Use academic and professional language
-    3. Include quantitative data from the provided statistics
-    4. Provide clear recommendations with implementation steps
-    5. Consider institutional constraints and practical feasibility
-    6. Highlight both strengths and areas for improvement
-    7. Include metrics and KPIs where relevant
-    
-    FORMATTING:
-    - Use clear headings and subheadings
-    - Use bullet points for lists
-    - Keep paragraphs concise (3-5 sentences)
-    
-    TONE: Professional, analytical, constructive, and solution-oriented
-    
-    IMPORTANT: Base all analysis ONLY on the provided data. Do not fabricate or assume data not present.
-    """
-    
-    print(f"Generating {report_type} report with {ai_config['provider']} ({ai_config['model']})...")
-    
-    # Call the generic LLM function
-    return call_llm_api(prompt, ai_config)
+    for submission in submissions_scoped:
+        for answer in submission.answers.all():
+            if isinstance(answer.answer_data, dict):
+                for clo_num in [1, 2, 3, 4]:
+                    clo_key = f"CLO{clo_num}"
+                    matched = False
+                    for key in (
+                        f"clo{clo_num}",
+                        f"clo_{clo_num}",
+                        f"CLO{clo_num}",
+                        f"CLO_{clo_num}",
+                    ):
+                        if key not in answer.answer_data:
+                            continue
+                        score = answer.answer_data[key]
+                        if isinstance(score, (int, float)):
+                            clo_data[clo_key]["scores"].append(float(score))
+                            clo_data[clo_key]["count"] += 1
+                            if score >= 70:
+                                clo_data[clo_key]["achieved_count"] += 1
+                            matched = True
+                            break
+                        if isinstance(score, str):
+                            try:
+                                score_val = (
+                                    float(score.replace("%", "").strip())
+                                    if "%" in score
+                                    else float(score)
+                                )
+                                clo_data[clo_key]["scores"].append(score_val)
+                                clo_data[clo_key]["count"] += 1
+                                if score_val >= 70:
+                                    clo_data[clo_key]["achieved_count"] += 1
+                                matched = True
+                            except (ValueError, TypeError):
+                                pass
+                            break
+                    if matched:
+                        continue
 
-def generate_fallback_report(context_data, report_type):
-    """Generate a manual fallback report if AI fails"""
-    stats = context_data.get('statistics', {})
-    course = context_data.get('course', {})
-    
-    base_report = f"""
-    CQI REPORT - MANUAL GENERATION
-    
-    Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}
-    Report Type: {report_type.upper()}
-    
-    """
-    
-    if course:
-        base_report += f"Course: {course.get('code', 'N/A')} - {course.get('title', 'N/A')}\n"
-        base_report += f"Department: {course.get('department', 'N/A')}\n\n"
-    
-    if report_type == "summary":
-        return base_report + f"""
-    Executive Summary:
-    This report analyzes quality metrics based on {stats.get('total_submissions', 0)} form submissions 
-    and {len(context_data.get('outlines', []))} course outlines.
-    
-    Key Findings:
-    1. Total submissions: {stats.get('total_submissions', 0)}
-    2. Approved submissions: {stats.get('approved_submissions', 0)} ({stats.get('total_submissions', 1) and (stats.get('approved_submissions', 0)/stats.get('total_submissions', 1))*100:.1f}%)
-    3. Pending review: {stats.get('pending_submissions', 0)}
-    4. Revision requests: {stats.get('revision_requests', 0)}
-    
-    Recommendations:
-    1. Review submission processes for efficiency
-    2. Provide faculty training on form completion
-    3. Implement regular quality checks
-    """
-    elif report_type == "detailed":
-        return base_report + f"""
-    DETAILED ANALYSIS REPORT
-    
-    Statistics Overview:
-    - Total Submissions: {stats.get('total_submissions', 0)}
-    - Approved: {stats.get('approved_submissions', 0)}
-    - Pending: {stats.get('pending_submissions', 0)}
-    - Revision Requests: {stats.get('revision_requests', 0)}
-    
-    Data Sources:
-    - Course Outlines: {len(context_data.get('outlines', []))}
-    - Recent Submissions: {len(context_data.get('submissions', []))}
-    
-    Analysis:
-    1. Submission patterns show consistent faculty engagement
-    2. Approval rates indicate quality of submissions
-    3. Revision requests highlight areas for improvement
-    
-    Action Items:
-    1. Schedule faculty training sessions
-    2. Review and update submission guidelines
-    3. Implement automated quality checks
-    """
-    else:  # recommendations
-        return base_report + f"""
-    RECOMMENDATIONS REPORT
-    
-    Based on analysis of {stats.get('total_submissions', 0)} submissions:
-    
-    1. PRIORITY RECOMMENDATIONS:
-       - Implement submission quality checklist
-       - Provide faculty feedback within 48 hours
-       - Standardize evaluation criteria
-    
-    2. MEDIUM-TERM ACTIONS:
-       - Develop training modules
-       - Create submission templates
-       - Establish quality benchmarks
-    
-    3. LONG-TERM GOALS:
-       - Automate quality assessment
-       - Integrate with learning management system
-       - Establish continuous improvement cycle
-    """
+            question_text = answer.question.question_text.lower()
+            for clo_num in [1, 2, 3, 4]:
+                clo_patterns = [
+                    f"clo{clo_num}",
+                    f"clo {clo_num}",
+                    f"course learning outcome {clo_num}",
+                    f"learning outcome {clo_num}",
+                    f"clo-{clo_num}",
+                    f"clo_{clo_num}",
+                ]
+                if not any(pattern in question_text for pattern in clo_patterns):
+                    continue
+                clo_key = f"CLO{clo_num}"
+                score = extract_clo_score_from_answer(answer)
+                if score is None:
+                    continue
+                clo_data[clo_key]["scores"].append(score)
+                clo_data[clo_key]["count"] += 1
+                if score >= 70:
+                    clo_data[clo_key]["achieved_count"] += 1
 
+    per_clo = {}
+    for clo_key, bucket in clo_data.items():
+        count = bucket["count"]
+        if count > 0:
+            average_score = sum(bucket["scores"]) / len(bucket["scores"])
+            achievement_rate = (bucket["achieved_count"] / count) * 100
+        else:
+            average_score = None
+            achievement_rate = None
+        per_clo[clo_key] = {
+            "average_score": round(average_score, 1) if average_score is not None else None,
+            "achievement_rate_percent": (
+                round(achievement_rate, 1) if achievement_rate is not None else None
+            ),
+            "response_count": count,
+        }
+    return {
+        "per_clo": per_clo,
+        "submissions_with_clo_related_answers": submissions_scoped.count(),
+    }
+
+
+def build_course_review_summary_for_cqi(submissions_queryset):
+    """One row per course for Table 1-style CQI summaries."""
+    per_course = {}
+    queryset = submissions_queryset.select_related("course", "dynamic_form").order_by(
+        "-submission_date"
+    )
+    for submission in queryset:
+        course_id_value = submission.course_id
+        if course_id_value not in per_course:
+            per_course[course_id_value] = {
+                "course_id": course_id_value,
+                "course_code": submission.course.code,
+                "course_title": submission.course.title,
+                "coordinator_name": (submission.course_coordinator or "").strip(),
+                "ccr_submissions": 0,
+                "crr_submissions": 0,
+                "has_revision_requested": False,
+                "has_pending_submitted": False,
+            }
+        row = per_course[course_id_value]
+        if not row["coordinator_name"] and submission.course_coordinator:
+            row["coordinator_name"] = submission.course_coordinator.strip()
+        form_type = submission.dynamic_form.form_type
+        if form_type == "ccr":
+            row["ccr_submissions"] += 1
+        elif form_type == "crr":
+            row["crr_submissions"] += 1
+        if submission.status == "revision_requested":
+            row["has_revision_requested"] = True
+        if submission.status == "submitted":
+            row["has_pending_submitted"] = True
+
+    for course_id_value, row in per_course.items():
+        if row["coordinator_name"]:
+            continue
+        coordinator_assignment = (
+            CourseFaculty.objects.filter(course_id=course_id_value, is_coordinator=True)
+            .select_related("faculty")
+            .first()
+        )
+        if not coordinator_assignment:
+            continue
+        full_name = (coordinator_assignment.faculty.get_full_name() or "").strip()
+        row["coordinator_name"] = full_name or coordinator_assignment.faculty.username
+
+    return sorted(per_course.values(), key=lambda item: (item["course_code"] or "").lower())
+
+
+def cqi_new_courses_detected(course_id, created_since):
+    """Courses first created in the system within the window (proxy for newly offered)."""
+    course_queryset = Course.objects.select_related("department").filter(
+        created_at__gte=created_since
+    )
+    if course_id:
+        course_queryset = course_queryset.filter(id=course_id)
+    return [
+        {
+            "code": course.code,
+            "title": course.title,
+            "department": course.department.name if course.department else None,
+        }
+        for course in course_queryset.order_by("code")[:40]
+    ]
 
 
 def collect_data_for_ai(course_id, time_period):
-    """Collect data for AI analysis"""
+    """Collect structured data for CQI report generation."""
     data = {}
-    
-    # Get course information
+    cover_department = None
+
     if course_id:
         try:
-            course = Course.objects.get(id=course_id)
-            data['course'] = {
-                'code': course.code,
-                'title': course.title,
-                'department': course.department.name if course.department else None,
-                'credits': course.credits
+            course = Course.objects.select_related("department").get(id=course_id)
+            cover_department = course.department.name if course.department else None
+            data["course"] = {
+                "code": course.code,
+                "title": course.title,
+                "department": cover_department,
+                "credits": course.credits,
             }
-            
-            # Get course outlines
-            outlines = CourseOutline.objects.filter(course=course).order_by('-version')
-            data['outlines'] = []
-            for outline in outlines[:5]:  # Last 5 versions
-                data['outlines'].append({
-                    'version': outline.version,
-                    'status': outline.status,
-                    'title': outline.title,
-                    'created_at': outline.created_at.isoformat() if outline.created_at else None,
-                    'notes': outline.notes
-                })
+            outline_rows = CourseOutline.objects.filter(course=course).order_by("-version")[:8]
+            data["outlines"] = [
+                {
+                    "version": outline.version,
+                    "status": outline.status,
+                    "title": outline.title,
+                    "created_at": outline.created_at.isoformat() if outline.created_at else None,
+                    "notes": (outline.notes or "")[:500],
+                }
+                for outline in outline_rows
+            ]
         except Course.DoesNotExist:
-            pass
-    
-    # Get form submissions - CREATE THE BASE QUERYSET
-    if course_id:
-        submissions_qs = DynamicFormSubmission.objects.filter(
-            course_id=course_id,
-            dynamic_form__form_type__in=['ccr', 'crr']
-        ).select_related('faculty', 'dynamic_form')
+            data["outlines"] = []
     else:
-        submissions_qs = DynamicFormSubmission.objects.filter(
-            dynamic_form__form_type__in=['ccr', 'crr']
-        ).select_related('faculty', 'dynamic_form', 'course')
-    
-    # Apply time filter - CREATE A NEW QUERYSET FOR FILTERING
-    filtered_submissions = submissions_qs
-    if time_period != 'all':
-        if time_period == 'week':
-            start_date = datetime.now() - timedelta(days=7)
-        elif time_period == 'month':
-            start_date = datetime.now() - timedelta(days=30)
-        elif time_period == 'quarter':
-            start_date = datetime.now() - timedelta(days=90)
-        else:
-            start_date = datetime.now() - timedelta(days=7)  # Default to week
-        
-        filtered_submissions = submissions_qs.filter(submission_date__gte=start_date)
-    
-    # Calculate statistics FIRST (before slicing)
-    data['statistics'] = {
-        'total_submissions': filtered_submissions.count(),
-        'approved_submissions': filtered_submissions.filter(status='approved').count(),
-        'pending_submissions': filtered_submissions.filter(status='submitted').count(),
-        'revision_requests': filtered_submissions.filter(status='revision_requested').count()
+        data["outlines"] = []
+
+    if course_id:
+        submissions_queryset = DynamicFormSubmission.objects.filter(
+            course_id=course_id,
+            dynamic_form__form_type__in=["ccr", "crr"],
+        ).select_related("faculty", "dynamic_form", "course")
+    else:
+        submissions_queryset = DynamicFormSubmission.objects.filter(
+            dynamic_form__form_type__in=["ccr", "crr"]
+        ).select_related("faculty", "dynamic_form", "course")
+
+    if time_period == "week":
+        period_start = datetime.now() - timedelta(days=7)
+    elif time_period == "month":
+        period_start = datetime.now() - timedelta(days=30)
+    elif time_period == "quarter":
+        period_start = datetime.now() - timedelta(days=90)
+    elif time_period == "all":
+        period_start = None
+    else:
+        period_start = datetime.now() - timedelta(days=7)
+
+    filtered_submissions = submissions_queryset
+    if period_start is not None:
+        filtered_submissions = submissions_queryset.filter(
+            submission_date__gte=period_start
+        )
+
+    data["statistics"] = {
+        "total_submissions": filtered_submissions.count(),
+        "approved_submissions": filtered_submissions.filter(status="approved").count(),
+        "pending_submissions": filtered_submissions.filter(status="submitted").count(),
+        "revision_requests": filtered_submissions.filter(
+            status="revision_requested"
+        ).count(),
     }
-    
-    # Now get submission data (slice after calculations)
-    data['submissions'] = []
-    # Use list() to evaluate the queryset for slicing
-    submissions_list = list(filtered_submissions.order_by('-submission_date')[:50])
-    
+
+    course_review_summary = build_course_review_summary_for_cqi(filtered_submissions)
+    if not cover_department and course_review_summary:
+        first_course = (
+            Course.objects.select_related("department")
+            .filter(id=course_review_summary[0]["course_id"])
+            .first()
+        )
+        if first_course and first_course.department:
+            cover_department = first_course.department.name
+    if data.get("course", {}).get("department"):
+        cover_department = data["course"]["department"]
+
+    data["cover"] = {
+        "institution": "Capital University of Science and Technology",
+        "department": cover_department or "Academic Department",
+        "report_year": datetime.now().year,
+    }
+
+    new_courses_since = (
+        datetime.now() - timedelta(days=730)
+        if time_period == "all"
+        else (period_start or datetime.now() - timedelta(days=90))
+    )
+    data["new_courses_detected"] = cqi_new_courses_detected(course_id, new_courses_since)
+
+    course_ids_in_scope = [row["course_id"] for row in course_review_summary]
+    if course_id and not course_ids_in_scope:
+        course_ids_in_scope = [int(course_id)]
+
+    data["course_outlines"] = []
+    if course_ids_in_scope:
+        for outline in (
+            CourseOutline.objects.filter(course_id__in=course_ids_in_scope)
+            .select_related("course")
+            .order_by("-updated_at")[:100]
+        ):
+            data["course_outlines"].append(
+                {
+                    "course_code": outline.course.code,
+                    "course_title": outline.course.title,
+                    "version": outline.version,
+                    "status": outline.status,
+                    "title": outline.title,
+                    "notes": (outline.notes or "")[:400],
+                    "updated_at": outline.updated_at.isoformat()
+                    if outline.updated_at
+                    else None,
+                }
+            )
+
+    if not data.get("outlines") and data["course_outlines"]:
+        data["outlines"] = data["course_outlines"][:15]
+
+    data["course_review_summary"] = course_review_summary
+    data["clo_analysis"] = build_clo_analysis_for_cqi_submissions(filtered_submissions)
+
+    data["submissions"] = []
+    submissions_list = list(
+        filtered_submissions.order_by("-submission_date")[:60]
+    )
     for submission in submissions_list:
-        data['submissions'].append({
-            'form_type': submission.dynamic_form.form_type,
-            'form_name': submission.dynamic_form.name,
-            'faculty': submission.faculty.username,
-            'status': submission.status,
-            'submission_date': submission.submission_date.isoformat() if submission.submission_date else None,
-            'course': submission.course.code if course_id is None else None
-        })
-    
+        data["submissions"].append(
+            {
+                "form_type": submission.dynamic_form.form_type,
+                "form_name": submission.dynamic_form.name,
+                "faculty": submission.faculty.username,
+                "status": submission.status,
+                "submission_date": submission.submission_date.isoformat()
+                if submission.submission_date
+                else None,
+                "course_code": submission.course.code,
+                "course_title": submission.course.title,
+                "section": submission.section or "",
+                "coordinator_on_form": submission.course_coordinator or "",
+            }
+        )
+    data["form_submissions"] = data["submissions"]
     return data
+
+
+def generate_ai_report(context_data, report_type="summary", ai_config=None):
+    """Generate a CQI report using the institutional CUST-style section layout."""
+    if ai_config is None:
+        ai_config = get_ai_provider_config()
+
+    depth_notes = {
+        "summary": (
+            "Keep narrative paragraphs relatively brief (3–5 sentences each), but still include "
+            "every required section and every markdown table that has supporting rows in the JSON."
+        ),
+        "detailed": (
+            "Write full analytical narrative under each section; expand on evidence from "
+            "`form_submissions`, `course_outlines`, and answers implied by statuses."
+        ),
+        "recommendations": (
+            "Shorten the Introduction and HEC-alignment narratives; keep Annex-A, Table 1, and "
+            "end with a clearly prioritized list of CQI / OBE recommendations (numbered)."
+        ),
+    }.get(
+        report_type,
+        "Use professional narrative length similar to `detailed` but stay within token limits.",
+    )
+
+    prompt = f"""
+ROLE: You are a CQI (Continuous Quality Improvement) analyst for Capital University of Science
+and Technology, writing in the same structure and tone as the department's annual CQI report
+(CRC curriculum review, OBE, CCR/CRR forms, CLO review).
+
+TASK: Analyze ONLY the JSON data below and produce a single CQI report in **Markdown**.
+
+COVER / LETTERHEAD (important):
+- Do **not** repeat the university name or department title as a markdown heading; the web UI and
+  PDF exporter add the official letterhead from the `cover` object.
+- Start your Markdown with exactly: `## Introduction` (first line of your output).
+
+REPORT TYPE: {report_type.upper()}
+DEPTH: {depth_notes}
+
+DATA (JSON):
+{json.dumps(context_data, indent=2)}
+
+REQUIRED MARKDOWN STRUCTURE (headings must match):
+
+## Introduction
+- Opening paragraph: CRC curriculum review and program quality, scoped to this dataset (single
+  course vs department-wide using `course`, `statistics`, and `course_review_summary`).
+- Numbered list (1–6) of inputs considered. Map to ACQIP as follows (state clearly when data is
+  not in the system):
+  1. Exit survey (only if referenced in submissions; otherwise say it is outside this dataset)
+  2. Alumni survey (same)
+  3. Employer survey (same)
+  4. Course feedback (CRR and related answers)
+  5. CLO attainment and instructor feedback (`clo_analysis`, CCR/CRR)
+  6. Industrial Advisory Board or external recommendations (only if present; otherwise note N/A)
+- One paragraph on CQI + OBE, CRC review groups, and use of CCR and CRR forms in ACQIP; cite
+  numeric counts from `statistics`.
+
+## Annex-A — Course Content Review Process
+- Short intro sentence on the CCR process.
+- Bullet list with these labels (verbatim), each followed by a short clause tied to the data
+  when possible:
+  - Compliance of course contents with the HEC recommended contents
+  - Instructor's feedback on course contents
+  - Week-wise distribution of course contents
+  - Relevance and recency of Text and Recommended books
+  - Appropriateness of pre-requisite courses
+  - Verification of CLOs statements according to SMART criteria
+  - Learning domains of CLOs and their level
+  - Correctness of CLOs to GAs mapping
+- State how many courses appear in `course_review_summary` (and labs if distinguishable).
+
+### Table 1: Review summary of each course
+- Output a **markdown pipe table** with one data row per entry in `course_review_summary` (same
+  order as JSON: by course_code).
+- Columns: Sr | Course Title | Course Coordinator | Recommendations to update course
+  content/tools (Yes/No) | Week-wise distribution (Yes/No) | Books/Lab manuals (Yes/No).
+- Derive Yes/No from `has_revision_requested`, form mix, and outline notes when inferable; use
+  **No** when unknown and briefly justify in narrative after the table (do not invent surveys).
+
+### Table 2: New courses
+- If `new_courses_detected` is non-empty: markdown table with Sr | Courses (code — title).
+- If empty: a single sentence that no new courses were flagged in the system for this window.
+
+## Summary of course and lab reviews
+- Narrative comparing CCR vs CRR coverage using `statistics` and `course_review_summary`.
+- Describe **Figure 1** and **Figure 2** in words only (course vs lab review emphasis), no images.
+
+## Accordance with HEC curriculum / course materials
+- Narrative on alignment using `course_outlines` and CCR context; do not claim external HEC
+  verification unless stated in notes.
+
+### Table 3: Accordance of HEC Content
+- Markdown pipe table: Sr | Course Title | Not matched with HEC contents | Matched with HEC
+  contents (if available). Use √, N/A, or Yes/No consistently; base only on outline notes and
+  form signals in the JSON.
+
+## Status of CLOs
+- Interpret `clo_analysis` only; describe **Figure 3–5** as narrative summaries (no images).
+
+## Course Review Report (CRR)
+- Introduce the CRR form with bullets: Overall performance of students; Course Outcomes; Coverage
+  of course contents; Strategy to support underperforming students; Suggested improvements for
+  effective course conduct.
+- Use `statistics` and submission list for response counts where possible.
+
+### Table 4: Courses in which few CLOs were not attained
+- If `clo_analysis` shows gaps or low attainment, list plausible courses from
+  `course_review_summary` / submissions; if data does not support partial attainment, state that
+  clearly instead of inventing rows.
+
+## Closing and next steps
+- Short conclusion and 3–5 concrete next steps for the CRC.
+
+RULES:
+- Professional, analytical, constructive tone.
+- Do not fabricate survey results or external bodies not present in the JSON.
+- Use markdown tables and `##` / `###` headings only (no HTML).
+
+"""
+    print(f"Generating {report_type} report with {ai_config['provider']} ({ai_config['model']})...")
+    return call_llm_api(prompt, ai_config)
+
+
+def generate_fallback_report(context_data, report_type):
+    """Structured Markdown fallback when AI is unavailable."""
+    stats = context_data.get("statistics", {})
+    cover = context_data.get("cover", {})
+    institution = cover.get("institution", "Capital University of Science and Technology")
+    department = cover.get("department", "Academic Department")
+    year = cover.get("report_year", datetime.now().year)
+    total = stats.get("total_submissions") or 0
+    approved = stats.get("approved_submissions") or 0
+    approval_pct = (approved / total * 100) if total else 0.0
+    rows = context_data.get("course_review_summary") or []
+    clo = context_data.get("clo_analysis") or {}
+    course = context_data.get("course") or {}
+    outline_count = len(context_data.get("course_outlines") or context_data.get("outlines") or [])
+
+    table1_lines = [
+        "| Sr | Course Title | Course Coordinator | Content/tools update (Y/N) | Week-wise (Y/N) | Books/labs (Y/N) |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    for index, row in enumerate(rows, start=1):
+        revision_flag = "Yes" if row.get("has_revision_requested") else "No"
+        pending_flag = "Yes" if row.get("has_pending_submitted") else "No"
+        table1_lines.append(
+            f"| {index} | {row.get('course_title', '')} | {row.get('coordinator_name', '')} | "
+            f"{revision_flag} | {pending_flag} | No |"
+        )
+    table1 = "\n".join(table1_lines) if rows else "_No course rows in this period._"
+
+    new_courses_list = context_data.get("new_courses_detected", [])
+    if new_courses_list:
+        table2_lines = ["| Sr | Courses |", "| --- | --- |"]
+        for index, item in enumerate(new_courses_list, start=1):
+            label = f"{item.get('code', '')} — {item.get('title', '')}"
+            table2_lines.append(f"| {index} | {label} |")
+        table2 = "\n".join(table2_lines)
+    else:
+        table2 = "_No new courses were flagged in the system for this window._"
+
+    clo_lines = []
+    for clo_name, payload in (clo.get("per_clo") or {}).items():
+        avg = payload.get("average_score")
+        rate = payload.get("achievement_rate_percent")
+        count = payload.get("response_count")
+        clo_lines.append(
+            f"- **{clo_name}**: responses={count}, avg={avg}, achievement_rate={rate}%"
+        )
+    clo_section = "\n".join(clo_lines) if clo_lines else "_No CLO quantitative fields were parsed from forms in this window._"
+
+    scope_note = ""
+    if course.get("code"):
+        scope_note = f"Scope: single course **{course.get('code')}** — {course.get('title', '')}."
+
+    depth = report_type.upper()
+    return f"""## Introduction
+
+Automated fallback CQI narrative ({depth}) generated **{datetime.now().strftime("%Y-%m-%d %H:%M")}** because the AI provider was unavailable or returned an error.
+
+{scope_note}
+
+The Curriculum Review Committee (CRC) monitors continuous quality improvement using ACQIP CCR and CRR workflows. In the selected period the system recorded **{total}** CCR/CRR submissions (**{approved}** approved, **{approval_pct:.1f}%** approval rate), **{stats.get("pending_submissions", 0)}** pending CRC review, and **{stats.get("revision_requests", 0)}** revision requests. Exit, alumni, and employer surveys are **not stored in ACQIP** unless captured inside form answers.
+
+1. Exit survey — *Not available unless referenced in form text.*
+2. Alumni survey — *Not available unless referenced in form text.*
+3. Employer survey — *Not available unless referenced in form text.*
+4. Course feedback — *Partially captured through CRR submissions.*
+5. CLO attainment and instructor feedback — *Summarized from parsed CLO fields below.*
+6. Industrial Advisory Board — *N/A in structured data unless noted in outlines.*
+
+## Annex-A — Course Content Review Process
+
+The Course Contents Review (CCR) form supports structured review of materials. Dimensions reviewed include:
+
+- Compliance of course contents with the HEC recommended contents
+- Instructor's feedback on course contents
+- Week-wise distribution of course contents
+- Relevance and recency of Text and Recommended books
+- Appropriateness of pre-requisite courses
+- Verification of CLOs statements according to SMART criteria
+- Learning domains of CLOs and their level
+- Correctness of CLOs to GAs mapping
+
+**Courses with activity in this window:** {len(rows)} (see Table 1).
+
+### Table 1: Review summary of each course
+
+{table1}
+
+### Table 2: New courses
+
+{table2}
+
+## Summary of course and lab reviews
+
+CCR submissions are counted per coordinator course; CRR submissions capture instructor-level returns. **Figure 1 / Figure 2** (narrative only): compare CCR vs CRR counts using `ccr_submissions` and `crr_submissions` in the JSON rows when the AI report is available; in this fallback, refer to aggregate totals above.
+
+## Accordance with HEC curriculum / course materials
+
+**Outline records available for analysis:** {outline_count}. Detailed HEC conformance requires manual review of outline bodies; CRC notes on outlines were included in the JSON payload when present.
+
+### Table 3: Accordance of HEC Content
+
+| Sr | Course Title | Not matched with HEC contents | Matched with HEC contents (if available) |
+| --- | --- | --- | --- |
+| _See AI-generated report or complete manual review._ | | | |
+
+## Status of CLOs
+
+{clo_section}
+
+**Figures 3–5 (narrative only):** interpret attainment rates qualitatively from the bullets above.
+
+## Course Review Report (CRR)
+
+The CRR form captures:
+
+- Overall performance of students
+- Course Outcomes
+- Coverage of course contents
+- Strategy to support underperforming students
+- Suggested improvements for effective course conduct
+
+**Counts in window:** total submissions **{total}** (see statistics JSON).
+
+### Table 4: Courses in which few CLOs were not attained
+
+_Generate after CLO data is available; this fallback lists parsed CLO signals only._
+
+## Closing and next steps
+
+1. Re-run the report with AI enabled for full Table 3/4 inference.
+2. Resolve pending and revision_requested submissions in ACQIP.
+3. Align outline notes with HEC checklist criteria for the next CRC cycle.
+
+---
+_Cover metadata: **{institution}**, **{department}**, **{year}**._
+"""
+
+
+@login_required
+@user_passes_test(is_admin_or_crc)
+@csrf_exempt
+@require_http_methods(["POST"])
+def api_cqi_report_pdf(request):
+    """Render the latest Markdown CQI body into a PDF for download."""
+    try:
+        payload = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    report_markdown = (
+        payload.get("report_markdown") or payload.get("report_body") or ""
+    ).strip()
+    if not report_markdown:
+        return JsonResponse({"error": "report_markdown is required"}, status=400)
+
+    cover = payload.get("cover") or {}
+    institution = cover.get("institution", "Capital University of Science and Technology")
+    department = cover.get("department", "Academic Department")
+    year = cover.get("report_year", datetime.now().year)
+
+    try:
+        body_html = markdown_to_cqi_html(report_markdown)
+    except Exception as exc:
+        return JsonResponse({"error": f"Markdown conversion failed: {exc}"}, status=400)
+
+    cover_html = (
+        '<div align="center">'
+        f"<p><b>{html_module.escape(institution)}</b></p>"
+        f"<p>{html_module.escape(department)}</p>"
+        f"<p><b>CQI Report {html_module.escape(str(year))}</b></p>"
+        "</div><hr/>"
+    )
+
+    combined_html = cover_html + body_html
+
+    pdf_document = FPDF(orientation="P", unit="mm", format="A4")
+    pdf_document.set_auto_page_break(auto=True, margin=15)
+    pdf_document.set_left_margin(14)
+    pdf_document.set_right_margin(14)
+
+    if _register_dejavu_fonts_if_available(pdf_document):
+        pdf_document.add_page()
+        pdf_document.set_font("DejaVuSans", size=11)
+    else:
+        combined_html = _normalize_html_for_core_pdf_fonts(combined_html)
+        pdf_document.add_page()
+        pdf_document.set_font("Helvetica", size=11)
+
+    try:
+        pdf_document.write_html(combined_html)
+    except Exception as exc:
+        return JsonResponse({"error": f"PDF layout failed: {exc}"}, status=500)
+
+    pdf_bytes = bytes(pdf_document.output())
+    filename = f"CQI_Report_{year}.pdf"
+    response = HttpResponse(pdf_bytes, content_type="application/pdf")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+

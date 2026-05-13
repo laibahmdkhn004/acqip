@@ -598,6 +598,7 @@
         analysis_clo_achievement: "{% url 'api_analysis_clo_achievement' %}",
         compare_outlines: "{% url 'api_compare_outlines' %}",
         generate_cqi_report: "{% url 'api_generate_cqi_report' %}",
+        cqi_report_pdf: "{% url 'api_cqi_report_pdf' %}",
         analysis_submissions_over_time:
           "{% url 'api_analysis_submissions_over_time' %}",
         analysis_form_status: "{% url 'api_analysis_form_status' %}",
@@ -613,6 +614,8 @@
       let currentPage = "dashboard";
       let allForms = [];
       let crcCoursesCache = [];
+      let lastCqiReportMarkdown = "";
+      let lastCqiCover = null;
       const crcOutlineState = {
         selectedCourse: null,
         currentOutlineId: null,
@@ -6308,12 +6311,15 @@
             <div class="bg-white rounded-lg shadow">
                 <div class="px-6 py-4 border-b flex justify-between items-center">
                     <h3 class="text-lg font-medium">CQI Report</h3>
-                    <div class="flex gap-2">
+                    <div class="flex flex-wrap gap-2">
                         <button onclick="printReport()" class="px-3 py-1 text-sm text-gray-600 hover:text-gray-800 border rounded-lg">
                             <i class="fas fa-print mr-1"></i> Print
                         </button>
+                        <button onclick="downloadCqiReportPdf()" class="px-3 py-1 text-sm text-white bg-red-700 hover:bg-red-800 border border-red-800 rounded-lg">
+                            <i class="fas fa-file-pdf mr-1"></i> Download PDF
+                        </button>
                         <button onclick="downloadReport()" class="px-3 py-1 text-sm text-gray-600 hover:text-gray-800 border rounded-lg">
-                            <i class="fas fa-download mr-1"></i> Download
+                            <i class="fas fa-download mr-1"></i> Download (.txt)
                         </button>
                     </div>
                 </div>
@@ -6430,23 +6436,53 @@
       function displayCQIReport(reportData) {
         document.getElementById("report-results").classList.remove("hidden");
 
-        // Check if there's an error in the report
         if (reportData.error) {
-          document.getElementById("report-content").innerHTML = `
+          lastCqiReportMarkdown = reportData.report || "";
+          lastCqiCover = reportData.cover || null;
+
+          if (!reportData.report) {
+            lastCqiReportMarkdown = "";
+            lastCqiCover = null;
+            document.getElementById("report-content").innerHTML = `
             <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
                 <h4 class="text-lg font-medium text-yellow-800">Report Generation Warning</h4>
                 <p class="mt-2 text-yellow-700">${reportData.error}</p>
                 ${reportData.fallback_report ? `<div class="mt-4 p-4 bg-white rounded"><pre class="whitespace-pre-wrap">${reportData.fallback_report}</pre></div>` : ""}
             </div>
         `;
-          return;
+            return;
+          }
         }
 
-        // Format the report with proper styling
-        const formattedReport = formatReportForDisplay(reportData.report);
-        document.getElementById("report-content").innerHTML = formattedReport;
+        if (!reportData.error) {
+          lastCqiReportMarkdown = reportData.report || "";
+          lastCqiCover = reportData.cover || null;
+        }
 
-        // Add metadata with AI provider info
+        let coverPrefix = "";
+        if (reportData.cover) {
+          const cover = reportData.cover;
+          coverPrefix = `
+            <div class="mb-8 text-center border-b border-gray-200 pb-6">
+                <div class="text-lg font-bold text-gray-900">${cover.institution}</div>
+                <div class="text-base text-gray-800 mt-2">${cover.department}</div>
+                <div class="text-base font-semibold mt-3 text-gray-900">CQI Report ${cover.report_year}</div>
+            </div>`;
+        }
+
+        const warningBanner = reportData.error
+          ? `<div class="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-900 text-sm">
+               <strong>Note:</strong> ${reportData.error}
+               ${reportData.note ? `<div class="mt-1 text-amber-800">${reportData.note}</div>` : ""}
+             </div>`
+          : "";
+
+        const bodyHtml = reportData.report_html
+          ? `<div class="cqi-report-html prose max-w-none">${reportData.report_html}</div>`
+          : formatReportForDisplay(reportData.report);
+        document.getElementById("report-content").innerHTML =
+          warningBanner + coverPrefix + bodyHtml;
+
         const metadata = document.createElement("div");
         metadata.className = "mt-6 pt-6 border-t text-sm text-gray-500";
         metadata.innerHTML = `
@@ -6554,6 +6590,51 @@
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
       }
+
+      async function downloadCqiReportPdf() {
+        if (!lastCqiReportMarkdown || !lastCqiReportMarkdown.trim()) {
+          showNotification("Generate a report first", "error");
+          return;
+        }
+        try {
+          const response = await fetch(
+            resolveApiRequestUrl(API.cqi_report_pdf),
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken": getCSRFToken(),
+              },
+              credentials: "include",
+              body: JSON.stringify({
+                report_markdown: lastCqiReportMarkdown,
+                cover: lastCqiCover || {},
+              }),
+            },
+          );
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || `HTTP ${response.status}`);
+          }
+          const blob = await response.blob();
+          const objectUrl = URL.createObjectURL(blob);
+          const anchorElement = document.createElement("a");
+          anchorElement.href = objectUrl;
+          const reportYear =
+            (lastCqiCover && lastCqiCover.report_year) || new Date().getFullYear();
+          anchorElement.download = `CQI_Report_${reportYear}.pdf`;
+          document.body.appendChild(anchorElement);
+          anchorElement.click();
+          document.body.removeChild(anchorElement);
+          URL.revokeObjectURL(objectUrl);
+        } catch (error) {
+          console.error(error);
+          showNotification(
+            error.message || "PDF download failed",
+            "error",
+          );
+        }
+      }
       // Export functions to global scope
       window.loadPage = loadPage;
       window.viewOutlineDetails = viewOutlineDetails;
@@ -6609,7 +6690,7 @@
       window.showCLODetails = showCLODetails;
       window.generateCQIReport = generateCQIReport;
       window.printReport = printReport;
-      window.downloadReport = downloadReport;
+      window.downloadCqiReportPdf = downloadCqiReportPdf;
     </script>
   </body>
 </html>
