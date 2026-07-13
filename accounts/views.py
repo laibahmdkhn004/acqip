@@ -4,9 +4,16 @@ from django.contrib.auth import logout
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_http_methods
 from django.http import JsonResponse
-from django.urls import reverse
-from .forms import UserRegisterForm
-from django.contrib.auth.views import LoginView
+from django.urls import reverse, reverse_lazy
+from django import forms
+from .forms import UserRegisterForm, UserPasswordResetForm, UserSetPasswordForm
+from django.contrib.auth.views import (
+    LoginView,
+    PasswordResetView,
+    PasswordResetDoneView,
+    PasswordResetConfirmView,
+    PasswordResetCompleteView,
+)
 from .models import Course, DynamicForm, FormQuestion, DynamicFormSubmission, CourseFaculty, FormAnswer, CourseOutline, User, Department
 from django.db.models import Q, Count
 import json
@@ -68,7 +75,54 @@ class CustomLoginView(LoginView):
                 return self.form_invalid(form)
 
         return response
-    
+
+
+class CustomPasswordResetView(PasswordResetView):
+    template_name = "accounts/password_reset.html"
+    email_template_name = "accounts/password_reset_email.txt"
+    subject_template_name = "accounts/password_reset_subject.txt"
+    form_class = UserPasswordResetForm
+    success_url = reverse_lazy("password_reset_done")
+
+    def form_valid(self, form):
+        try:
+            opts = {
+                "use_https": self.request.is_secure(),
+                "token_generator": self.token_generator,
+                "from_email": self.from_email,
+                "email_template_name": self.email_template_name,
+                "subject_template_name": self.subject_template_name,
+                "request": self.request,
+                "html_email_template_name": self.html_email_template_name,
+                "extra_email_context": self.extra_email_context,
+            }
+            form.save(**opts)
+        except forms.ValidationError as validation_error:
+            form.add_error(None, validation_error)
+            return self.form_invalid(form)
+        except Exception:
+            form.add_error(
+                None,
+                "Unable to send the password reset email. Please try again later.",
+            )
+            return self.form_invalid(form)
+        return super(PasswordResetView, self).form_valid(form)
+
+
+class CustomPasswordResetDoneView(PasswordResetDoneView):
+    template_name = "accounts/password_reset_done.html"
+
+
+class CustomPasswordResetConfirmView(PasswordResetConfirmView):
+    template_name = "accounts/password_reset_confirm.html"
+    form_class = UserSetPasswordForm
+    success_url = reverse_lazy("password_reset_complete")
+
+
+class CustomPasswordResetCompleteView(PasswordResetCompleteView):
+    template_name = "accounts/password_reset_complete.html"
+
+
 @require_http_methods(["GET"])
 def logout_view(request):
     logout(request)
