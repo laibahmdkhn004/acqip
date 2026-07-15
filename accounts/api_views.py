@@ -1087,7 +1087,7 @@ def api_user_update(request, user_id):
 def api_user_delete(request, user_id):
     try:
         user = User.objects.get(id=user_id)
-        if user == request.user:
+        if user.id == request.user.id:
             return JsonResponse({'error': 'Cannot delete your own account'}, status=400)
         user.delete()
         return JsonResponse({'message': 'User deleted successfully'})

@@ -1571,7 +1571,7 @@
                                 <button onclick="editUser(${user.id})" class="px-3 py-1 bg-purple-100 text-purple-700 text-xs font-medium rounded hover:bg-purple-200 transition-colors">
                                   Edit
                                 </button>
-                                ${user.role !== 'admin' && user.id !== {{ user.id|default:'0' }} ? `
+                                ${user.id !== {{ user.id|default:'0' }} ? `
                                   <button onclick="openDeleteUserModal(${user.id}, '${user.username.replace(/'/g, "\\'")}')" class="px-3 py-1 bg-red-100 text-red-700 text-xs font-medium rounded hover:bg-red-200 transition-colors">
                                     Delete
                                   </button>
@@ -1691,7 +1691,7 @@
         currentUserForDelete = { id: userId, username: username };
 
         deleteUserTitle.textContent = `Delete User - ${username}`;
-        deleteUserMessage.textContent = `Are you sure you want to delete ${username}?`;
+        deleteUserMessage.textContent = `Are you sure you want to delete ${username}? This cannot be undone.`;
 
         deleteUserModal.classList.remove('hidden');
       }

@@ -361,6 +361,39 @@
         <section id="content-area">
           <!-- Dashboard (default) -->
           <div id="dashboard-content">
+            <!-- No course outline alert -->
+            <div
+              id="no-outline-alert"
+              class="hidden mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3"
+              role="alert"
+            >
+              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div class="flex items-start gap-3">
+                  <div
+                    class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700"
+                  >
+                    <i class="fas fa-exclamation-triangle"></i>
+                  </div>
+                  <div>
+                    <p class="font-medium text-amber-900">
+                      No course outline created yet
+                    </p>
+                    <p class="text-sm text-amber-800 mt-0.5">
+                      Please create a course outline for your coordinator course(s) to continue.
+                    </p>
+                  </div>
+                </div>
+                <a
+                  href="#"
+                  onclick="showPage('course-outlines'); return false;"
+                  class="inline-flex items-center justify-center gap-2 shrink-0 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium rounded-lg transition-colors"
+                >
+                  <i class="fas fa-file-alt"></i>
+                  Go to Course Outlines
+                </a>
+              </div>
+            </div>
+
             <!-- Stats Cards -->
             <div
               class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6"
@@ -749,12 +782,22 @@
                       course coordinators can create or edit outlines.
                     </p>
                   </div>
-                  <button
-                    onclick="showCreateOutlineModal()"
-                    class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center"
-                  >
-                    <i class="fas fa-plus mr-2"></i>New Outline
-                  </button>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onclick="openModal('catalog-modal')"
+                      class="px-4 py-2 bg-white text-purple-700 border border-purple-300 rounded hover:bg-purple-50 flex items-center"
+                    >
+                      <i class="fas fa-book mr-2"></i>Catalog
+                    </button>
+                    <button
+                      type="button"
+                      onclick="showCreateOutlineModal()"
+                      class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center"
+                    >
+                      <i class="fas fa-plus mr-2"></i>New Outline
+                    </button>
+                  </div>
                 </div>
               </div>
               <div class="p-4">
@@ -1058,6 +1101,71 @@
       </div>
     </div>
 
+    <div
+      id="catalog-modal"
+      class="fixed inset-0 flex items-center justify-center p-4 hidden z-50"
+    >
+      <div class="bg-white rounded-lg shadow-lg max-w-md w-full">
+        <div class="p-6">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-semibold">Course Catalogs</h3>
+            <button
+              type="button"
+              onclick="closeModal('catalog-modal')"
+              class="text-gray-400 hover:text-gray-600"
+              aria-label="Close"
+            >
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+          <p class="text-sm text-gray-600 mb-4">
+            Download the official course catalog documents below.
+          </p>
+          <div class="space-y-3">
+            <a
+              href="{% static 'documents/Course_Catalog_BSSE_5.1.docx' %}"
+              download="Course Catalog BSSE 5.1.docx"
+              class="flex items-center justify-between gap-3 w-full px-4 py-3 rounded-lg border border-gray-200 hover:border-purple-300 hover:bg-purple-50 transition-colors"
+            >
+              <span class="flex items-center gap-3 min-w-0">
+                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
+                  <i class="fas fa-file-word"></i>
+                </span>
+                <span class="text-sm font-medium text-gray-800 truncate">
+                  Course Catalog BSSE 5.1
+                </span>
+              </span>
+              <i class="fas fa-download text-purple-600"></i>
+            </a>
+            <a
+              href="{% static 'documents/Course_Catalog_BSAI_2.2.docx' %}"
+              download="Course Catalog BSAI 2.2.docx"
+              class="flex items-center justify-between gap-3 w-full px-4 py-3 rounded-lg border border-gray-200 hover:border-purple-300 hover:bg-purple-50 transition-colors"
+            >
+              <span class="flex items-center gap-3 min-w-0">
+                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-green-100 text-green-700">
+                  <i class="fas fa-file-word"></i>
+                </span>
+                <span class="text-sm font-medium text-gray-800 truncate">
+                  Course Catalog BSAI 2.2
+                </span>
+              </span>
+              <i class="fas fa-download text-purple-600"></i>
+            </a>
+          </div>
+          <div class="flex justify-end mt-5">
+            <button
+              type="button"
+              onclick="closeModal('catalog-modal')"
+              class="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Form Selection Modal -->
     <div
       id="form-selection-modal"
@@ -1190,6 +1298,7 @@
         selectedCourse: null,
         currentOutlineId: null,
         currentOutline: null,
+        currentUserId: {{ user.id }},
         activeForms: {
           ccr: [],
           crr: [],
@@ -1846,6 +1955,27 @@
         if (totalOutlinesEl) totalOutlinesEl.textContent = totalOutlines;
         if (coordinatorCoursesEl)
           coordinatorCoursesEl.textContent = coordinatorCourses;
+
+        updateNoOutlineAlert();
+      }
+
+      function updateNoOutlineAlert() {
+        const alertEl = document.getElementById("no-outline-alert");
+        if (!alertEl) return;
+
+        const createdByFaculty = state.outlines.filter(
+          (outline) => outline.faculty_author_id === state.currentUserId,
+        );
+        const isCoordinator = state.courses.some(
+          (course) => course.is_coordinator,
+        );
+
+        // Show when faculty can create outlines (coordinator) but hasn't created any yet
+        if (isCoordinator && createdByFaculty.length === 0) {
+          alertEl.classList.remove("hidden");
+        } else {
+          alertEl.classList.add("hidden");
+        }
       }
 
       function getStatusClass(status) {
