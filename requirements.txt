@@ -5,3 +5,4 @@ openai
 python-dotenv
 Markdown
 fpdf2
+python-docx

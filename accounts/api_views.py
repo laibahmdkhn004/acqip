@@ -3658,6 +3658,80 @@ def markdown_to_cqi_html(markdown_text):
     )
 
 
+def build_cqi_chart_data(context_data):
+    """Build chart payloads for CQI report visualization and Word export."""
+    statistics = context_data.get("statistics") or {}
+    clo_analysis = context_data.get("clo_analysis") or {}
+    course_review_summary = context_data.get("course_review_summary") or []
+
+    approved = int(statistics.get("approved_submissions") or 0)
+    pending = int(statistics.get("pending_submissions") or 0)
+    revision = int(statistics.get("revision_requests") or 0)
+    total = int(statistics.get("total_submissions") or 0)
+    other = max(total - approved - pending - revision, 0)
+
+    status_labels = []
+    status_values = []
+    status_colors = []
+    status_items = [
+        ("Approved", approved, "#16a34a"),
+        ("Pending Review", pending, "#ca8a04"),
+        ("Revision Requested", revision, "#dc2626"),
+        ("Other", other, "#64748b"),
+    ]
+    for label, value, color in status_items:
+        if value > 0:
+            status_labels.append(label)
+            status_values.append(value)
+            status_colors.append(color)
+
+    clo_labels = []
+    clo_rates = []
+    clo_averages = []
+    for clo_name in ("CLO1", "CLO2", "CLO3", "CLO4"):
+        payload = (clo_analysis.get("per_clo") or {}).get(clo_name) or {}
+        clo_labels.append(clo_name)
+        clo_rates.append(payload.get("achievement_rate_percent") or 0)
+        clo_averages.append(payload.get("average_score") or 0)
+
+    ccr_total = sum(int(row.get("ccr_submissions") or 0) for row in course_review_summary)
+    crr_total = sum(int(row.get("crr_submissions") or 0) for row in course_review_summary)
+
+    return {
+        "status_distribution": {
+            "labels": status_labels,
+            "data": status_values,
+            "colors": status_colors,
+        },
+        "clo_achievement": {
+            "labels": clo_labels,
+            "achievement_rates": clo_rates,
+            "average_scores": clo_averages,
+        },
+        "form_type_distribution": {
+            "labels": ["CCR", "CRR"],
+            "data": [ccr_total, crr_total],
+            "colors": ["#7c3aed", "#2563eb"],
+        },
+        "metrics": {
+            "total_submissions": total,
+            "approved_submissions": approved,
+            "pending_submissions": pending,
+            "revision_requests": revision,
+            "approval_rate": round((approved / total) * 100, 1) if total else 0,
+            "average_clo_rate": (
+                round(sum(clo_rates) / len(clo_rates), 1) if clo_rates else 0
+            ),
+            "courses_reviewed": len(course_review_summary),
+            "outlines_analyzed": len(
+                context_data.get("course_outlines")
+                or context_data.get("outlines")
+                or []
+            ),
+        },
+    }
+
+
 # PDF core fonts (Times, Helvetica) only cover Latin-1; normalize or use TTF for Unicode.
 _CQI_PDF_UNICODE_REPLACEMENTS = (
     ("\u2014", "--"),  # em dash
@@ -3772,6 +3846,7 @@ def api_generate_cqi_report(request):
                 'ai_provider': ai_config['provider'],
                 'ai_model': ai_config['model'],
                 'cover': context_data.get('cover'),
+                'chart_data': build_cqi_chart_data(context_data),
                 'context_summary': {
                     'form_submissions_analyzed': len(context_data.get('form_submissions', [])),
                     'course_outlines_analyzed': len(context_data.get('course_outlines', [])),
@@ -3796,6 +3871,7 @@ def api_generate_cqi_report(request):
                 'success': False,
                 'error': str(ai_error),
                 'cover': context_data.get('cover'),
+                'chart_data': build_cqi_chart_data(context_data),
             })
         
     except Exception as e:
@@ -4434,6 +4510,278 @@ def api_cqi_report_pdf(request):
     pdf_bytes = bytes(pdf_document.output())
     filename = f"CQI_Report_{year}.pdf"
     response = HttpResponse(pdf_bytes, content_type="application/pdf")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+
+def _add_markdown_to_docx(document, markdown_text):
+    """Append a lightweight Markdown conversion into a python-docx Document."""
+    from docx.shared import Pt, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+    if not markdown_text:
+        return
+
+    lines = markdown_text.replace("\r\n", "\n").split("\n")
+    table_buffer = []
+
+    def flush_table():
+        nonlocal table_buffer
+        if not table_buffer:
+            return
+        rows = []
+        for table_line in table_buffer:
+            cells = [cell.strip() for cell in table_line.strip().strip("|").split("|")]
+            if cells and all(set(cell) <= set("-: ") for cell in cells):
+                continue
+            rows.append(cells)
+        table_buffer = []
+        if not rows:
+            return
+        column_count = max(len(row) for row in rows)
+        table = document.add_table(rows=len(rows), cols=column_count)
+        table.style = "Table Grid"
+        for row_index, row_cells in enumerate(rows):
+            for column_index in range(column_count):
+                cell_text = row_cells[column_index] if column_index < len(row_cells) else ""
+                cell = table.rows[row_index].cells[column_index]
+                cell.text = cell_text
+                if row_index == 0:
+                    for paragraph in cell.paragraphs:
+                        for run in paragraph.runs:
+                            run.bold = True
+        document.add_paragraph("")
+
+    for raw_line in lines:
+        line = raw_line.rstrip()
+        stripped = line.strip()
+
+        if stripped.startswith("|") and stripped.endswith("|"):
+            table_buffer.append(stripped)
+            continue
+
+        flush_table()
+
+        if not stripped:
+            continue
+
+        if stripped.startswith("### "):
+            heading = document.add_heading(stripped[4:].strip(), level=3)
+            continue
+        if stripped.startswith("## "):
+            heading = document.add_heading(stripped[3:].strip(), level=2)
+            continue
+        if stripped.startswith("# "):
+            heading = document.add_heading(stripped[2:].strip(), level=1)
+            continue
+
+        if stripped.startswith("- ") or stripped.startswith("* "):
+            paragraph = document.add_paragraph(stripped[2:].strip(), style="List Bullet")
+            continue
+
+        numbered_match = re.match(r"^(\d+)\.\s+(.*)$", stripped)
+        if numbered_match:
+            paragraph = document.add_paragraph(
+                numbered_match.group(2).strip(), style="List Number"
+            )
+            continue
+
+        paragraph = document.add_paragraph()
+        # Simple bold/italic handling for **text** and *text*
+        remaining = stripped
+        while remaining:
+            bold_match = re.search(r"\*\*(.+?)\*\*", remaining)
+            italic_match = re.search(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", remaining)
+            next_match = None
+            match_type = None
+            for candidate_type, candidate in (("bold", bold_match), ("italic", italic_match)):
+                if candidate and (
+                    next_match is None or candidate.start() < next_match.start()
+                ):
+                    next_match = candidate
+                    match_type = candidate_type
+            if not next_match:
+                paragraph.add_run(remaining)
+                break
+            if next_match.start() > 0:
+                paragraph.add_run(remaining[: next_match.start()])
+            run = paragraph.add_run(next_match.group(1))
+            if match_type == "bold":
+                run.bold = True
+            else:
+                run.italic = True
+            remaining = remaining[next_match.end() :]
+
+    flush_table()
+
+
+def _decode_chart_image_bytes(data_url_or_base64):
+    """Decode a canvas data URL or raw base64 PNG into bytes."""
+    import base64
+
+    if not data_url_or_base64:
+        return None
+    payload = data_url_or_base64.strip()
+    if "," in payload and payload.startswith("data:"):
+        payload = payload.split(",", 1)[1]
+    try:
+        return base64.b64decode(payload)
+    except Exception:
+        return None
+
+
+@login_required
+@user_passes_test(is_admin_or_crc)
+@csrf_exempt
+@require_http_methods(["POST"])
+def api_cqi_report_docx(request):
+    """Build a professional Word (.docx) CQI report with embedded charts."""
+    try:
+        from docx import Document
+        from docx.shared import Inches, Pt, RGBColor, Cm
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        from docx.oxml.ns import qn
+        from io import BytesIO
+    except ImportError:
+        return JsonResponse(
+            {
+                "error": "python-docx is not installed. Run: pip install python-docx",
+            },
+            status=500,
+        )
+
+    try:
+        payload = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    report_markdown = (
+        payload.get("report_markdown") or payload.get("report_body") or ""
+    ).strip()
+    if not report_markdown:
+        return JsonResponse({"error": "report_markdown is required"}, status=400)
+
+    cover = payload.get("cover") or {}
+    chart_images = payload.get("chart_images") or {}
+    metrics = payload.get("metrics") or {}
+    institution = cover.get(
+        "institution", "Capital University of Science and Technology"
+    )
+    department = cover.get("department", "Academic Department")
+    year = cover.get("report_year", datetime.now().year)
+
+    document = Document()
+
+    # Page margins
+    for section in document.sections:
+        section.top_margin = Cm(1.8)
+        section.bottom_margin = Cm(1.8)
+        section.left_margin = Cm(2.0)
+        section.right_margin = Cm(2.0)
+
+    # Cover / letterhead
+    title = document.add_paragraph()
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = title.add_run(institution)
+    run.bold = True
+    run.font.size = Pt(16)
+    run.font.color.rgb = RGBColor(88, 28, 135)
+
+    department_paragraph = document.add_paragraph()
+    department_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    department_run = department_paragraph.add_run(department)
+    department_run.font.size = Pt(12)
+
+    report_title = document.add_paragraph()
+    report_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    report_run = report_title.add_run(f"Continuous Quality Improvement (CQI) Report — {year}")
+    report_run.bold = True
+    report_run.font.size = Pt(14)
+
+    subtitle = document.add_paragraph()
+    subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    subtitle_run = subtitle.add_run(
+        f"Generated on {datetime.now().strftime('%d %B %Y, %H:%M')}"
+    )
+    subtitle_run.font.size = Pt(10)
+    subtitle_run.font.color.rgb = RGBColor(100, 116, 139)
+
+    document.add_paragraph("")
+
+    # Metrics snapshot
+    if metrics:
+        document.add_heading("Executive Snapshot", level=2)
+        metric_items = [
+            ("Total Submissions", metrics.get("total_submissions", 0)),
+            ("Approval Rate", f"{metrics.get('approval_rate', 0)}%"),
+            ("Pending Review", metrics.get("pending_submissions", 0)),
+            ("Avg CLO Rate", f"{metrics.get('average_clo_rate', 0)}%"),
+            ("Courses Reviewed", metrics.get("courses_reviewed", 0)),
+            ("Outlines Analyzed", metrics.get("outlines_analyzed", 0)),
+        ]
+        metrics_table = document.add_table(rows=2, cols=3)
+        metrics_table.style = "Table Grid"
+        for index, (label, value) in enumerate(metric_items):
+            row_index = index // 3
+            col_index = index % 3
+            if row_index > 1:
+                break
+            cell = metrics_table.rows[row_index].cells[col_index]
+            cell.text = f"{label}\n{value}"
+            for paragraph in cell.paragraphs:
+                for run in paragraph.runs:
+                    if label in run.text:
+                        run.bold = True
+        document.add_paragraph("")
+
+    # Charts
+    status_image = _decode_chart_image_bytes(chart_images.get("status_distribution"))
+    clo_image = _decode_chart_image_bytes(chart_images.get("clo_achievement"))
+    form_type_image = _decode_chart_image_bytes(chart_images.get("form_type_distribution"))
+
+    if status_image or clo_image or form_type_image:
+        document.add_heading("Analytical Figures", level=2)
+
+    if status_image:
+        caption = document.add_paragraph("Figure 1 — Form Status Distribution")
+        caption.runs[0].italic = True
+        document.add_picture(BytesIO(status_image), width=Inches(5.8))
+        document.add_paragraph("")
+
+    if clo_image:
+        caption = document.add_paragraph("Figure 2 — CLO Achievement Rates")
+        caption.runs[0].italic = True
+        document.add_picture(BytesIO(clo_image), width=Inches(5.8))
+        document.add_paragraph("")
+
+    if form_type_image:
+        caption = document.add_paragraph("Figure 3 — CCR vs CRR Submissions")
+        caption.runs[0].italic = True
+        document.add_picture(BytesIO(form_type_image), width=Inches(5.8))
+        document.add_paragraph("")
+
+    document.add_heading("Detailed CQI Narrative", level=2)
+    _add_markdown_to_docx(document, report_markdown)
+
+    footer = document.add_paragraph()
+    footer_run = footer.add_run(
+        "Prepared through ACQIP — Academic Continuous Quality Improvement Platform"
+    )
+    footer_run.italic = True
+    footer_run.font.size = Pt(9)
+    footer_run.font.color.rgb = RGBColor(100, 116, 139)
+
+    buffer = BytesIO()
+    document.save(buffer)
+    buffer.seek(0)
+
+    filename = f"CQI_Report_{year}.docx"
+    response = HttpResponse(
+        buffer.getvalue(),
+        content_type=(
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ),
+    )
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
 
