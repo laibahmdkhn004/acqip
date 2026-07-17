@@ -150,6 +150,7 @@ urlpatterns = [
     path("api/crc/compare-outlines/", api_views.api_compare_outlines, name="api_compare_outlines"),
     path("api/crc/generate-cqi-report/", api_views.api_generate_cqi_report, name="api_generate_cqi_report"),
     path("api/crc/cqi-report-pdf/", api_views.api_cqi_report_pdf, name="api_cqi_report_pdf"),
+    path("api/crc/cqi-report-docx/", api_views.api_cqi_report_docx, name="api_cqi_report_docx"),
 # Add these new URLs
 path("api/crc/analysis/detailed-clo/<int:clo_number>/", api_views.api_analysis_detailed_clo, name="api_analysis_detailed_clo"),
 path("api/crc/analysis/clo-trends/", api_views.api_analysis_clo_trends, name="api_analysis_clo_trends"),

@@ -599,6 +599,7 @@
         compare_outlines: "{% url 'api_compare_outlines' %}",
         generate_cqi_report: "{% url 'api_generate_cqi_report' %}",
         cqi_report_pdf: "{% url 'api_cqi_report_pdf' %}",
+        cqi_report_docx: "{% url 'api_cqi_report_docx' %}",
         analysis_submissions_over_time:
           "{% url 'api_analysis_submissions_over_time' %}",
         analysis_form_status: "{% url 'api_analysis_form_status' %}",
@@ -616,6 +617,12 @@
       let crcCoursesCache = [];
       let lastCqiReportMarkdown = "";
       let lastCqiCover = null;
+      let lastCqiChartData = null;
+      let cqiReportChartInstances = {
+        status: null,
+        clo: null,
+        formType: null,
+      };
       const crcOutlineState = {
         selectedCourse: null,
         currentOutlineId: null,
@@ -6303,22 +6310,27 @@
         elements.pageSubtitle.textContent =
           "Generate comprehensive quality improvement reports";
 
+        destroyCqiReportCharts();
+        lastCqiChartData = null;
+
         elements.pageRoot.innerHTML = `
     <div class="space-y-6">
-        <div class="bg-white rounded-lg shadow p-6">
-            <h3 class="font-medium text-lg mb-4">Generate CQI Report</h3>
-            
-            <div class="space-y-4">
+        <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            <div class="bg-gradient-to-r from-purple-700 to-indigo-700 px-6 py-5 text-white">
+                <h3 class="text-lg font-semibold">Generate CQI Report</h3>
+                <p class="text-sm text-white/80 mt-1">AI-assisted continuous quality improvement narrative with charts and Word export</p>
+            </div>
+            <div class="p-6 space-y-4">
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-2">Select Course (Optional)</label>
-                    <select id="report-course-select" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                    <select id="report-course-select" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
                         <option value="">All Courses (General Report)</option>
                     </select>
                 </div>
                 
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-2">Time Period</label>
-                    <select id="report-period-select" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                    <select id="report-period-select" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
                         <option value="all">All Time</option>
                         <option value="quarter">Last Quarter (90 days)</option>
                         <option value="month">Last Month (30 days)</option>
@@ -6328,64 +6340,70 @@
                 
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-2">Report Type</label>
-                    <div class="space-y-2">
-                        <label class="flex items-center">
-                            <input type="radio" name="report-type" value="summary" checked class="h-4 w-4 text-blue-600">
-                            <span class="ml-2 text-sm">Executive Summary</span>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <label class="flex items-center gap-2 p-3 border rounded-lg cursor-pointer hover:border-purple-300">
+                            <input type="radio" name="report-type" value="summary" checked class="h-4 w-4 text-purple-600">
+                            <span class="text-sm">Executive Summary</span>
                         </label>
-                        <label class="flex items-center">
-                            <input type="radio" name="report-type" value="detailed" class="h-4 w-4 text-blue-600">
-                            <span class="ml-2 text-sm">Detailed Analysis</span>
+                        <label class="flex items-center gap-2 p-3 border rounded-lg cursor-pointer hover:border-purple-300">
+                            <input type="radio" name="report-type" value="detailed" class="h-4 w-4 text-purple-600">
+                            <span class="text-sm">Detailed Analysis</span>
                         </label>
-                        <label class="flex items-center">
-                            <input type="radio" name="report-type" value="recommendations" class="h-4 w-4 text-blue-600">
-                            <span class="ml-2 text-sm">Recommendations Only</span>
+                        <label class="flex items-center gap-2 p-3 border rounded-lg cursor-pointer hover:border-purple-300">
+                            <input type="radio" name="report-type" value="recommendations" class="h-4 w-4 text-purple-600">
+                            <span class="text-sm">Recommendations Only</span>
                         </label>
                     </div>
                 </div>
                 
-                <div class="pt-4">
+                <div class="pt-2">
                     <button onclick="generateCQIReport()" 
                             id="generate-report-button"
-                            class="w-full px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center justify-center gap-2">
+                            class="w-full px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center justify-center gap-2 shadow-sm">
                         <i class="fas fa-robot"></i>
                         Generate AI-Powered Report
                     </button>
                     <p class="text-xs text-gray-500 mt-2 text-center">
-                        This will use AI to analyze your form submissions and course outlines
+                        Analyzes form submissions, course outlines, and CLO attainment
                     </p>
                 </div>
             </div>
         </div>
         
         <div id="report-results" class="hidden">
-            <div class="bg-white rounded-lg shadow">
-                <div class="px-6 py-4 border-b flex justify-between items-center">
-                    <h3 class="text-lg font-medium">CQI Report</h3>
+            <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                <div class="px-6 py-4 border-b bg-gray-50 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-900">CQI Report</h3>
+                        <p class="text-xs text-gray-500">Professional narrative with analytical figures</p>
+                    </div>
                     <div class="flex flex-wrap gap-2">
-                        <button onclick="printReport()" class="px-3 py-1 text-sm text-gray-600 hover:text-gray-800 border rounded-lg">
+                        <button onclick="printReport()" class="px-3 py-1.5 text-sm text-gray-700 hover:text-gray-900 border border-gray-300 rounded-lg bg-white">
                             <i class="fas fa-print mr-1"></i> Print
                         </button>
-                        <button onclick="downloadCqiReportPdf()" class="px-3 py-1 text-sm text-white bg-red-700 hover:bg-red-800 border border-red-800 rounded-lg">
-                            <i class="fas fa-file-pdf mr-1"></i> Download PDF
+                        <button onclick="downloadCqiReportPdf()" class="px-3 py-1.5 text-sm text-white bg-red-700 hover:bg-red-800 border border-red-800 rounded-lg">
+                            <i class="fas fa-file-pdf mr-1"></i> PDF
                         </button>
-                        <button onclick="downloadReport()" class="px-3 py-1 text-sm text-gray-600 hover:text-gray-800 border rounded-lg">
-                            <i class="fas fa-download mr-1"></i> Download (.txt)
+                        <button onclick="downloadCqiReportWord()" class="px-3 py-1.5 text-sm text-white bg-blue-700 hover:bg-blue-800 border border-blue-800 rounded-lg">
+                            <i class="fas fa-file-word mr-1"></i> Download Word
+                        </button>
+                        <button onclick="downloadReport()" class="px-3 py-1.5 text-sm text-gray-700 hover:text-gray-900 border border-gray-300 rounded-lg bg-white">
+                            <i class="fas fa-download mr-1"></i> Text
                         </button>
                     </div>
                 </div>
                 <div class="p-6">
-                    <div id="report-content" class="prose max-w-none"></div>
+                    <div id="report-content"></div>
                 </div>
             </div>
         </div>
         
         <div id="report-loading" class="hidden">
-            <div class="bg-white rounded-lg shadow p-6">
+            <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
                 <div class="flex flex-col items-center justify-center py-12">
                     <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mb-4"></div>
-                    <p class="text-gray-600">Generating AI report...</p>
-                    <p class="text-sm text-gray-500 mt-2">This may take a few moments</p>
+                    <p class="text-gray-700 font-medium">Generating professional CQI report...</p>
+                    <p class="text-sm text-gray-500 mt-2">Preparing narrative, metrics, and charts</p>
                 </div>
             </div>
         </div>
@@ -6486,14 +6504,17 @@
       }
       function displayCQIReport(reportData) {
         document.getElementById("report-results").classList.remove("hidden");
+        destroyCqiReportCharts();
 
         if (reportData.error) {
           lastCqiReportMarkdown = reportData.report || "";
           lastCqiCover = reportData.cover || null;
+          lastCqiChartData = reportData.chart_data || null;
 
           if (!reportData.report) {
             lastCqiReportMarkdown = "";
             lastCqiCover = null;
+            lastCqiChartData = null;
             document.getElementById("report-content").innerHTML = `
             <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
                 <h4 class="text-lg font-medium text-yellow-800">Report Generation Warning</h4>
@@ -6508,54 +6529,286 @@
         if (!reportData.error) {
           lastCqiReportMarkdown = reportData.report || "";
           lastCqiCover = reportData.cover || null;
+          lastCqiChartData = reportData.chart_data || null;
         }
 
-        let coverPrefix = "";
-        if (reportData.cover) {
-          const cover = reportData.cover;
-          coverPrefix = `
-            <div class="mb-8 text-center border-b border-gray-200 pb-6">
-                <div class="text-lg font-bold text-gray-900">${cover.institution}</div>
-                <div class="text-base text-gray-800 mt-2">${cover.department}</div>
-                <div class="text-base font-semibold mt-3 text-gray-900">CQI Report ${cover.report_year}</div>
-            </div>`;
-        }
+        const metrics = (reportData.chart_data && reportData.chart_data.metrics) || {};
+        const cover = reportData.cover || {};
 
         const warningBanner = reportData.error
-          ? `<div class="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-900 text-sm">
+          ? `<div class="mb-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900 text-sm">
                <strong>Note:</strong> ${reportData.error}
                ${reportData.note ? `<div class="mt-1 text-amber-800">${reportData.note}</div>` : ""}
              </div>`
           : "";
 
-        const bodyHtml = reportData.report_html
-          ? `<div class="cqi-report-html prose max-w-none">${reportData.report_html}</div>`
-          : formatReportForDisplay(reportData.report);
-        document.getElementById("report-content").innerHTML =
-          warningBanner + coverPrefix + bodyHtml;
-
-        const metadata = document.createElement("div");
-        metadata.className = "mt-6 pt-6 border-t text-sm text-gray-500";
-        metadata.innerHTML = `
-        <p><strong>Generated on:</strong> ${new Date(reportData.generated_at).toLocaleString()}</p>
-        <p><strong>Report Type:</strong> ${reportData.report_type || "summary"}</p>
-        <p><strong>Time Period:</strong> ${reportData.time_period}</p>
-        <p><strong>AI Provider:</strong> ${reportData.ai_provider || "Unknown"}</p>
-        <p><strong>AI Model:</strong> ${reportData.ai_model || "Unknown"}</p>
-        ${reportData.course_id ? `<p><strong>Course:</strong> Selected Course</p>` : `<p><strong>Course:</strong> All Courses</p>`}
-        ${
-          reportData.context_summary
-            ? `
-            <div class="mt-2 grid grid-cols-2 gap-2 text-xs">
-                <span>Submissions: ${reportData.context_summary.form_submissions_analyzed}</span>
-                <span>Outlines: ${reportData.context_summary.course_outlines_analyzed}</span>
+        const coverBlock = `
+          <div class="mb-8 rounded-xl bg-gradient-to-br from-purple-50 via-white to-indigo-50 border border-purple-100 p-8 text-center">
+            <div class="inline-flex items-center justify-center w-14 h-14 rounded-full bg-purple-100 text-purple-700 mb-4">
+              <i class="fas fa-university text-xl"></i>
             </div>
-        `
-            : ""
+            <div class="text-xl font-bold text-purple-900 tracking-tight">${cover.institution || "Capital University of Science and Technology"}</div>
+            <div class="text-base text-gray-700 mt-2">${cover.department || "Academic Department"}</div>
+            <div class="mt-4 text-lg font-semibold text-gray-900">Continuous Quality Improvement Report — ${cover.report_year || new Date().getFullYear()}</div>
+            <div class="mt-2 text-xs uppercase tracking-wider text-gray-500">ACQIP · CRC Curriculum Review</div>
+          </div>`;
+
+        const metricsBlock = `
+          <div class="mb-8 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div class="rounded-xl border border-blue-100 bg-blue-50 p-4">
+              <div class="text-2xl font-bold text-blue-700">${metrics.total_submissions || 0}</div>
+              <div class="text-xs text-blue-800/80 mt-1">Submissions</div>
+            </div>
+            <div class="rounded-xl border border-green-100 bg-green-50 p-4">
+              <div class="text-2xl font-bold text-green-700">${metrics.approval_rate || 0}%</div>
+              <div class="text-xs text-green-800/80 mt-1">Approval Rate</div>
+            </div>
+            <div class="rounded-xl border border-amber-100 bg-amber-50 p-4">
+              <div class="text-2xl font-bold text-amber-700">${metrics.pending_submissions || 0}</div>
+              <div class="text-xs text-amber-800/80 mt-1">Pending</div>
+            </div>
+            <div class="rounded-xl border border-red-100 bg-red-50 p-4">
+              <div class="text-2xl font-bold text-red-700">${metrics.revision_requests || 0}</div>
+              <div class="text-xs text-red-800/80 mt-1">Revisions</div>
+            </div>
+            <div class="rounded-xl border border-purple-100 bg-purple-50 p-4">
+              <div class="text-2xl font-bold text-purple-700">${metrics.average_clo_rate || 0}%</div>
+              <div class="text-xs text-purple-800/80 mt-1">Avg CLO Rate</div>
+            </div>
+            <div class="rounded-xl border border-indigo-100 bg-indigo-50 p-4">
+              <div class="text-2xl font-bold text-indigo-700">${metrics.courses_reviewed || 0}</div>
+              <div class="text-xs text-indigo-800/80 mt-1">Courses</div>
+            </div>
+          </div>`;
+
+        const chartsBlock = `
+          <div class="mb-10">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-lg font-semibold text-gray-900">Analytical Figures</h3>
+              <span class="text-xs text-gray-500">Auto-generated from report data</span>
+            </div>
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                <h4 class="text-sm font-medium text-gray-800 mb-3">Figure 1 — Form Status Distribution</h4>
+                <div class="h-56"><canvas id="cqi-status-chart"></canvas></div>
+                <p id="cqi-status-chart-empty" class="hidden text-center text-xs text-gray-500 mt-2">No status data available.</p>
+              </div>
+              <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                <h4 class="text-sm font-medium text-gray-800 mb-3">Figure 2 — CLO Achievement Rates</h4>
+                <div class="h-56"><canvas id="cqi-clo-chart"></canvas></div>
+                <p id="cqi-clo-chart-empty" class="hidden text-center text-xs text-gray-500 mt-2">No CLO data available.</p>
+              </div>
+              <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                <h4 class="text-sm font-medium text-gray-800 mb-3">Figure 3 — CCR vs CRR</h4>
+                <div class="h-56"><canvas id="cqi-formtype-chart"></canvas></div>
+                <p id="cqi-formtype-chart-empty" class="hidden text-center text-xs text-gray-500 mt-2">No form-type data available.</p>
+              </div>
+            </div>
+          </div>`;
+
+        const bodyHtml = reportData.report_html
+          ? `<div class="cqi-report-html prose prose-purple max-w-none
+                prose-headings:text-gray-900 prose-h2:border-b prose-h2:border-purple-100 prose-h2:pb-2 prose-h2:mt-8
+                prose-table:text-sm prose-th:bg-purple-50 prose-th:text-purple-900
+                prose-td:border-gray-200">${reportData.report_html}</div>`
+          : formatReportForDisplay(reportData.report);
+
+        const metadata = `
+          <div class="mt-10 pt-6 border-t border-gray-200 text-sm text-gray-500">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <p><strong>Generated on:</strong> ${new Date(reportData.generated_at).toLocaleString()}</p>
+              <p><strong>Report Type:</strong> ${reportData.report_type || "summary"}</p>
+              <p><strong>Time Period:</strong> ${reportData.time_period}</p>
+              <p><strong>AI Provider:</strong> ${reportData.ai_provider || "Unknown"} · ${reportData.ai_model || ""}</p>
+              <p><strong>Scope:</strong> ${reportData.course_id ? "Selected Course" : "All Courses"}</p>
+              ${
+                reportData.context_summary
+                  ? `<p><strong>Evidence:</strong> ${reportData.context_summary.form_submissions_analyzed} submissions · ${reportData.context_summary.course_outlines_analyzed} outlines</p>`
+                  : ""
+              }
+            </div>
+            <p class="text-xs text-gray-400 mt-3">Prepared through ACQIP — Academic Continuous Quality Improvement Platform</p>
+          </div>`;
+
+        document.getElementById("report-content").innerHTML =
+          warningBanner + coverBlock + metricsBlock + chartsBlock + bodyHtml + metadata;
+
+        requestAnimationFrame(() => {
+          renderCqiReportCharts(reportData.chart_data || {});
+        });
+      }
+
+      function destroyCqiReportCharts() {
+        Object.keys(cqiReportChartInstances).forEach((key) => {
+          const instance = cqiReportChartInstances[key];
+          if (instance && typeof instance.destroy === "function") {
+            instance.destroy();
+          }
+          cqiReportChartInstances[key] = null;
+        });
+      }
+
+      function renderCqiReportCharts(chartData) {
+        destroyCqiReportCharts();
+        if (!chartData) return;
+
+        const status = chartData.status_distribution || {};
+        const clo = chartData.clo_achievement || {};
+        const formType = chartData.form_type_distribution || {};
+
+        const statusCanvas = document.getElementById("cqi-status-chart");
+        const statusEmpty = document.getElementById("cqi-status-chart-empty");
+        if (statusCanvas) {
+          const hasStatus =
+            Array.isArray(status.labels) &&
+            status.labels.length > 0 &&
+            Array.isArray(status.data) &&
+            status.data.some((value) => value > 0);
+          if (!hasStatus) {
+            statusCanvas.style.display = "none";
+            if (statusEmpty) statusEmpty.classList.remove("hidden");
+          } else {
+            statusCanvas.style.display = "block";
+            if (statusEmpty) statusEmpty.classList.add("hidden");
+            cqiReportChartInstances.status = new Chart(statusCanvas.getContext("2d"), {
+              type: "doughnut",
+              data: {
+                labels: status.labels,
+                datasets: [
+                  {
+                    data: status.data,
+                    backgroundColor: status.colors || [
+                      "#16a34a",
+                      "#ca8a04",
+                      "#dc2626",
+                      "#64748b",
+                    ],
+                    borderWidth: 2,
+                    borderColor: "#ffffff",
+                  },
+                ],
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                  legend: { position: "bottom", labels: { boxWidth: 12 } },
+                },
+                cutout: "58%",
+              },
+            });
+          }
         }
-        <p class="text-xs text-gray-400 mt-2">Powered by ${reportData.ai_provider || "AI"} Analysis</p>
-    `;
-        document.getElementById("report-content").appendChild(metadata);
+
+        const cloCanvas = document.getElementById("cqi-clo-chart");
+        const cloEmpty = document.getElementById("cqi-clo-chart-empty");
+        if (cloCanvas) {
+          const rates = clo.achievement_rates || [];
+          const hasClo = rates.some((value) => Number(value) > 0);
+          if (!hasClo) {
+            cloCanvas.style.display = "none";
+            if (cloEmpty) cloEmpty.classList.remove("hidden");
+          } else {
+            cloCanvas.style.display = "block";
+            if (cloEmpty) cloEmpty.classList.add("hidden");
+            cqiReportChartInstances.clo = new Chart(cloCanvas.getContext("2d"), {
+              type: "bar",
+              data: {
+                labels: clo.labels || ["CLO1", "CLO2", "CLO3", "CLO4"],
+                datasets: [
+                  {
+                    label: "Achievement Rate (%)",
+                    data: rates,
+                    backgroundColor: "rgba(124, 58, 237, 0.75)",
+                    borderColor: "#7c3aed",
+                    borderWidth: 1,
+                    borderRadius: 6,
+                  },
+                  {
+                    label: "Average Score",
+                    data: clo.average_scores || [],
+                    backgroundColor: "rgba(37, 99, 235, 0.55)",
+                    borderColor: "#2563eb",
+                    borderWidth: 1,
+                    borderRadius: 6,
+                  },
+                ],
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                  y: {
+                    beginAtZero: true,
+                    max: 100,
+                    ticks: { callback: (value) => `${value}` },
+                  },
+                },
+                plugins: {
+                  legend: { position: "bottom", labels: { boxWidth: 12 } },
+                },
+              },
+            });
+          }
+        }
+
+        const formTypeCanvas = document.getElementById("cqi-formtype-chart");
+        const formTypeEmpty = document.getElementById("cqi-formtype-chart-empty");
+        if (formTypeCanvas) {
+          const values = formType.data || [];
+          const hasFormType = values.some((value) => Number(value) > 0);
+          if (!hasFormType) {
+            formTypeCanvas.style.display = "none";
+            if (formTypeEmpty) formTypeEmpty.classList.remove("hidden");
+          } else {
+            formTypeCanvas.style.display = "block";
+            if (formTypeEmpty) formTypeEmpty.classList.add("hidden");
+            cqiReportChartInstances.formType = new Chart(
+              formTypeCanvas.getContext("2d"),
+              {
+                type: "bar",
+                data: {
+                  labels: formType.labels || ["CCR", "CRR"],
+                  datasets: [
+                    {
+                      label: "Submissions",
+                      data: values,
+                      backgroundColor: formType.colors || ["#7c3aed", "#2563eb"],
+                      borderRadius: 8,
+                      maxBarThickness: 48,
+                    },
+                  ],
+                },
+                options: {
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: { legend: { display: false } },
+                  scales: {
+                    y: { beginAtZero: true, ticks: { precision: 0 } },
+                  },
+                },
+              },
+            );
+          }
+        }
+      }
+
+      function captureCqiChartImage(chartInstance) {
+        if (!chartInstance || !chartInstance.canvas) return null;
+        try {
+          const sourceCanvas = chartInstance.canvas;
+          const exportCanvas = document.createElement("canvas");
+          exportCanvas.width = sourceCanvas.width;
+          exportCanvas.height = sourceCanvas.height;
+          const context = exportCanvas.getContext("2d");
+          context.fillStyle = "#ffffff";
+          context.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+          context.drawImage(sourceCanvas, 0, 0);
+          return exportCanvas.toDataURL("image/png");
+        } catch (error) {
+          console.error("Failed to capture chart image", error);
+          return null;
+        }
       }
 
       function formatReportForDisplay(reportText) {
@@ -6686,6 +6939,76 @@
           );
         }
       }
+
+      async function downloadCqiReportWord() {
+        if (!lastCqiReportMarkdown || !lastCqiReportMarkdown.trim()) {
+          showNotification("Generate a report first", "error");
+          return;
+        }
+
+        try {
+          const chartImages = {
+            status_distribution: captureCqiChartImage(
+              cqiReportChartInstances.status,
+            ),
+            clo_achievement: captureCqiChartImage(cqiReportChartInstances.clo),
+            form_type_distribution: captureCqiChartImage(
+              cqiReportChartInstances.formType,
+            ),
+          };
+
+          const response = await fetch(
+            resolveApiRequestUrl(API.cqi_report_docx),
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken": getCSRFToken(),
+              },
+              credentials: "include",
+              body: JSON.stringify({
+                report_markdown: lastCqiReportMarkdown,
+                cover: lastCqiCover || {},
+                chart_images: chartImages,
+                metrics:
+                  (lastCqiChartData && lastCqiChartData.metrics) || {},
+              }),
+            },
+          );
+
+          if (!response.ok) {
+            let message = `HTTP ${response.status}`;
+            const errorText = await response.text();
+            try {
+              const errorPayload = JSON.parse(errorText);
+              message = errorPayload.error || message;
+            } catch (parseError) {
+              if (errorText) message = errorText;
+            }
+            throw new Error(message);
+          }
+
+          const blob = await response.blob();
+          const objectUrl = URL.createObjectURL(blob);
+          const anchorElement = document.createElement("a");
+          anchorElement.href = objectUrl;
+          const reportYear =
+            (lastCqiCover && lastCqiCover.report_year) ||
+            new Date().getFullYear();
+          anchorElement.download = `CQI_Report_${reportYear}.docx`;
+          document.body.appendChild(anchorElement);
+          anchorElement.click();
+          document.body.removeChild(anchorElement);
+          URL.revokeObjectURL(objectUrl);
+          showNotification("Word report downloaded", "success");
+        } catch (error) {
+          console.error(error);
+          showNotification(
+            error.message || "Word download failed",
+            "error",
+          );
+        }
+      }
       // Export functions to global scope
       window.loadPage = loadPage;
       window.viewOutlineDetails = viewOutlineDetails;
@@ -6743,6 +7066,8 @@
       window.generateCQIReport = generateCQIReport;
       window.printReport = printReport;
       window.downloadCqiReportPdf = downloadCqiReportPdf;
+      window.downloadCqiReportWord = downloadCqiReportWord;
+      window.downloadReport = downloadReport;
     </script>
   </body>
 </html>
