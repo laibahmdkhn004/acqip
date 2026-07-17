@@ -4495,6 +4495,35 @@
         });
       }
 
+      function downloadAnalysisChart(chartKey, fileName) {
+        const chartInstance = analysisChartInstances[chartKey];
+        if (!chartInstance || !chartInstance.canvas) {
+          showNotification("Chart is not available to download yet.", "warning");
+          return;
+        }
+
+        try {
+          const sourceCanvas = chartInstance.canvas;
+          const exportCanvas = document.createElement("canvas");
+          exportCanvas.width = sourceCanvas.width;
+          exportCanvas.height = sourceCanvas.height;
+          const exportContext = exportCanvas.getContext("2d");
+          exportContext.fillStyle = "#ffffff";
+          exportContext.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+          exportContext.drawImage(sourceCanvas, 0, 0);
+
+          const link = document.createElement("a");
+          link.href = exportCanvas.toDataURL("image/png");
+          link.download = `${fileName || chartKey}.png`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        } catch (error) {
+          console.error("Chart download failed:", error);
+          showNotification("Failed to download chart.", "error");
+        }
+      }
+
       function buildAnalysisQueryString() {
         if (!analysisSelectedCourseId) {
           return "";
@@ -4540,8 +4569,8 @@
             </div>
         </div>
 
-        <!-- Full width submissions chart on top -->
-        <div class="bg-white rounded-lg shadow p-6">
+        <!-- Full width submissions chart on top (hidden) -->
+        <div class="bg-white rounded-lg shadow p-6 hidden">
             <h3 class="font-medium text-lg mb-4">Form Submissions Over Time</h3>
             <div class="h-64">
                 <canvas id="submissionsChart"></canvas>
@@ -4554,7 +4583,18 @@
         <!-- Two charts in a row below -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div class="bg-white rounded-lg shadow p-6">
-                <h3 class="font-medium text-lg mb-4">Form Status Distribution</h3>
+                <div class="flex items-center justify-between gap-3 mb-4">
+                    <h3 class="font-medium text-lg">Form Status Distribution</h3>
+                    <button
+                        type="button"
+                        onclick="downloadAnalysisChart('status', 'Form_Status_Distribution')"
+                        class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-purple-700 bg-purple-50 border border-purple-200 rounded-lg hover:bg-purple-100 transition-colors"
+                        title="Download chart"
+                    >
+                        <i class="fas fa-download"></i>
+                        Download
+                    </button>
+                </div>
                 <div class="h-64">
                     <canvas id="statusChart"></canvas>
                 </div>
@@ -4564,7 +4604,18 @@
             </div>
 
             <div class="bg-white rounded-lg shadow p-6">
-                <h3 class="font-medium text-lg mb-4">CLO Achievement Rates</h3>
+                <div class="flex items-center justify-between gap-3 mb-4">
+                    <h3 class="font-medium text-lg">CLO Achievement Rates</h3>
+                    <button
+                        type="button"
+                        onclick="downloadAnalysisChart('clo', 'CLO_Achievement_Rates')"
+                        class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-purple-700 bg-purple-50 border border-purple-200 rounded-lg hover:bg-purple-100 transition-colors"
+                        title="Download chart"
+                    >
+                        <i class="fas fa-download"></i>
+                        Download
+                    </button>
+                </div>
                 <div class="h-64">
                     <canvas id="cloChart"></canvas>
                 </div>
@@ -6688,6 +6739,7 @@
       window.printOutline = printOutline;
       window.viewCLODetails = viewCLODetails;
       window.showCLODetails = showCLODetails;
+      window.downloadAnalysisChart = downloadAnalysisChart;
       window.generateCQIReport = generateCQIReport;
       window.printReport = printReport;
       window.downloadCqiReportPdf = downloadCqiReportPdf;
