@@ -587,70 +587,6 @@
       </div>
     </div>
 
-    <!-- Reset Password Modal -->
-    <div
-      id="reset-password-modal"
-      class="fixed inset-0 bg-black/40 hidden items-center justify-center z-50 p-4"
-    >
-      <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl mx-auto">
-        <div class="flex items-start justify-between mb-4">
-          <h3
-            id="reset-password-title"
-            class="text-xl font-semibold text-gray-900"
-          >
-            Reset Password
-          </h3>
-          <button
-            id="close-reset-password-modal"
-            class="text-gray-500 hover:text-gray-700 text-xl p-1"
-          >
-            ✕
-          </button>
-        </div>
-        <div id="reset-password-body" class="mt-2">
-          <p id="reset-password-message" class="text-gray-600 mb-4"></p>
-          <div class="space-y-3">
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1"
-                >New Password *</label
-              >
-              <input
-                type="password"
-                id="new-password-input"
-                class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
-                placeholder="Enter new password"
-              />
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1"
-                >Confirm Password *</label
-              >
-              <input
-                type="password"
-                id="confirm-password-input"
-                class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
-                placeholder="Confirm new password"
-              />
-            </div>
-          </div>
-          <div class="flex gap-3 justify-end pt-4 border-t mt-4">
-            <button
-              id="cancel-reset-password"
-              class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              id="submit-reset-password"
-              class="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
-            >
-              Reset Password
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- Delete User Confirmation Modal -->
     <div
       id="delete-user-modal"
@@ -748,7 +684,7 @@
         user_delete: (id) => `{% url 'api_user_delete' 0 %}`.replace("0", id),
         faculty_users: "{% url 'api_faculty_users' %}",
         assign_courses_to_faculty: (userId) => `{% url 'api_assign_courses_to_faculty' 0 %}`.replace("0", userId),
-        admin_reset_faculty_password: (userId) => `{% url 'api_admin_reset_faculty_password' 0 %}`.replace("0", userId),
+        faculty_course_assignments: (userId) => `{% url 'api_faculty_course_assignments' 0 %}`.replace("0", userId),
 
         // Form APIs
         dynamic_forms: "{% url 'api_dynamic_forms' %}",
@@ -781,7 +717,6 @@
       // Global variables
       let currentPage = "dashboard";
       let currentFormId = null;
-      let currentUserForReset = null;
       let currentUserForDelete = null;
 
       // DOM Elements
@@ -804,15 +739,6 @@
       const submissionDetailTitle = document.getElementById("submission-detail-title");
       const submissionDetailBody = document.getElementById("submission-detail-body");
       const closeSubmissionDetailModal = document.getElementById("close-submission-detail-modal");
-
-      const resetPasswordModal = document.getElementById('reset-password-modal');
-      const resetPasswordTitle = document.getElementById('reset-password-title');
-      const resetPasswordMessage = document.getElementById('reset-password-message');
-      const closeResetPasswordModal = document.getElementById('close-reset-password-modal');
-      const cancelResetPassword = document.getElementById('cancel-reset-password');
-      const submitResetPassword = document.getElementById('submit-reset-password');
-      const newPasswordInput = document.getElementById('new-password-input');
-      const confirmPasswordInput = document.getElementById('confirm-password-input');
 
       const deleteUserModal = document.getElementById('delete-user-modal');
       const deleteUserTitle = document.getElementById('delete-user-title');
@@ -945,26 +871,6 @@
         }, 5000);
       }
 
-      // Helper function to show error messages
-      function showError(message, inputElement) {
-        const errorDiv = document.createElement('div');
-        errorDiv.className = 'password-error text-red-600 text-sm mt-1';
-        errorDiv.textContent = message;
-
-        // Insert after the input element
-        inputElement.parentNode.insertBefore(errorDiv, inputElement.nextSibling);
-
-        // Focus on the input with error
-        inputElement.focus();
-        inputElement.classList.add('border-red-500');
-
-        // Remove error styling after input
-        inputElement.addEventListener('input', () => {
-          inputElement.classList.remove('border-red-500');
-          errorDiv.remove();
-        }, { once: true });
-      }
-
       // Initialize
       document.addEventListener('DOMContentLoaded', () => {
         setupNavigation();
@@ -1026,17 +932,14 @@
         closeLargeModal.addEventListener('click', () => largeModal.classList.add('hidden'));
         closeFacultyAssignmentModal.addEventListener('click', () => facultyAssignmentModal.classList.add('hidden'));
         closeSubmissionDetailModal.addEventListener('click', () => submissionDetailModal.classList.add('hidden'));
-        closeResetPasswordModal.addEventListener('click', () => resetPasswordModal.classList.add('hidden'));
         closeDeleteUserModal.addEventListener('click', () => deleteUserModal.classList.add('hidden'));
-        cancelResetPassword.addEventListener('click', () => resetPasswordModal.classList.add('hidden'));
         cancelDeleteUser.addEventListener('click', () => deleteUserModal.classList.add('hidden'));
 
         // Submit buttons
-        submitResetPassword.addEventListener('click', handleResetPasswordSubmit);
         confirmDeleteUser.addEventListener('click', handleDeleteUserConfirm);
 
         // Close modals on outside click
-        [modal, largeModal, facultyAssignmentModal, submissionDetailModal, resetPasswordModal, deleteUserModal].forEach(modalEl => {
+        [modal, largeModal, facultyAssignmentModal, submissionDetailModal, deleteUserModal].forEach(modalEl => {
           modalEl.addEventListener('click', (e) => {
             if (e.target === modalEl) {
               modalEl.classList.add('hidden');
@@ -1047,7 +950,7 @@
         // Escape key to close modals
         document.addEventListener('keydown', (e) => {
           if (e.key === 'Escape') {
-            [modal, largeModal, facultyAssignmentModal, submissionDetailModal, resetPasswordModal, deleteUserModal].forEach(modalEl => {
+            [modal, largeModal, facultyAssignmentModal, submissionDetailModal, deleteUserModal].forEach(modalEl => {
               modalEl.classList.add('hidden');
             });
           }
@@ -1265,7 +1168,9 @@
                     <div class="flex items-center justify-between p-3 hover:bg-gray-50 rounded">
                       <div>
                         <div class="font-medium">${course.title}</div>
-                        <div class="text-sm text-gray-500">${course.code} • ${course.department_code || 'N/A'}</div>
+                        <div class="text-sm text-gray-500">${course.code} • ${
+                          course.department_name || course.department_code || 'N/A'
+                        }</div>
                       </div>
                       <button onclick="editCourse(${course.id})" class="text-purple-600 hover:text-purple-800 text-sm">Edit</button>
                     </div>
@@ -1375,7 +1280,8 @@
                             <td class="px-4 py-3 text-gray-600">${dept.description || 'No description'}</td>
                             <td class="px-4 py-3">
                               <button onclick="viewDepartment(${dept.id})" class="text-blue-600 hover:text-blue-800 text-sm font-medium mr-3">View Courses</button>
-                              <button onclick="openDepartmentEditModal(${dept.id})" class="text-purple-600 hover:text-purple-800 text-sm font-medium">Edit</button>
+                              <button onclick="openDepartmentEditModal(${dept.id})" class="text-purple-600 hover:text-purple-800 text-sm font-medium mr-3">Edit</button>
+                              <button onclick="deleteDepartment(${dept.id}, '${(dept.name || '').replace(/'/g, "\\'")}')" class="text-red-600 hover:text-red-800 text-sm font-medium">Delete</button>
                             </td>
                           </tr>
                         `).join('')}
@@ -1450,7 +1356,13 @@
                           <tr class="hover:bg-gray-50">
                             <td class="px-4 py-3 font-mono font-medium">${course.code}</td>
                             <td class="px-4 py-3 font-medium">${course.title}</td>
-                            <td class="px-4 py-3">${course.department_code || 'N/A'}</td>
+                            <td class="px-4 py-3">${
+                              course.department_name
+                                ? (course.department_code
+                                    ? `${course.department_code} - ${course.department_name}`
+                                    : course.department_name)
+                                : (course.department_code || 'N/A')
+                            }</td>
                             <td class="px-4 py-3">
                               ${course.course_coordinator_name ? `
                                 <span class="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full">${course.course_coordinator_name}</span>
@@ -1563,11 +1475,6 @@
                                     Assign Courses
                                   </button>
                                 ` : ''}
-                                ${user.role === 'faculty' ? `
-                                  <button onclick="openResetPasswordModal(${user.id}, '${user.username.replace(/'/g, "\\'")}')" class="px-3 py-1 bg-yellow-100 text-yellow-700 text-xs font-medium rounded hover:bg-yellow-200 transition-colors">
-                                    Reset Password
-                                  </button>
-                                ` : ''}
                                 <button onclick="editUser(${user.id})" class="px-3 py-1 bg-purple-100 text-purple-700 text-xs font-medium rounded hover:bg-purple-200 transition-colors">
                                   Edit
                                 </button>
@@ -1608,81 +1515,6 @@
               </div>
             </div>
           `;
-        }
-      }
-
-      // Function to open reset password modal
-      async function openResetPasswordModal(userId, username) {
-        currentUserForReset = { id: userId, username: username };
-
-        resetPasswordTitle.textContent = `Reset Password - ${username}`;
-        resetPasswordMessage.textContent = `Set a new password for ${username}. Password must be at least 8 characters long.`;
-
-        // Clear inputs
-        newPasswordInput.value = '';
-        confirmPasswordInput.value = '';
-
-        // Remove any previous error messages
-        const existingErrors = document.querySelectorAll('.password-error');
-        existingErrors.forEach(error => error.remove());
-
-        resetPasswordModal.classList.remove('hidden');
-
-        // Focus on first input
-        setTimeout(() => newPasswordInput.focus(), 100);
-      }
-
-      // Function to handle reset password submission
-      async function handleResetPasswordSubmit() {
-        const newPassword = newPasswordInput.value.trim();
-        const confirmPassword = confirmPasswordInput.value.trim();
-
-        // Remove any previous error messages
-        const existingErrors = document.querySelectorAll('.password-error');
-        existingErrors.forEach(error => error.remove());
-
-        // Validation
-        if (!newPassword) {
-          showError('Please enter a new password.', newPasswordInput);
-          return;
-        }
-
-        if (newPassword.length < 8) {
-          showError('Password must be at least 8 characters long.', newPasswordInput);
-          return;
-        }
-
-        if (!confirmPassword) {
-          showError('Please confirm your password.', confirmPasswordInput);
-          return;
-        }
-
-        if (newPassword !== confirmPassword) {
-          showError('Passwords do not match.', confirmPasswordInput);
-          return;
-        }
-
-        try {
-          submitResetPassword.disabled = true;
-          submitResetPassword.innerHTML = 'Resetting...';
-          submitResetPassword.classList.add('modal-button-disabled');
-
-          await fetchAPI(API.admin_reset_faculty_password(currentUserForReset.id), {
-            method: 'POST',
-            body: JSON.stringify({ new_password: newPassword })
-          });
-
-          resetPasswordModal.classList.add('hidden');
-          showNotification(`Password reset successfully for ${currentUserForReset.username}`, 'success');
-
-          // Clear user data
-          currentUserForReset = null;
-        } catch (error) {
-          showError('Error resetting password: ' + error.message, newPasswordInput);
-        } finally {
-          submitResetPassword.disabled = false;
-          submitResetPassword.innerHTML = 'Reset Password';
-          submitResetPassword.classList.remove('modal-button-disabled');
         }
       }
 
@@ -1835,6 +1667,28 @@
         }
       }
 
+      async function deleteDepartment(departmentId, departmentName) {
+        const displayName = departmentName || 'this department';
+        const confirmed = confirm(
+          `Are you sure you want to delete "${displayName}"?\n\n` +
+          'This will also permanently delete all courses in this department and related data. This action cannot be undone.'
+        );
+        if (!confirmed) {
+          return;
+        }
+
+        try {
+          await fetchAPI(API.department_detail(departmentId), {
+            method: 'DELETE',
+          });
+          modal.classList.add('hidden');
+          renderDepartmentsPage();
+          showNotification(`Department "${displayName}" deleted successfully`, 'success');
+        } catch (error) {
+          showNotification('Error deleting department: ' + error.message, 'error');
+        }
+      }
+
       async function viewDepartment(departmentId) {
         try {
           const department = await fetchAPI(API.department_detail(departmentId));
@@ -1855,6 +1709,9 @@
                   <div>
                     <button onclick="openDepartmentEditModal(${department.department.id})" class="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-colors">
                       Edit Department
+                    </button>
+                    <button onclick="deleteDepartment(${department.department.id}, '${(department.department.name || '').replace(/'/g, "\\'")}')" class="px-3 py-2 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700 transition-colors">
+                      Delete Department
                     </button>
                   </div>
                 </div>
@@ -2074,6 +1931,7 @@
           const assignmentsMap = {};
           currentAssignments.forEach(assign => {
             assignmentsMap[assign.faculty_id] = assign;
+            assignmentsMap[String(assign.faculty_id)] = assign;
           });
 
           facultyAssignmentTitle.textContent = `Assign Faculty to ${course.title}`;
@@ -2081,14 +1939,14 @@
             <form id="assign-faculty-form" class="space-y-6">
               <div class="bg-gray-50 rounded-lg p-4">
                 <h4 class="font-medium">${course.title}</h4>
-                <p class="text-sm text-gray-600">${course.code} • ${course.department_code}</p>
+                <p class="text-sm text-gray-600">${course.code} • ${course.department_name || course.department_code || 'No department'}</p>
               </div>
 
               <div>
                 <h5 class="font-medium text-gray-900 mb-3">Select Faculty Members</h5>
                 <div class="space-y-3 max-h-96 overflow-y-auto">
                   ${facultyList.map(fac => {
-                    const assignment = assignmentsMap[fac.id];
+                    const assignment = assignmentsMap[fac.id] || assignmentsMap[String(fac.id)];
                     return `
                       <div class="border border-gray-200 rounded-lg p-4">
                         <div class="flex items-center justify-between">
@@ -2357,13 +2215,22 @@
 
       async function openFacultyCourseAssignmentModal(userId, username) {
         try {
-          const [courses, facultyUsers] = await Promise.all([
+          const [courses, facultyUsers, currentAssignments] = await Promise.all([
             fetchAPI(API.courses),
-            fetchAPI(API.faculty_users)
+            fetchAPI(API.faculty_users),
+            fetchAPI(API.faculty_course_assignments(userId)).catch(() => [])
           ]);
 
           const faculty = facultyUsers.results?.find(f => f.id == userId);
           if (!faculty) throw new Error('Faculty not found');
+
+          const assignmentsMap = {};
+          (Array.isArray(currentAssignments) ? currentAssignments : []).forEach(assignment => {
+            assignmentsMap[assignment.course_id] = assignment;
+          });
+
+          const courseDepartmentLabel = (course) =>
+            course.department_name || course.department_code || 'No department';
 
           modalTitle.textContent = `Assign Courses to ${username}`;
           modalBody.innerHTML = `
@@ -2376,36 +2243,42 @@
               <div>
                 <h5 class="font-medium text-gray-900 mb-3">Select Courses to Assign</h5>
                 <div class="space-y-3 max-h-96 overflow-y-auto">
-                  ${courses.map(course => `
+                  ${courses.map(course => {
+                    const assignment = assignmentsMap[course.id];
+                    return `
                     <div class="border border-gray-200 rounded-lg p-4">
                       <div class="flex items-center justify-between">
                         <div class="flex items-center space-x-3">
                           <input type="checkbox"
                                  name="course_ids"
                                  value="${course.id}"
+                                 ${assignment ? 'checked' : ''}
                                  class="course-checkbox rounded border-gray-300 text-blue-600 focus:ring-blue-500">
                           <div>
                             <div class="font-medium">${course.title}</div>
-                            <div class="text-sm text-gray-500">${course.code} • ${course.department_code}</div>
+                            <div class="text-sm text-gray-500">${course.code} • ${courseDepartmentLabel(course)}</div>
                           </div>
                         </div>
                         <div class="flex items-center space-x-3">
                           <label class="flex items-center space-x-2">
                             <input type="checkbox"
                                    name="coordinator_${course.id}"
-                                   class="coordinator-checkbox rounded border-gray-300 text-green-600 focus:ring-green-500"
-                                   disabled>
+                                   ${assignment?.is_coordinator ? 'checked' : ''}
+                                   ${!assignment ? 'disabled' : ''}
+                                   class="coordinator-checkbox rounded border-gray-300 text-green-600 focus:ring-green-500">
                             <span class="text-sm text-gray-700">Coordinator</span>
                           </label>
                           <input type="text"
                                  name="section_${course.id}"
+                                 value="${assignment?.section || ''}"
                                  placeholder="Section"
-                                 class="section-input w-24 border border-gray-300 px-2 py-1 rounded text-sm opacity-50 cursor-not-allowed"
-                                 disabled>
+                                 class="section-input w-24 border border-gray-300 px-2 py-1 rounded text-sm ${!assignment ? 'opacity-50 cursor-not-allowed' : ''}"
+                                 ${!assignment ? 'disabled' : ''}>
                         </div>
                       </div>
                     </div>
-                  `).join('')}
+                  `;
+                  }).join('')}
                 </div>
               </div>
 
@@ -2435,6 +2308,8 @@
 
               if (sectionInput) {
                 sectionInput.disabled = !e.target.checked;
+                sectionInput.classList.toggle('opacity-50', !e.target.checked);
+                sectionInput.classList.toggle('cursor-not-allowed', !e.target.checked);
                 if (!e.target.checked) {
                   sectionInput.value = '';
                 }
@@ -2445,14 +2320,14 @@
           form.onsubmit = async (e) => {
             e.preventDefault();
             const formData = new FormData(e.target);
-            const courseIds = formData.getAll('course_ids').map(id => parseInt(id));
+            const courseIds = formData.getAll('course_ids').map(id => parseInt(id, 10));
 
             const coordinatorInfo = {};
             const sectionInfo = {};
 
             courseIds.forEach(courseId => {
-              coordinatorInfo[courseId] = formData.get(`coordinator_${courseId}`) === 'on';
-              sectionInfo[courseId] = formData.get(`section_${courseId}`) || '';
+              coordinatorInfo[String(courseId)] = formData.get(`coordinator_${courseId}`) === 'on';
+              sectionInfo[String(courseId)] = formData.get(`section_${courseId}`) || '';
             });
 
             const data = {
@@ -2482,12 +2357,12 @@
       // Make functions available globally
       window.viewDepartment = viewDepartment;
       window.openDepartmentEditModal = openDepartmentEditModal;
+      window.deleteDepartment = deleteDepartment;
       window.editCourse = editCourse;
       window.deleteCourse = deleteCourse;
       window.openCourseFacultyAssignmentModal = openCourseFacultyAssignmentModal;
       window.openFacultyCourseAssignmentModal = openFacultyCourseAssignmentModal;
       window.editUser = editUser;
-      window.openResetPasswordModal = openResetPasswordModal;
       window.openDeleteUserModal = openDeleteUserModal;
       window.openDepartmentCreateModal = openDepartmentCreateModal;
       window.openCourseCreateModal = openCourseCreateModal;

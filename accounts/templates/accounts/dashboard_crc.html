@@ -262,12 +262,6 @@
           >
           <a
             href="#"
-            data-page="crc-my-course-outlines"
-            class="nav-item flex items-center gap-3 p-2 rounded-md hover:bg-gray-50 text-gray-700"
-            ><i class="fas fa-file-alt"></i>Course Outlines</a
-          >
-          <a
-            href="#"
             data-page="form-submissions"
             class="nav-item flex items-center gap-3 p-2 rounded-md hover:bg-gray-50 text-gray-700"
             ><i class="fas fa-file-alt"></i>Form Submissions</a
@@ -573,6 +567,8 @@
         request_revision_submission: (id) =>
           `/api/submissions/${id}/request-revision/`,
         submission_details: (id) => `/api/submission-details/${id}/`,
+        submission_pdf: (id) => `/api/submissions/${id}/pdf/`,
+        outline_pdf: (id) => `/api/outlines/${id}/pdf/`,
         forms: "{% url 'api_forms' %}",
         forms_create: "{% url 'api_dynamic_forms_create' %}",
         form_update: (id) => `/api/forms/${id}/`,
@@ -596,6 +592,7 @@
           "{% url 'api_analysis_submissions_over_time' %}",
         analysis_form_status: "{% url 'api_analysis_form_status' %}",
         analysis_clo_achievement: "{% url 'api_analysis_clo_achievement' %}",
+        analysis_ccr_clo_graphs: "{% url 'api_analysis_ccr_clo_graphs' %}",
         compare_outlines: "{% url 'api_compare_outlines' %}",
         generate_cqi_report: "{% url 'api_generate_cqi_report' %}",
         cqi_report_pdf: "{% url 'api_cqi_report_pdf' %}",
@@ -618,10 +615,16 @@
       let lastCqiReportMarkdown = "";
       let lastCqiCover = null;
       let lastCqiChartData = null;
+      let lastCqiTables = null;
+      let lastCqiTablesHtml = "";
       let cqiReportChartInstances = {
         status: null,
         clo: null,
         formType: null,
+        corrections: null,
+        table01: null,
+        table02: null,
+        table03: null,
       };
       const crcOutlineState = {
         selectedCourse: null,
@@ -1131,6 +1134,82 @@
         }
       }
 
+      async function exportFacultyReport() {
+        try {
+          const facultyData = await fetchAPI(API.crc_faculty_list);
+          const faculty = facultyData.faculty || [];
+
+          if (!faculty.length) {
+            showNotification("No faculty members to export", "warning");
+            return;
+          }
+
+          const escapeCsvValue = (value) => {
+            const text = value === null || value === undefined ? "" : String(value);
+            if (/[",\n\r]/.test(text)) {
+              return `"${text.replace(/"/g, '""')}"`;
+            }
+            return text;
+          };
+
+          const headers = [
+            "Username",
+            "Email",
+            "Department",
+            "Designation",
+            "Total Courses",
+            "Coordinator Courses",
+            "Assigned Course Codes",
+            "Coordinator Course Codes",
+          ];
+
+          const rows = faculty.map((fac) => {
+            const assignedCodes = (fac.assigned_courses || [])
+              .map((course) => course.code)
+              .filter(Boolean)
+              .join("; ");
+            const coordinatorCodes = (fac.coordinator_courses || [])
+              .map((course) => course.code)
+              .filter(Boolean)
+              .join("; ");
+
+            return [
+              fac.username || "",
+              fac.email || "",
+              fac.department || "",
+              fac.designation || "",
+              fac.total_courses || 0,
+              fac.coordinator_courses_count || 0,
+              assignedCodes,
+              coordinatorCodes,
+            ]
+              .map(escapeCsvValue)
+              .join(",");
+          });
+
+          const csvContent = [headers.join(","), ...rows].join("\n");
+          const blob = new Blob([csvContent], {
+            type: "text/csv;charset=utf-8;",
+          });
+          const objectUrl = URL.createObjectURL(blob);
+          const anchor = document.createElement("a");
+          const dateStamp = new Date().toISOString().split("T")[0];
+          anchor.href = objectUrl;
+          anchor.download = `faculty_list_${dateStamp}.csv`;
+          document.body.appendChild(anchor);
+          anchor.click();
+          document.body.removeChild(anchor);
+          URL.revokeObjectURL(objectUrl);
+          showNotification("Faculty list exported", "success");
+        } catch (error) {
+          console.error("Faculty export failed:", error);
+          showNotification(
+            error.message || "Failed to export faculty list",
+            "error",
+          );
+        }
+      }
+
       async function renderCoursesPage() {
         elements.pageTitle.textContent = "Course Management";
         elements.pageSubtitle.textContent =
@@ -1175,7 +1254,13 @@
                           <tr class="hover:bg-gray-50">
                             <td class="px-4 py-3 font-mono font-medium">${course.code}</td>
                             <td class="px-4 py-3 font-medium">${course.title}</td>
-                            <td class="px-4 py-3">${course.department_code || "N/A"}</td>
+                            <td class="px-4 py-3">${
+                              course.department_name
+                                ? course.department_code
+                                  ? `${course.department_code} - ${course.department_name}`
+                                  : course.department_name
+                                : course.department_code || "N/A"
+                            }</td>
                             <td class="px-4 py-3">
                               ${
                                 course.course_coordinator_name
@@ -1403,7 +1488,7 @@
             <form id="assign-faculty-form" class="space-y-6">
               <div class="bg-gray-50 rounded-lg p-4">
                 <h4 class="font-medium">${course.title}</h4>
-                <p class="text-sm text-gray-600">${course.code} • ${course.department_code || ""}</p>
+                <p class="text-sm text-gray-600">${course.code} • ${course.department_name || course.department_code || ""}</p>
               </div>
               <div>
                 <h5 class="font-medium text-gray-900 mb-3">Select Faculty Members</h5>
@@ -2271,10 +2356,22 @@
                                                       </span>
                                                   </div>
 
-                                                  <div class="flex gap-3">
+                                                  <div class="flex flex-wrap gap-3">
                                                       <button onclick="viewOutlineDetails('${submissionStr}')" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2">
                                                           <i class="fas fa-eye"></i>
                                                           Review Details
+                                                      </button>
+                                                      <button onclick="printOutlineSubmission(${
+                                                        submission.id
+                                                      })" class="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 flex items-center gap-2" title="Print">
+                                                          <i class="fas fa-print"></i>
+                                                          Print
+                                                      </button>
+                                                      <button onclick="downloadOutlinePdf(${
+                                                        submission.id
+                                                      })" class="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 flex items-center gap-2" title="Download PDF">
+                                                          <i class="fas fa-download"></i>
+                                                          PDF
                                                       </button>
                                                       <button onclick="approveOutline(${
                                                         submission.id
@@ -2451,11 +2548,21 @@
                                                               }
                                                           </td>
                                                           <td class="px-4 py-3">
-                                                              <div class="flex gap-2">
+                                                              <div class="flex flex-wrap gap-2 items-center">
                                                                   <button onclick="viewFormSubmissionDetails(${
                                                                     sub.id
-                                                                  })" class="text-blue-600 hover:text-blue-800 text-sm font-medium">
+                                                                  })" class="text-blue-600 hover:text-blue-800 text-sm font-medium" title="View">
                                                                       <i class="fas fa-eye mr-1"></i> View
+                                                                  </button>
+                                                                  <button onclick="printFormSubmission(${
+                                                                    sub.id
+                                                                  })" class="text-gray-600 hover:text-gray-800 text-sm font-medium" title="Print">
+                                                                      <i class="fas fa-print mr-1"></i> Print
+                                                                  </button>
+                                                                  <button onclick="downloadFormSubmissionPdf(${
+                                                                    sub.id
+                                                                  })" class="text-gray-600 hover:text-gray-800 text-sm font-medium" title="Download PDF">
+                                                                      <i class="fas fa-download mr-1"></i> PDF
                                                                   </button>
                                                               </div>
                                                           </td>
@@ -2485,7 +2592,7 @@
       async function renderFormEditorPage() {
         elements.pageTitle.textContent = "Form Editor";
         elements.pageSubtitle.textContent =
-          "Create and manage dynamic forms for CCR and CRR";
+          "Create and manage review forms for CCR and CRR";
 
         elements.headerActions.innerHTML = `
                       <button onclick="createNewForm()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2">
@@ -2501,7 +2608,7 @@
                           <div class="space-y-6">
                               <div class="bg-white rounded-lg shadow">
                                   <div class="px-6 py-4 border-b">
-                                      <h3 class="text-lg font-medium">Dynamic Forms</h3>
+                                      <h3 class="text-lg font-medium">Review Forms</h3>
                                       <p class="text-sm text-gray-600">Forms for CCR (Course Coordinators) and CRR (Regular Faculty)</p>
                                   </div>
                                   <div class="p-6">
@@ -2614,7 +2721,7 @@
                                           : `
                                           <div class="text-center py-12">
                                               <i class="fas fa-file-alt text-gray-400 text-5xl mb-4"></i>
-                                              <p class="text-gray-500">No dynamic forms created yet</p>
+                                              <p class="text-gray-500">No review forms created yet</p>
                                               <button onclick="createNewForm()" class="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
                                                   Create Your First Form
                                               </button>
@@ -3385,6 +3492,11 @@
                                               <button onclick="printOutline()" class="text-sm text-gray-600 hover:text-gray-800 flex items-center gap-1">
                                                   <i class="fas fa-print"></i> Print
                                               </button>
+                                              <button onclick="downloadOutlinePdf(${
+                                                outline.id
+                                              })" class="text-sm text-gray-600 hover:text-gray-800 flex items-center gap-1">
+                                                  <i class="fas fa-download"></i> PDF
+                                              </button>
                                           </div>
                                       </div>
                                       <div class="p-4 max-h-96 overflow-y-auto">
@@ -3600,7 +3712,7 @@
         }
 
         try {
-          await fetchAPI(API.crc_update_course_outline, {
+          const result = await fetchAPI(API.crc_update_course_outline, {
             method: "POST",
             body: JSON.stringify({
               outline_id: outlineId,
@@ -3610,7 +3722,12 @@
           });
 
           elements.outlineModal.classList.add("hidden");
-          showNotification("Revision requested successfully", "success");
+          showNotification(
+            result.faculty_notified
+              ? "Revision requested — faculty notified by email"
+              : "Revision requested (faculty email could not be sent)",
+            result.faculty_notified ? "success" : "warning",
+          );
           renderOutlineSubmissionsPage();
         } catch (error) {
           showNotification("Error requesting revision", "error");
@@ -3641,6 +3758,231 @@
                       `);
           printWindow.document.close();
           printWindow.print();
+        }
+      }
+
+      async function downloadPdfFromUrl(url, fallbackFilename) {
+        const response = await fetch(resolveApiRequestUrl(url), {
+          credentials: "include",
+        });
+        if (!response.ok) {
+          let message = "Failed to download PDF";
+          try {
+            const errorPayload = await response.json();
+            message = errorPayload.error || message;
+          } catch (parseError) {
+            // keep default
+          }
+          throw new Error(message);
+        }
+        const blob = await response.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        const disposition = response.headers.get("Content-Disposition") || "";
+        const matchedName = disposition.match(/filename="?([^"]+)"?/i);
+        anchor.href = objectUrl;
+        anchor.download =
+          matchedName && matchedName[1] ? matchedName[1] : fallbackFilename;
+        document.body.appendChild(anchor);
+        anchor.click();
+        document.body.removeChild(anchor);
+        URL.revokeObjectURL(objectUrl);
+      }
+
+      async function downloadOutlinePdf(outlineId) {
+        try {
+          await downloadPdfFromUrl(
+            API.outline_pdf(outlineId),
+            `outline_${outlineId}.pdf`,
+          );
+          showNotification("Outline PDF downloaded", "success");
+        } catch (error) {
+          console.error(error);
+          showNotification(
+            error.message || "Failed to download outline PDF",
+            "error",
+          );
+        }
+      }
+
+      async function printOutlineSubmission(outlineId) {
+        try {
+          const outline = await fetchAPI(
+            API.crc_view_outline_content(outlineId),
+          );
+          const printWindow = window.open("", "_blank");
+          if (!printWindow) {
+            showNotification(
+              "Please allow pop-ups to print this outline.",
+              "warning",
+            );
+            return;
+          }
+          const contentHtml =
+            outline.content || `<p><em>No outline content.</em></p>`;
+          printWindow.document.write(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <title>Course Outline - ${outline.course?.code || ""}</title>
+              <style>
+                body { font-family: Arial, sans-serif; line-height: 1.6; padding: 24px; color: #111; }
+                h1 { font-size: 22px; margin-bottom: 8px; }
+                .meta { margin-bottom: 20px; }
+                .meta div { margin-bottom: 4px; }
+                table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+                th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                th { background-color: #f3f4f6; }
+                @media print { body { padding: 0; } }
+              </style>
+            </head>
+            <body>
+              <h1>${outline.title || "Course Outline"}</h1>
+              <div class="meta">
+                <div><strong>Course:</strong> ${outline.course?.code || "N/A"} — ${outline.course?.title || ""}</div>
+                <div><strong>Faculty:</strong> ${outline.faculty?.username || "N/A"}</div>
+                <div><strong>Version:</strong> ${outline.version ?? "N/A"}</div>
+                <div><strong>Status:</strong> ${(outline.status || "").replace(/_/g, " ")}</div>
+              </div>
+              <div>${contentHtml}</div>
+            </body>
+            </html>
+          `);
+          printWindow.document.close();
+          printWindow.focus();
+          setTimeout(() => printWindow.print(), 250);
+        } catch (error) {
+          console.error(error);
+          showNotification("Failed to print outline", "error");
+        }
+      }
+
+      function formatSubmissionAnswerText(answer) {
+        if (answer.question_type === "clo_percentage") {
+          let cloData = {};
+          if (answer.answer_data && typeof answer.answer_data === "object") {
+            cloData = answer.answer_data;
+          } else if (answer.answer_text) {
+            try {
+              cloData = JSON.parse(answer.answer_text);
+            } catch (e) {
+              return answer.answer_text;
+            }
+          }
+          return Object.keys(cloData)
+            .sort()
+            .map((key) => `${key}: ${cloData[key]}%`)
+            .join(", ");
+        }
+        if (answer.answer_text) return answer.answer_text;
+        if (answer.answer_data) {
+          if (Array.isArray(answer.answer_data)) {
+            return answer.answer_data.join(", ");
+          }
+          if (typeof answer.answer_data === "object") {
+            return Object.entries(answer.answer_data)
+              .map(([key, value]) => `${key}: ${value}`)
+              .join(", ");
+          }
+          return String(answer.answer_data);
+        }
+        return "No answer provided";
+      }
+
+      function buildFormSubmissionPrintHtml(submission) {
+        const answersHtml =
+          submission.answers && submission.answers.length > 0
+            ? submission.answers
+                .map((answer, index) => {
+                  const isCLOPercentage =
+                    answer.question_type === "clo_percentage";
+                  const answerDisplay = isCLOPercentage
+                    ? formatCLOPercentageAnswer(answer)
+                    : formatSubmissionAnswerText(answer).replace(
+                        /\n/g,
+                        "<br>",
+                      );
+                  return `
+                    <div class="answer-block">
+                      <h3>${index + 1}. ${answer.question_text || "Question"}</h3>
+                      <div class="answer-body">${answerDisplay}</div>
+                    </div>
+                  `;
+                })
+                .join("")
+            : "<p><em>No answers submitted for this form</em></p>";
+
+        return `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Form Submission - ${submission.form_name || "Review Form"}</title>
+            <style>
+              body { font-family: Arial, sans-serif; line-height: 1.5; padding: 24px; color: #111; }
+              h1 { font-size: 22px; margin-bottom: 8px; }
+              h2 { font-size: 16px; margin-top: 24px; margin-bottom: 8px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+              h3 { font-size: 14px; margin-bottom: 8px; }
+              .meta { margin-bottom: 20px; }
+              .meta div { margin-bottom: 4px; }
+              .answer-block { margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #eee; }
+              .answer-body table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 6px; }
+              .answer-body th, .answer-body td { border: 1px solid #e5e7eb; padding: 8px 12px; text-align: left; }
+              .answer-body thead { background: #f9fafb; }
+              @media print { body { padding: 0; } }
+            </style>
+          </head>
+          <body>
+            <h1>Form Submission Details</h1>
+            <div class="meta">
+              <div><strong>Form:</strong> ${submission.form_name || "Unknown"} (${(submission.form_type || "N/A").toUpperCase()})</div>
+              <div><strong>Course:</strong> ${submission.course_code || "N/A"} - ${submission.course_title || "Unknown"}</div>
+              <div><strong>Status:</strong> ${(submission.status || "Unknown").replace(/_/g, " ")}</div>
+              <div><strong>Date:</strong> ${submission.submission_date || "N/A"}</div>
+              <div><strong>Faculty:</strong> ${submission.faculty_name || "N/A"}</div>
+            </div>
+            <h2>Answers</h2>
+            ${answersHtml}
+          </body>
+          </html>
+        `;
+      }
+
+      async function printFormSubmission(submissionId) {
+        try {
+          const submission = await fetchAPI(
+            API.submission_details(submissionId),
+          );
+          const printWindow = window.open("", "_blank");
+          if (!printWindow) {
+            showNotification(
+              "Please allow pop-ups to print this submission.",
+              "warning",
+            );
+            return;
+          }
+          printWindow.document.write(buildFormSubmissionPrintHtml(submission));
+          printWindow.document.close();
+          printWindow.focus();
+          setTimeout(() => printWindow.print(), 250);
+        } catch (error) {
+          console.error(error);
+          showNotification("Failed to print submission", "error");
+        }
+      }
+
+      async function downloadFormSubmissionPdf(submissionId) {
+        try {
+          await downloadPdfFromUrl(
+            API.submission_pdf(submissionId),
+            `submission_${submissionId}.pdf`,
+          );
+          showNotification("Submission PDF downloaded", "success");
+        } catch (error) {
+          console.error(error);
+          showNotification(
+            error.message || "Failed to download submission PDF",
+            "error",
+          );
         }
       }
 
@@ -3742,7 +4084,13 @@
                     }
                 </div>
 
-                <div class="flex gap-3 justify-end pt-4 border-t">
+                <div class="flex gap-3 justify-end pt-4 border-t flex-wrap">
+                    <button onclick="printFormSubmission(${submissionId})" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                        <i class="fas fa-print mr-1"></i> Print
+                    </button>
+                    <button onclick="downloadFormSubmissionPdf(${submissionId})" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                        <i class="fas fa-download mr-1"></i> PDF
+                    </button>
                     <button onclick="elements.modal.classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">Close</button>
                     ${
                       submission.status === "submitted"
@@ -3916,13 +4264,18 @@
         if (!notes) return;
 
         try {
-          await fetchAPI(API.request_revision_submission(submissionId), {
+          const result = await fetchAPI(API.request_revision_submission(submissionId), {
             method: "POST",
             body: JSON.stringify({ notes: notes }),
           });
 
           elements.modal.classList.add("hidden");
-          showNotification("Revision requested successfully", "success");
+          showNotification(
+            result.faculty_notified
+              ? "Revision requested — faculty notified by email"
+              : "Revision requested (faculty email could not be sent)",
+            result.faculty_notified ? "success" : "warning",
+          );
           renderFormSubmissionsPage();
         } catch (error) {
           showNotification("Error requesting revision", "error");
@@ -4049,11 +4402,21 @@
                                                       }
                                                   </td>
                                                   <td class="px-4 py-3">
-                                                      <div class="flex gap-2">
+                                                      <div class="flex flex-wrap gap-2 items-center">
                                                           <button onclick="viewFormSubmissionDetails(${
                                                             sub.id
-                                                          })" class="text-blue-600 hover:text-blue-800 text-sm font-medium">
+                                                          })" class="text-blue-600 hover:text-blue-800 text-sm font-medium" title="View">
                                                               <i class="fas fa-eye mr-1"></i> View
+                                                          </button>
+                                                          <button onclick="printFormSubmission(${
+                                                            sub.id
+                                                          })" class="text-gray-600 hover:text-gray-800 text-sm font-medium" title="Print">
+                                                              <i class="fas fa-print mr-1"></i> Print
+                                                          </button>
+                                                          <button onclick="downloadFormSubmissionPdf(${
+                                                            sub.id
+                                                          })" class="text-gray-600 hover:text-gray-800 text-sm font-medium" title="Download PDF">
+                                                              <i class="fas fa-download mr-1"></i> PDF
                                                           </button>
                                                       </div>
                                                   </td>
@@ -4489,6 +4852,9 @@
         submissions: null,
         status: null,
         clo: null,
+        cloAchievement: null,
+        cloMapping: null,
+        cloProblematic: null,
       };
       let analysisSelectedCourseId = "";
 
@@ -4587,54 +4953,109 @@
             </p>
         </div>
 
-        <!-- Two charts in a row below -->
+        <!-- CCR CLO Analysis graphs (Q6-Q9, Q10-Q13) -->
+        <div class="bg-white rounded-lg shadow p-6">
+            <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-2">
+                <div>
+                    <h3 class="font-medium text-lg">CLO Achievement Rate (CCR Q6–Q9)</h3>
+                    <p class="text-sm text-gray-500 mt-1">
+                        Average quality scores from CCR questions on student-centered, measurable,
+                        achievable, and Bloom’s-verb criteria — one series per criterion, by CLO.
+                    </p>
+                </div>
+                <button
+                    type="button"
+                    onclick="downloadAnalysisChart('cloAchievement', 'CLO_Achievement_Rate_Q6_Q9')"
+                    class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-purple-700 bg-purple-50 border border-purple-200 rounded-lg hover:bg-purple-100 transition-colors"
+                    title="Download chart"
+                >
+                    <i class="fas fa-download"></i>
+                    Download
+                </button>
+            </div>
+            <div class="h-80">
+                <canvas id="cloAchievementChart"></canvas>
+            </div>
+            <p id="cloAchievementChartEmpty" class="hidden text-center text-sm text-gray-500 mt-3">
+                No CCR Q6–Q9 CLO percentage answers found for the current selection.
+            </p>
+            <div class="mt-3 flex flex-wrap gap-3 text-xs text-gray-600" id="cloAchievementSummary"></div>
+        </div>
+
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div class="bg-white rounded-lg shadow p-6">
-                <div class="flex items-center justify-between gap-3 mb-4">
-                    <h3 class="font-medium text-lg">Form Status Distribution</h3>
+                <div class="flex items-start justify-between gap-3 mb-2">
+                    <div>
+                        <h3 class="font-medium text-lg">CLO Domain, Level &amp; GA Mapping (CCR Q10–Q13)</h3>
+                        <p class="text-sm text-gray-500 mt-1">
+                            How often each CLO is tagged with Learning Domain, Level, and GA Mapping in CCR forms.
+                        </p>
+                    </div>
                     <button
                         type="button"
-                        onclick="downloadAnalysisChart('status', 'Form_Status_Distribution')"
-                        class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-purple-700 bg-purple-50 border border-purple-200 rounded-lg hover:bg-purple-100 transition-colors"
+                        onclick="downloadAnalysisChart('cloMapping', 'CLO_Domain_Level_GA_Mapping_Q10_Q13')"
+                        class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-purple-700 bg-purple-50 border border-purple-200 rounded-lg hover:bg-purple-100 transition-colors shrink-0"
                         title="Download chart"
                     >
                         <i class="fas fa-download"></i>
                         Download
                     </button>
                 </div>
-                <div class="h-64">
-                    <canvas id="statusChart"></canvas>
+                <div class="h-72">
+                    <canvas id="cloMappingChart"></canvas>
                 </div>
-                <p id="statusChartEmpty" class="hidden text-center text-sm text-gray-500 mt-3">
-                    No status data available for the current selection.
+                <p id="cloMappingChartEmpty" class="hidden text-center text-sm text-gray-500 mt-3">
+                    No CCR Q10–Q13 mapping answers found for the current selection.
                 </p>
             </div>
 
             <div class="bg-white rounded-lg shadow p-6">
-                <div class="flex items-center justify-between gap-3 mb-4">
-                    <h3 class="font-medium text-lg">CLO Achievement Rates</h3>
+                <div class="flex items-start justify-between gap-3 mb-2">
+                    <div>
+                        <h3 class="font-medium text-lg">Total CLO vs Problematic CLO</h3>
+                        <p class="text-sm text-gray-500 mt-1">
+                            CLO instances from CCR Q6–Q9: healthy if average criterion score ≥ 70%, otherwise problematic.
+                        </p>
+                    </div>
                     <button
                         type="button"
-                        onclick="downloadAnalysisChart('clo', 'CLO_Achievement_Rates')"
-                        class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-purple-700 bg-purple-50 border border-purple-200 rounded-lg hover:bg-purple-100 transition-colors"
+                        onclick="downloadAnalysisChart('cloProblematic', 'Total_vs_Problematic_CLO')"
+                        class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-purple-700 bg-purple-50 border border-purple-200 rounded-lg hover:bg-purple-100 transition-colors shrink-0"
                         title="Download chart"
                     >
                         <i class="fas fa-download"></i>
                         Download
                     </button>
                 </div>
-                <div class="h-64">
-                    <canvas id="cloChart"></canvas>
+                <div class="h-72">
+                    <canvas id="cloProblematicChart"></canvas>
                 </div>
-                <p id="cloChartEmpty" class="hidden text-center text-sm text-gray-500 mt-3">
-                    No CLO data found yet for the current selection.
+                <p id="cloProblematicChartEmpty" class="hidden text-center text-sm text-gray-500 mt-3">
+                    No CLO quality scores available to classify healthy vs problematic.
                 </p>
-                <div class="mt-4 text-center">
-                    <button onclick="showCLODetails()" class="text-sm text-blue-600 hover:text-blue-800">
-                        View Detailed Analysis →
-                    </button>
-                </div>
+                <div id="cloProblematicDetails" class="mt-4 grid grid-cols-2 gap-2 text-xs"></div>
             </div>
+        </div>
+
+        <div class="bg-white rounded-lg shadow p-6">
+            <div class="flex items-center justify-between gap-3 mb-4">
+                <h3 class="font-medium text-lg">Form Status Distribution</h3>
+                <button
+                    type="button"
+                    onclick="downloadAnalysisChart('status', 'Form_Status_Distribution')"
+                    class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-purple-700 bg-purple-50 border border-purple-200 rounded-lg hover:bg-purple-100 transition-colors"
+                    title="Download chart"
+                >
+                    <i class="fas fa-download"></i>
+                    Download
+                </button>
+            </div>
+            <div class="h-64">
+                <canvas id="statusChart"></canvas>
+            </div>
+            <p id="statusChartEmpty" class="hidden text-center text-sm text-gray-500 mt-3">
+                No status data available for the current selection.
+            </p>
         </div>
 
         <!-- Key metrics cards -->
@@ -4643,19 +5064,19 @@
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div class="bg-blue-50 p-4 rounded-lg">
                     <div class="text-2xl font-bold text-blue-600" id="totalSubmissions">0</div>
-                    <div class="text-sm text-gray-600">Total Submissions</div>
+                    <div class="text-sm text-gray-600">CCR Submissions Analyzed</div>
                 </div>
                 <div class="bg-green-50 p-4 rounded-lg">
                     <div class="text-2xl font-bold text-green-600" id="approvalRate">0%</div>
                     <div class="text-sm text-gray-600">Approval Rate</div>
                 </div>
-                <div class="bg-yellow-50 p-4 rounded-lg">
-                    <div class="text-2xl font-bold text-yellow-600" id="pendingCount">0</div>
-                    <div class="text-sm text-gray-600">Pending Review</div>
+                <div class="bg-red-50 p-4 rounded-lg">
+                    <div class="text-2xl font-bold text-red-600" id="problematicCloCount">0</div>
+                    <div class="text-sm text-gray-600">Problematic CLO Instances</div>
                 </div>
                 <div class="bg-purple-50 p-4 rounded-lg">
                     <div class="text-2xl font-bold text-purple-600" id="avgCloRate">0%</div>
-                    <div class="text-sm text-gray-600">Avg CLO Rate</div>
+                    <div class="text-sm text-gray-600">Avg CLO Achievement</div>
                 </div>
             </div>
         </div>
@@ -4762,12 +5183,14 @@
           );
           renderStatusChart(statusData);
 
-          const cloData = await fetchAPI(
-            `${API.analysis_clo_achievement}${queryString}`,
+          const ccrCloGraphs = await fetchAPI(
+            `${API.analysis_ccr_clo_graphs}${queryString}`,
           );
-          renderCLOChart(cloData);
+          renderCloAchievementChart(ccrCloGraphs);
+          renderCloMappingChart(ccrCloGraphs);
+          renderCloProblematicChart(ccrCloGraphs);
 
-          updateMetrics(submissionsData, statusData, cloData);
+          updateMetrics(submissionsData, statusData, ccrCloGraphs);
 
           if (analysisSelectedCourseId) {
             await loadCourseSubmissionsPanel(analysisSelectedCourseId);
@@ -5591,48 +6014,295 @@
       }
 
       function renderCLOChart(data) {
-        const canvas = document.getElementById("cloChart");
+        // Legacy single-bar CLO chart kept for compatibility; Analysis now uses CCR graphs.
+        renderCloAchievementChart({ achievement: data });
+      }
+
+      function renderCloAchievementChart(graphData) {
+        const canvas = document.getElementById("cloAchievementChart");
         if (!canvas) {
           return;
         }
-        const clos = Array.isArray(data && data.clos) ? data.clos : [];
-        const achievementRates = Array.isArray(data && data.achievement_rates)
-          ? data.achievement_rates
+        const achievement = (graphData && graphData.achievement) || {};
+        const clos = Array.isArray(achievement.clos) ? achievement.clos : [];
+        const criteriaLabels = Array.isArray(achievement.criteria_labels)
+          ? achievement.criteria_labels
           : [];
-        const totalResponses = Array.isArray(data && data.total_responses)
-          ? data.total_responses
+        const criteriaAverages = Array.isArray(achievement.criteria_averages)
+          ? achievement.criteria_averages
           : [];
-        const hasAnyResponses = totalResponses.some(
-          (responseCount) => responseCount > 0,
+        const achievementRates = Array.isArray(achievement.achievement_rates)
+          ? achievement.achievement_rates
+          : [];
+        const averageScores = Array.isArray(achievement.average_scores)
+          ? achievement.average_scores
+          : [];
+        const totalResponses = Array.isArray(achievement.total_responses)
+          ? achievement.total_responses
+          : [];
+        const hasData = totalResponses.some((count) => count > 0);
+        toggleChartEmptyState(
+          "cloAchievementChart",
+          "cloAchievementChartEmpty",
+          !hasData,
         );
-        const isEmpty = clos.length === 0 || !hasAnyResponses;
-        toggleChartEmptyState("cloChart", "cloChartEmpty", isEmpty);
-        if (isEmpty) {
+
+        const summaryEl = document.getElementById("cloAchievementSummary");
+        if (summaryEl) {
+          if (!hasData) {
+            summaryEl.innerHTML = "";
+          } else {
+            summaryEl.innerHTML = clos
+              .map((cloLabel, index) => {
+                const rate = achievementRates[index] ?? 0;
+                const avg = averageScores[index] ?? 0;
+                const responses = totalResponses[index] ?? 0;
+                return `<span class="px-2 py-1 rounded-full bg-gray-100">${escapeHtml(cloLabel)}: ${avg}% avg · ${rate}% ≥70 · n=${responses}</span>`;
+              })
+              .join("");
+          }
+        }
+
+        if (!hasData) {
+          return;
+        }
+
+        const criterionColors = [
+          { bg: "rgba(59, 130, 246, 0.75)", border: "rgb(37, 99, 235)" },
+          { bg: "rgba(16, 185, 129, 0.75)", border: "rgb(5, 150, 105)" },
+          { bg: "rgba(245, 158, 11, 0.75)", border: "rgb(217, 119, 6)" },
+          { bg: "rgba(139, 92, 246, 0.75)", border: "rgb(124, 58, 237)" },
+          { bg: "rgba(236, 72, 153, 0.75)", border: "rgb(219, 39, 119)" },
+        ];
+
+        const datasets =
+          criteriaLabels.length > 0 && criteriaAverages.length > 0
+            ? criteriaLabels.map((label, criterionIndex) => {
+                const color =
+                  criterionColors[criterionIndex % criterionColors.length];
+                return {
+                  label,
+                  data: criteriaAverages[criterionIndex] || [],
+                  backgroundColor: color.bg,
+                  borderColor: color.border,
+                  borderWidth: 1,
+                };
+              })
+            : [
+                {
+                  label: "Achievement Rate (%)",
+                  data: achievementRates,
+                  backgroundColor: "rgba(59, 130, 246, 0.75)",
+                  borderColor: "rgb(37, 99, 235)",
+                  borderWidth: 1,
+                },
+              ];
+
+        const ctx = canvas.getContext("2d");
+        analysisChartInstances.cloAchievement = new Chart(ctx, {
+          type: "bar",
+          data: {
+            labels: clos,
+            datasets,
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { position: "bottom" },
+              tooltip: {
+                callbacks: {
+                  afterBody: function (tooltipItems) {
+                    const index = tooltipItems[0]?.dataIndex;
+                    if (index == null) return "";
+                    return [
+                      `Overall avg: ${averageScores[index] ?? 0}%`,
+                      `Achievement (≥70): ${achievementRates[index] ?? 0}%`,
+                      `Scores counted: ${totalResponses[index] ?? 0}`,
+                    ];
+                  },
+                },
+              },
+            },
+            scales: {
+              x: {
+                title: { display: true, text: "Course Learning Outcome" },
+              },
+              y: {
+                beginAtZero: true,
+                max: 100,
+                title: {
+                  display: true,
+                  text: "Average criterion score (%)",
+                },
+              },
+            },
+          },
+        });
+      }
+
+      function renderCloMappingChart(graphData) {
+        const canvas = document.getElementById("cloMappingChart");
+        if (!canvas) {
+          return;
+        }
+        const mapping = (graphData && graphData.mapping) || {};
+        const clos = Array.isArray(mapping.clos) ? mapping.clos : [];
+        const dimensions = Array.isArray(mapping.dimensions)
+          ? mapping.dimensions
+          : [];
+        const counts = mapping.counts || {};
+        const coverageRates = mapping.coverage_rates || {};
+        const responseCounts = Array.isArray(mapping.response_counts)
+          ? mapping.response_counts
+          : [];
+        const hasData = responseCounts.some((count) => count > 0);
+        toggleChartEmptyState(
+          "cloMappingChart",
+          "cloMappingChartEmpty",
+          !hasData,
+        );
+        if (!hasData) {
+          return;
+        }
+
+        const dimensionColors = {
+          "Learning Domain": {
+            bg: "rgba(37, 99, 235, 0.75)",
+            border: "rgb(29, 78, 216)",
+          },
+          Level: {
+            bg: "rgba(16, 185, 129, 0.75)",
+            border: "rgb(5, 150, 105)",
+          },
+          "GA Mapping": {
+            bg: "rgba(245, 158, 11, 0.75)",
+            border: "rgb(217, 119, 6)",
+          },
+        };
+
+        const datasets = dimensions.map((dimension) => {
+          const color = dimensionColors[dimension] || {
+            bg: "rgba(107, 114, 128, 0.75)",
+            border: "rgb(75, 85, 99)",
+          };
+          return {
+            label: dimension,
+            data: counts[dimension] || [],
+            backgroundColor: color.bg,
+            borderColor: color.border,
+            borderWidth: 1,
+          };
+        });
+
+        const ctx = canvas.getContext("2d");
+        analysisChartInstances.cloMapping = new Chart(ctx, {
+          type: "bar",
+          data: {
+            labels: clos,
+            datasets,
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { position: "bottom" },
+              tooltip: {
+                callbacks: {
+                  afterLabel: function (context) {
+                    const dimension = context.dataset.label;
+                    const index = context.dataIndex;
+                    const rate =
+                      (coverageRates[dimension] &&
+                        coverageRates[dimension][index]) ||
+                      0;
+                    const responses = responseCounts[index] || 0;
+                    return `Coverage: ${rate}% of ${responses} CCR answers`;
+                  },
+                },
+              },
+            },
+            scales: {
+              x: {
+                title: { display: true, text: "CLO (CCR Q10–Q13)" },
+              },
+              y: {
+                beginAtZero: true,
+                ticks: { precision: 0 },
+                title: {
+                  display: true,
+                  text: "Times selected in CCR forms",
+                },
+              },
+            },
+          },
+        });
+      }
+
+      function renderCloProblematicChart(graphData) {
+        const canvas = document.getElementById("cloProblematicChart");
+        if (!canvas) {
+          return;
+        }
+        const problematic = (graphData && graphData.problematic) || {};
+        const labels = Array.isArray(problematic.labels)
+          ? problematic.labels
+          : [];
+        const dataValues = Array.isArray(problematic.data)
+          ? problematic.data
+          : [];
+        const colors = Array.isArray(problematic.colors)
+          ? problematic.colors
+          : ["#10b981", "#ef4444"];
+        const totalInstances = dataValues.reduce(
+          (sum, value) => sum + (value || 0),
+          0,
+        );
+        toggleChartEmptyState(
+          "cloProblematicChart",
+          "cloProblematicChartEmpty",
+          totalInstances === 0,
+        );
+
+        const detailsEl = document.getElementById("cloProblematicDetails");
+        if (detailsEl) {
+          const details = Array.isArray(problematic.details)
+            ? problematic.details
+            : [];
+          detailsEl.innerHTML = details
+            .map((item) => {
+              const status = item.status || "no_data";
+              const badgeClass =
+                status === "problematic"
+                  ? "bg-red-50 text-red-700 border-red-200"
+                  : status === "healthy"
+                    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                    : "bg-gray-50 text-gray-600 border-gray-200";
+              return `
+                <div class="border rounded-lg p-2 ${badgeClass}">
+                  <div class="font-medium">${escapeHtml(item.clo || "")}</div>
+                  <div>Avg ${item.average_score ?? 0}%</div>
+                  <div>${item.problematic_instances || 0} problematic / ${item.healthy_instances || 0} healthy</div>
+                </div>`;
+            })
+            .join("");
+        }
+
+        if (totalInstances === 0) {
           return;
         }
 
         const ctx = canvas.getContext("2d");
-        analysisChartInstances.clo = new Chart(ctx, {
-          type: "bar",
+        analysisChartInstances.cloProblematic = new Chart(ctx, {
+          type: "pie",
           data: {
-            labels: clos,
+            labels,
             datasets: [
               {
-                label: "Achievement Rate (%)",
-                data: achievementRates,
-                backgroundColor: [
-                  "rgba(59, 130, 246, 0.7)",
-                  "rgba(16, 185, 129, 0.7)",
-                  "rgba(245, 158, 11, 0.7)",
-                  "rgba(239, 68, 68, 0.7)",
-                ],
-                borderColor: [
-                  "rgb(59, 130, 246)",
-                  "rgb(16, 185, 129)",
-                  "rgb(245, 158, 11)",
-                  "rgb(239, 68, 68)",
-                ],
-                borderWidth: 1,
+                data: dataValues,
+                backgroundColor: colors,
+                borderColor: "#ffffff",
+                borderWidth: 2,
               },
             ],
           },
@@ -5640,48 +6310,40 @@
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
-              legend: { display: false },
+              legend: { position: "bottom" },
               tooltip: {
                 callbacks: {
-                  afterLabel: function (context) {
-                    const index = context.dataIndex;
-                    const responses = totalResponses[index];
-                    return responses !== undefined
-                      ? `Responses: ${responses}`
-                      : "";
+                  label: function (context) {
+                    const value = context.raw || 0;
+                    const percentage =
+                      totalInstances > 0
+                        ? Math.round((value / totalInstances) * 100)
+                        : 0;
+                    return `${context.label}: ${value} (${percentage}%)`;
                   },
                 },
-              },
-            },
-            scales: {
-              y: {
-                beginAtZero: true,
-                max: 100,
-                title: { display: true, text: "Achievement Rate (%)" },
               },
             },
           },
         });
       }
 
-      function updateMetrics(submissionsData, statusData, cloData) {
+      function updateMetrics(submissionsData, statusData, ccrCloGraphs) {
         const totalSubmissionsElement = document.getElementById(
           "totalSubmissions",
         );
         const approvalRateElement = document.getElementById("approvalRate");
-        const pendingCountElement = document.getElementById("pendingCount");
+        const problematicCloCountElement = document.getElementById(
+          "problematicCloCount",
+        );
         const avgCloRateElement = document.getElementById("avgCloRate");
 
-        const totalSubmissions = Array.isArray(
-          submissionsData && submissionsData.total_data,
-        )
-          ? submissionsData.total_data.reduce(
-              (sum, current) => sum + (current || 0),
-              0,
-            )
-          : 0;
+        const ccrSubmissionCount =
+          ccrCloGraphs && typeof ccrCloGraphs.submission_count === "number"
+            ? ccrCloGraphs.submission_count
+            : 0;
         if (totalSubmissionsElement) {
-          totalSubmissionsElement.textContent = totalSubmissions;
+          totalSubmissionsElement.textContent = ccrSubmissionCount;
         }
 
         const statusLabels = Array.isArray(statusData && statusData.labels)
@@ -5705,22 +6367,23 @@
           approvalRateElement.textContent = `${approvalRate}%`;
         }
 
-        const pendingIndex = statusLabels.findIndex(
-          (label) => (label || "").toLowerCase() === "submitted",
-        );
-        const pendingCount =
-          pendingIndex >= 0 ? statusValues[pendingIndex] || 0 : 0;
-        if (pendingCountElement) {
-          pendingCountElement.textContent = pendingCount;
+        const problematicData =
+          (ccrCloGraphs &&
+            ccrCloGraphs.problematic &&
+            ccrCloGraphs.problematic.data) ||
+          [];
+        const problematicCount = problematicData[1] || 0;
+        if (problematicCloCountElement) {
+          problematicCloCountElement.textContent = problematicCount;
         }
 
-        const achievementRates = Array.isArray(
-          cloData && cloData.achievement_rates,
-        )
-          ? cloData.achievement_rates
+        const achievement =
+          (ccrCloGraphs && ccrCloGraphs.achievement) || {};
+        const achievementRates = Array.isArray(achievement.achievement_rates)
+          ? achievement.achievement_rates
           : [];
-        const totalResponses = Array.isArray(cloData && cloData.total_responses)
-          ? cloData.total_responses
+        const totalResponses = Array.isArray(achievement.total_responses)
+          ? achievement.total_responses
           : [];
         const cloRatesWithData = achievementRates.filter(
           (_, index) => (totalResponses[index] || 0) > 0,
@@ -6131,6 +6794,16 @@
         `;
       }
 
+      function formatDiffContent(value) {
+        if (value == null) return "";
+        if (typeof value === "string") return value;
+        try {
+          return JSON.stringify(value, null, 2);
+        } catch (error) {
+          return String(value);
+        }
+      }
+
       function buildFallbackDifferencesBlock(differences) {
         if (!differences) {
           return "";
@@ -6151,12 +6824,12 @@
         }
 
         return `
-          <details class="bg-white border border-gray-200 rounded-lg">
+          <details class="bg-white border border-gray-200 rounded-lg" open>
             <summary class="cursor-pointer px-4 py-3 text-sm text-gray-700 hover:bg-gray-50">
               <i class="fas fa-code-branch mr-2 text-gray-500"></i>
-              Structural diff (${addedCount} added, ${modifiedCount} modified, ${deletedCount} removed)
+              Full-document diff (${addedCount} added, ${modifiedCount} modified, ${deletedCount} removed)
             </summary>
-            <div class="px-4 py-4 space-y-3">
+            <div class="px-4 py-4 space-y-3 max-h-[32rem] overflow-y-auto">
               ${addedCount > 0
                 ? `<div>
                      <div class="text-xs font-medium text-green-700 mb-2">Added</div>
@@ -6164,8 +6837,8 @@
                        .map(
                          (item) => `
                           <div class="border-l-4 border-green-500 bg-green-50 rounded p-2 mb-2">
-                            <div class="font-medium text-sm">${escapeHtml(item.title || `Section ${item.id || ""}`)}</div>
-                            <pre class="text-xs text-gray-600 mt-1 whitespace-pre-wrap">${escapeHtml(JSON.stringify(item.content, null, 2))}</pre>
+                            <div class="font-medium text-sm">${escapeHtml(item.title || `Section ${item.id || item.line || ""}`)}</div>
+                            <pre class="text-xs text-gray-600 mt-1 whitespace-pre-wrap">${escapeHtml(formatDiffContent(item.content))}</pre>
                           </div>`,
                        )
                        .join("")}
@@ -6178,15 +6851,15 @@
                        .map(
                          (item) => `
                           <div class="border-l-4 border-yellow-500 bg-yellow-50 rounded p-2 mb-2">
-                            <div class="font-medium text-sm">${escapeHtml(item.title || `Section ${item.id || ""}`)}</div>
+                            <div class="font-medium text-sm">${escapeHtml(item.title || `Section ${item.id || item.line || ""}`)}</div>
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
                               <div>
                                 <div class="text-xs font-medium text-gray-500">Outline A</div>
-                                <pre class="text-xs text-gray-600 mt-1 whitespace-pre-wrap">${escapeHtml(JSON.stringify(item.old_content, null, 2))}</pre>
+                                <pre class="text-xs text-gray-600 mt-1 whitespace-pre-wrap">${escapeHtml(formatDiffContent(item.old_content))}</pre>
                               </div>
                               <div>
                                 <div class="text-xs font-medium text-gray-500">Outline B</div>
-                                <pre class="text-xs text-gray-600 mt-1 whitespace-pre-wrap">${escapeHtml(JSON.stringify(item.new_content, null, 2))}</pre>
+                                <pre class="text-xs text-gray-600 mt-1 whitespace-pre-wrap">${escapeHtml(formatDiffContent(item.new_content))}</pre>
                               </div>
                             </div>
                           </div>`,
@@ -6201,8 +6874,8 @@
                        .map(
                          (item) => `
                           <div class="border-l-4 border-red-500 bg-red-50 rounded p-2 mb-2">
-                            <div class="font-medium text-sm">${escapeHtml(item.title || `Section ${item.id || ""}`)}</div>
-                            <pre class="text-xs text-gray-600 mt-1 whitespace-pre-wrap">${escapeHtml(JSON.stringify(item.content, null, 2))}</pre>
+                            <div class="font-medium text-sm">${escapeHtml(item.title || `Section ${item.id || item.line || ""}`)}</div>
+                            <pre class="text-xs text-gray-600 mt-1 whitespace-pre-wrap">${escapeHtml(formatDiffContent(item.content))}</pre>
                           </div>`,
                        )
                        .join("")}
@@ -6510,11 +7183,15 @@
           lastCqiReportMarkdown = reportData.report || "";
           lastCqiCover = reportData.cover || null;
           lastCqiChartData = reportData.chart_data || null;
+          lastCqiTables = reportData.cqi_tables || null;
+          lastCqiTablesHtml = reportData.tables_html || "";
 
           if (!reportData.report) {
             lastCqiReportMarkdown = "";
             lastCqiCover = null;
             lastCqiChartData = null;
+            lastCqiTables = null;
+            lastCqiTablesHtml = "";
             document.getElementById("report-content").innerHTML = `
             <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
                 <h4 class="text-lg font-medium text-yellow-800">Report Generation Warning</h4>
@@ -6530,6 +7207,10 @@
           lastCqiReportMarkdown = reportData.report || "";
           lastCqiCover = reportData.cover || null;
           lastCqiChartData = reportData.chart_data || null;
+          lastCqiTables = reportData.cqi_tables || null;
+          lastCqiTablesHtml = reportData.tables_html || "";
+        } else {
+          lastCqiTablesHtml = reportData.tables_html || lastCqiTablesHtml || "";
         }
 
         const metrics = (reportData.chart_data && reportData.chart_data.metrics) || {};
@@ -6585,32 +7266,49 @@
           <div class="mb-10">
             <div class="flex items-center justify-between mb-4">
               <h3 class="text-lg font-semibold text-gray-900">Analytical Figures</h3>
-              <span class="text-xs text-gray-500">Auto-generated from report data</span>
+              <span class="text-xs text-gray-500">Auto-generated from CCR/CRR form data</span>
             </div>
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
               <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
                 <h4 class="text-sm font-medium text-gray-800 mb-3">Figure 1 — Form Status Distribution</h4>
                 <div class="h-56"><canvas id="cqi-status-chart"></canvas></div>
                 <p id="cqi-status-chart-empty" class="hidden text-center text-xs text-gray-500 mt-2">No status data available.</p>
               </div>
               <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-                <h4 class="text-sm font-medium text-gray-800 mb-3">Figure 2 — CLO Achievement Rates</h4>
+                <h4 class="text-sm font-medium text-gray-800 mb-3">Figure 2 — CLO Achievement Rate (Q6–Q9)</h4>
                 <div class="h-56"><canvas id="cqi-clo-chart"></canvas></div>
                 <p id="cqi-clo-chart-empty" class="hidden text-center text-xs text-gray-500 mt-2">No CLO data available.</p>
               </div>
               <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-                <h4 class="text-sm font-medium text-gray-800 mb-3">Figure 3 — CCR vs CRR</h4>
-                <div class="h-56"><canvas id="cqi-formtype-chart"></canvas></div>
-                <p id="cqi-formtype-chart-empty" class="hidden text-center text-xs text-gray-500 mt-2">No form-type data available.</p>
+                <h4 class="text-sm font-medium text-gray-800 mb-3">Figure 3 — Required Correction in CLOs (−ve gap)</h4>
+                <div class="h-56"><canvas id="cqi-corrections-chart"></canvas></div>
+                <p id="cqi-corrections-chart-empty" class="hidden text-center text-xs text-gray-500 mt-2">No correction gaps available.</p>
+              </div>
+            </div>
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                <h4 class="text-sm font-medium text-gray-800 mb-3">Figure 4 — Graph of Table 01</h4>
+                <div class="h-56"><canvas id="cqi-table01-chart"></canvas></div>
+                <p id="cqi-table01-chart-empty" class="hidden text-center text-xs text-gray-500 mt-2">No recommendation data.</p>
+              </div>
+              <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                <h4 class="text-sm font-medium text-gray-800 mb-3">Figure 5 — Graph of Table 02</h4>
+                <div class="h-56"><canvas id="cqi-table02-chart"></canvas></div>
+                <p id="cqi-table02-chart-empty" class="hidden text-center text-xs text-gray-500 mt-2">No HEC accordance data.</p>
+              </div>
+              <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                <h4 class="text-sm font-medium text-gray-800 mb-3">Figure 6 — Graph of Table 03</h4>
+                <div class="h-56"><canvas id="cqi-table03-chart"></canvas></div>
+                <p id="cqi-table03-chart-empty" class="hidden text-center text-xs text-gray-500 mt-2">No unattained CLO rows (table omitted).</p>
               </div>
             </div>
           </div>`;
 
         const bodyHtml = reportData.report_html
-          ? `<div class="cqi-report-html prose prose-purple max-w-none
-                prose-headings:text-gray-900 prose-h2:border-b prose-h2:border-purple-100 prose-h2:pb-2 prose-h2:mt-8
-                prose-table:text-sm prose-th:bg-purple-50 prose-th:text-purple-900
-                prose-td:border-gray-200">${reportData.report_html}</div>`
+          ? `<div class="cqi-report-html prose prose-slate max-w-none
+                prose-headings:text-gray-900 prose-h2:border-b prose-h2:border-slate-200 prose-h2:pb-2 prose-h2:mt-8
+                prose-table:text-sm prose-th:bg-slate-50 prose-th:text-slate-900 prose-th:font-semibold
+                prose-td:border-slate-200 prose-table:shadow-sm">${reportData.report_html}</div>`
           : formatReportForDisplay(reportData.report);
 
         const metadata = `
@@ -6791,6 +7489,98 @@
             );
           }
         }
+
+        const renderSimpleBarOrDoughnut = (
+          canvasId,
+          emptyId,
+          instanceKey,
+          payload,
+          chartType,
+          datasetLabel,
+        ) => {
+          const canvas = document.getElementById(canvasId);
+          const emptyEl = document.getElementById(emptyId);
+          if (!canvas) return;
+          const labels = (payload && payload.labels) || [];
+          const values = (payload && payload.data) || [];
+          const hasData = values.some((value) => Number(value) > 0);
+          if (!hasData) {
+            canvas.style.display = "none";
+            if (emptyEl) emptyEl.classList.remove("hidden");
+            return;
+          }
+          canvas.style.display = "block";
+          if (emptyEl) emptyEl.classList.add("hidden");
+          cqiReportChartInstances[instanceKey] = new Chart(canvas.getContext("2d"), {
+            type: chartType,
+            data: {
+              labels,
+              datasets: [
+                {
+                  label: datasetLabel,
+                  data: values,
+                  backgroundColor:
+                    payload.colors ||
+                    ["#2563eb", "#d97706", "#7c3aed", "#dc2626"],
+                  borderColor: "#ffffff",
+                  borderWidth: chartType === "doughnut" ? 2 : 1,
+                  borderRadius: chartType === "bar" ? 6 : 0,
+                },
+              ],
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: {
+                  display: chartType === "doughnut",
+                  position: "bottom",
+                  labels: { boxWidth: 12 },
+                },
+              },
+              scales:
+                chartType === "bar"
+                  ? {
+                      y: { beginAtZero: true, ticks: { precision: 0 } },
+                    }
+                  : undefined,
+              cutout: chartType === "doughnut" ? "55%" : undefined,
+            },
+          });
+        };
+
+        renderSimpleBarOrDoughnut(
+          "cqi-corrections-chart",
+          "cqi-corrections-chart-empty",
+          "corrections",
+          chartData.required_clo_corrections || {},
+          "bar",
+          "Gap to 70% (points)",
+        );
+        renderSimpleBarOrDoughnut(
+          "cqi-table01-chart",
+          "cqi-table01-chart-empty",
+          "table01",
+          chartData.table_01_recommendations || {},
+          "bar",
+          "Courses recommending update",
+        );
+        renderSimpleBarOrDoughnut(
+          "cqi-table02-chart",
+          "cqi-table02-chart-empty",
+          "table02",
+          chartData.table_02_hec || {},
+          "doughnut",
+          "HEC accordance",
+        );
+        renderSimpleBarOrDoughnut(
+          "cqi-table03-chart",
+          "cqi-table03-chart-empty",
+          "table03",
+          chartData.table_03_clo_gaps || {},
+          "bar",
+          "Sections with CLO not attained",
+        );
       }
 
       function captureCqiChartImage(chartInstance) {
@@ -6913,6 +7703,8 @@
               body: JSON.stringify({
                 report_markdown: lastCqiReportMarkdown,
                 cover: lastCqiCover || {},
+                tables_html: lastCqiTablesHtml || "",
+                cqi_tables: lastCqiTables || {},
               }),
             },
           );
@@ -6955,6 +7747,16 @@
             form_type_distribution: captureCqiChartImage(
               cqiReportChartInstances.formType,
             ),
+            required_clo_corrections: captureCqiChartImage(
+              cqiReportChartInstances.corrections,
+            ),
+            table_01_recommendations: captureCqiChartImage(
+              cqiReportChartInstances.table01,
+            ),
+            table_02_hec: captureCqiChartImage(cqiReportChartInstances.table02),
+            table_03_clo_gaps: captureCqiChartImage(
+              cqiReportChartInstances.table03,
+            ),
           };
 
           const response = await fetch(
@@ -6972,6 +7774,8 @@
                 chart_images: chartImages,
                 metrics:
                   (lastCqiChartData && lastCqiChartData.metrics) || {},
+                cqi_tables: lastCqiTables || {},
+                tables_html: lastCqiTablesHtml || "",
               }),
             },
           );
@@ -7060,6 +7864,10 @@
       window.viewCourseOutlines = viewCourseOutlines;
       window.viewOutlineVersion = viewOutlineVersion;
       window.printOutline = printOutline;
+      window.printOutlineSubmission = printOutlineSubmission;
+      window.downloadOutlinePdf = downloadOutlinePdf;
+      window.printFormSubmission = printFormSubmission;
+      window.downloadFormSubmissionPdf = downloadFormSubmissionPdf;
       window.viewCLODetails = viewCLODetails;
       window.showCLODetails = showCLODetails;
       window.downloadAnalysisChart = downloadAnalysisChart;

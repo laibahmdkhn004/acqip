@@ -6,6 +6,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, date
 import itertools
 import re
+from difflib import SequenceMatcher
 
 import html as html_module
 import markdown
@@ -17,6 +18,10 @@ from django.views.decorators.http import require_http_methods
 import json
 from django.contrib.auth.decorators import login_required, user_passes_test
 from .models import Course, User, Department, DynamicForm, FormQuestion, DynamicFormSubmission, FormAnswer, CourseFaculty, CourseOutline
+from .notifications import (
+    notify_faculty_form_revision,
+    notify_faculty_outline_revision,
+)
 from django.db.models import Count, Q, F
 from datetime import datetime, timedelta
 
@@ -91,9 +96,9 @@ def api_departments_create(request):
 @login_required
 @user_passes_test(is_admin)
 @csrf_exempt
-@require_http_methods(["GET", "PUT"])
+@require_http_methods(["GET", "PUT", "DELETE"])
 def api_department_detail(request, department_id):
-    """Get or update department details"""
+    """Get, update, or delete department details"""
     try:
         department = Department.objects.get(id=department_id)
         
@@ -150,6 +155,15 @@ def api_department_detail(request, department_id):
                 'code': department.code,
                 'description': department.description
             })
+
+        elif request.method == 'DELETE':
+            course_count = Course.objects.filter(department=department).count()
+            department_name = department.name
+            department.delete()
+            return JsonResponse({
+                'message': f'Department "{department_name}" deleted successfully',
+                'deleted_courses': course_count,
+            })
             
     except Department.DoesNotExist:
         return JsonResponse({'error': 'Department not found'}, status=404)
@@ -163,10 +177,12 @@ def api_department_detail(request, department_id):
 @require_http_methods(["GET"])
 def api_courses(request):
     courses = list(Course.objects.select_related('department').values(
-        'id', 'title', 'code', 'description', 'department_id', 'credits', 'department__code'
+        'id', 'title', 'code', 'description', 'department_id', 'credits',
+        'department__code', 'department__name'
     ))
     for course in courses:
-        course['department_code'] = course.pop('department__code')
+        course['department_code'] = course.pop('department__code') or ''
+        course['department_name'] = course.pop('department__name') or ''
         coordinator = CourseFaculty.objects.filter(
             course_id=course['id'], 
             is_coordinator=True
@@ -324,28 +340,44 @@ def api_assign_courses_to_faculty(request, user_id):
         data = json.loads(request.body)
         faculty_member = User.objects.get(id=user_id, role=User.ROLE_FACULTY)
         course_ids = data.get('course_ids', [])
-        
-        coordinator_info = data.get('coordinator_info', {})
-        section_info = data.get('section_info', {})
-        
-        # Clear existing assignments
+        coordinator_info = data.get('coordinator_info', {}) or {}
+        section_info = data.get('section_info', {}) or {}
+
+        def mapping_get(mapping, course_id, default=None):
+            if not isinstance(mapping, dict):
+                return default
+            for key in (course_id, str(course_id)):
+                if key in mapping:
+                    return mapping[key]
+            try:
+                as_int = int(course_id)
+            except (TypeError, ValueError):
+                return default
+            if as_int in mapping:
+                return mapping[as_int]
+            return default
+
+        # Replace this faculty's course assignments with the submitted selection
         CourseFaculty.objects.filter(faculty=faculty_member).delete()
-        
-        # Create new assignments
+
+        assignments_created = 0
         for course_id in course_ids:
-            course = Course.objects.get(id=course_id)
-            is_coordinator = coordinator_info.get(str(course_id), False)
-            section = section_info.get(str(course_id), '')
-            
+            try:
+                course = Course.objects.get(id=course_id)
+            except Course.DoesNotExist:
+                continue
             CourseFaculty.objects.create(
                 course=course,
                 faculty=faculty_member,
-                is_coordinator=is_coordinator,
-                section=section
+                is_coordinator=bool(mapping_get(coordinator_info, course_id, False)),
+                section=mapping_get(section_info, course_id, '') or '',
             )
-        
+            assignments_created += 1
+
         return JsonResponse({
-            'message': f'Successfully assigned {len(course_ids)} courses to {faculty_member.username}'
+            'message': f'Successfully assigned {assignments_created} courses to {faculty_member.username}',
+            'total_assigned': assignments_created,
+            'success': True,
         })
     except User.DoesNotExist:
         return JsonResponse({'error': 'Faculty member not found'}, status=404)
@@ -1017,6 +1049,38 @@ def api_course_faculty_assignments(request, course_id):
     except Exception as e:
         return JsonResponse([], safe=False)
 
+
+@login_required
+@user_passes_test(is_admin_or_crc)
+@require_http_methods(["GET"])
+def api_faculty_course_assignments(request, user_id):
+    """Return courses currently assigned to a faculty member (for Assign Courses UI)."""
+    try:
+        faculty_member = User.objects.get(id=user_id, role=User.ROLE_FACULTY)
+        assignments = CourseFaculty.objects.filter(faculty=faculty_member).select_related(
+            'course', 'course__department'
+        )
+        payload = []
+        for assignment in assignments:
+            payload.append({
+                'course_id': assignment.course_id,
+                'course_code': assignment.course.code,
+                'course_title': assignment.course.title,
+                'is_coordinator': assignment.is_coordinator,
+                'section': assignment.section or '',
+                'department_name': (
+                    assignment.course.department.name if assignment.course.department else ''
+                ),
+                'department_code': (
+                    assignment.course.department.code if assignment.course.department else ''
+                ),
+            })
+        return JsonResponse(payload, safe=False)
+    except User.DoesNotExist:
+        return JsonResponse({'error': 'Faculty member not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
 # User API Views
 @login_required
 @user_passes_test(is_admin)
@@ -1218,7 +1282,9 @@ def api_crc_update_course_outline(request):
             })
             
         elif action == 'request_revision':
-            outline = CourseOutline.objects.get(id=outline_id)
+            outline = CourseOutline.objects.select_related(
+                'faculty', 'course'
+            ).get(id=outline_id)
             
             # Only request revision on submitted outlines
             if outline.status != 'submitted':
@@ -1229,12 +1295,20 @@ def api_crc_update_course_outline(request):
             outline.status = 'revision_requested'
             outline.notes = notes
             outline.save()
+
+            email_sent = notify_faculty_outline_revision(
+                outline=outline,
+                notes=notes,
+                request=request,
+                requested_by=request.user,
+            )
             
             return JsonResponse({
                 'message': 'Revision requested for course outline',
                 'outline_id': outline.id,
                 'status': outline.status,
-                'notes': outline.notes
+                'notes': outline.notes,
+                'faculty_notified': email_sent,
             })
             
         elif action == 'update':
@@ -1311,6 +1385,7 @@ def api_crc_form_submissions(request):
         course_id = request.GET.get('course_id')
         department_id = request.GET.get('department_id')
         form_type = request.GET.get('form_type')
+        status = request.GET.get('status')
         
         submissions = DynamicFormSubmission.objects.filter(
             dynamic_form__form_type__in=['ccr', 'crr']  # Only universal forms
@@ -1318,7 +1393,7 @@ def api_crc_form_submissions(request):
             'faculty', 'course', 'dynamic_form', 'course__department'
         )
         
-        # Apply filters
+        # Apply filters (AND when multiple are set)
         if faculty_id:
             submissions = submissions.filter(faculty_id=faculty_id)
         if course_id:
@@ -1327,6 +1402,8 @@ def api_crc_form_submissions(request):
             submissions = submissions.filter(course__department_id=department_id)
         if form_type:
             submissions = submissions.filter(dynamic_form__form_type=form_type)
+        if status:
+            submissions = submissions.filter(status=status)
         
         submissions_list = list(submissions.order_by('-submission_date').values(
             'id', 'faculty__username', 'faculty__email', 'faculty__department',
@@ -1656,6 +1733,311 @@ def api_submission_details(request, submission_id):
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
 
+
+def _format_submission_answer_for_pdf(answer):
+    """Flatten a FormAnswer into plain text for PDF output."""
+    question_type = answer.question.question_type
+    answer_text = answer.answer_text or ""
+    answer_data = answer.answer_data
+
+    if question_type == "clo_percentage":
+        clo_rows = _extract_clo_rows_for_pdf(answer)
+        if not clo_rows:
+            return "No CLO data provided"
+        return clo_rows
+
+    if isinstance(answer_data, list):
+        return ", ".join(str(item) for item in answer_data) or "No answer provided"
+    if isinstance(answer_data, dict):
+        return ", ".join(f"{key}: {value}" for key, value in answer_data.items()) or (
+            answer_text or "No answer provided"
+        )
+    if answer_text:
+        return answer_text
+    if answer_data is not None:
+        return str(answer_data)
+    return "No answer provided"
+
+
+def _extract_clo_rows_for_pdf(answer):
+    """Return sorted CLO rows as [(label, percentage), ...] plus optional average."""
+    clo_data = {}
+    answer_data = answer.answer_data
+    answer_text = answer.answer_text or ""
+
+    if isinstance(answer_data, dict):
+        clo_data = answer_data
+    elif answer_text:
+        try:
+            parsed = json.loads(answer_text)
+            if isinstance(parsed, dict):
+                clo_data = parsed
+        except (TypeError, ValueError, json.JSONDecodeError):
+            pairs = answer_text.split(",")
+            for pair in pairs:
+                if ":" not in pair:
+                    continue
+                key, value = pair.split(":", 1)
+                try:
+                    clo_data[key.strip()] = float(value.strip().replace("%", ""))
+                except (TypeError, ValueError):
+                    continue
+
+    if not clo_data:
+        return []
+
+    def clo_sort_key(key):
+        digits = "".join(ch for ch in str(key) if ch.isdigit())
+        return int(digits) if digits else 0
+
+    rows = []
+    numeric_values = []
+    for key in sorted(clo_data.keys(), key=clo_sort_key):
+        raw_value = clo_data[key]
+        try:
+            if isinstance(raw_value, str):
+                percentage = float(raw_value.replace("%", "").strip())
+            else:
+                percentage = float(raw_value)
+        except (TypeError, ValueError):
+            rows.append((str(key), str(raw_value)))
+            continue
+        numeric_values.append(percentage)
+        rows.append((str(key), f"{percentage}%"))
+
+    if len(numeric_values) > 1:
+        average = round(sum(numeric_values) / len(numeric_values), 1)
+        rows.append(("Average", f"{average}%"))
+
+    return rows
+
+
+def _write_clo_table_to_pdf(pdf_document, clo_rows, font_name):
+    """Render CLO / Percentage table matching the view popup layout."""
+    if not clo_rows:
+        return
+
+    col_widths = (45, 45)
+    row_height = 8
+    pdf_document.set_x(pdf_document.l_margin)
+    pdf_document.set_font(font_name, style="B", size=10)
+    pdf_document.set_fill_color(249, 250, 251)
+    pdf_document.cell(col_widths[0], row_height, "CLO", border=1, fill=True)
+    pdf_document.cell(col_widths[1], row_height, "Percentage", border=1, fill=True, new_x="LMARGIN", new_y="NEXT")
+
+    for label, percentage in clo_rows:
+        is_average = str(label).lower() == "average"
+        pdf_document.set_font(font_name, style="B" if is_average else "", size=10)
+        if is_average:
+            pdf_document.set_fill_color(249, 250, 251)
+            fill = True
+        else:
+            fill = False
+        pdf_document.set_x(pdf_document.l_margin)
+        pdf_document.cell(col_widths[0], row_height, str(label), border=1, fill=fill)
+        pdf_document.cell(
+            col_widths[1],
+            row_height,
+            str(percentage),
+            border=1,
+            fill=fill,
+            new_x="LMARGIN",
+            new_y="NEXT",
+        )
+    pdf_document.ln(2)
+
+
+@login_required
+@require_http_methods(["GET"])
+def api_submission_pdf(request, submission_id):
+    """Download a form submission as a PDF (faculty: own only; CRC/admin: any)."""
+    try:
+        submission = DynamicFormSubmission.objects.select_related(
+            "course", "dynamic_form", "faculty"
+        ).get(id=submission_id)
+    except DynamicFormSubmission.DoesNotExist:
+        return JsonResponse({"error": "Submission not found"}, status=404)
+
+    if request.user.role == User.ROLE_FACULTY and submission.faculty_id != request.user.id:
+        return JsonResponse({"error": "Access denied"}, status=403)
+    if request.user.role not in (
+        User.ROLE_FACULTY,
+        User.ROLE_ADMIN,
+        User.ROLE_CRC_MEMBER,
+    ):
+        return JsonResponse({"error": "Access denied"}, status=403)
+
+    answers = (
+        FormAnswer.objects.filter(submission=submission)
+        .select_related("question")
+        .order_by("question__order", "question__id")
+    )
+
+    pdf_document = FPDF(orientation="P", unit="mm", format="A4")
+    pdf_document.set_auto_page_break(auto=True, margin=15)
+    pdf_document.set_left_margin(14)
+    pdf_document.set_right_margin(14)
+    pdf_document.add_page()
+
+    use_unicode_font = _register_dejavu_fonts_if_available(pdf_document)
+    title_font = "DejaVuSans" if use_unicode_font else "Helvetica"
+    body_font = "DejaVuSans" if use_unicode_font else "Helvetica"
+
+    def write_line(text, size=11, bold=False, gap=6):
+        style = "B" if bold else ""
+        raw_text = "" if text is None else str(text)
+        safe_text = (
+            raw_text if use_unicode_font else _normalize_html_for_core_pdf_fonts(raw_text)
+        )
+        pdf_document.set_x(pdf_document.l_margin)
+        pdf_document.set_font(title_font if bold else body_font, style=style, size=size)
+        # new_x/new_y keep the cursor on the left margin for the next line
+        pdf_document.multi_cell(
+            0,
+            gap,
+            safe_text,
+            new_x="LMARGIN",
+            new_y="NEXT",
+        )
+
+    try:
+        write_line("Form Submission Details", size=16, bold=True, gap=8)
+        pdf_document.ln(2)
+        write_line(
+            f"Form: {submission.dynamic_form.name} ({submission.dynamic_form.form_type.upper()})",
+            bold=True,
+        )
+        write_line(f"Course: {submission.course.code} - {submission.course.title}")
+        write_line(f"Status: {submission.status.replace('_', ' ')}")
+        write_line(
+            f"Date: {submission.submission_date.strftime('%B %d, %Y at %I:%M %p') if submission.submission_date else 'N/A'}"
+        )
+        write_line(f"Faculty: {submission.faculty.username}")
+        if submission.section:
+            write_line(f"Section: {submission.section}")
+        pdf_document.ln(4)
+        write_line("Answers", size=14, bold=True, gap=7)
+        pdf_document.ln(1)
+
+        if not answers.exists():
+            write_line("No answers submitted for this form.")
+        else:
+            for index, answer in enumerate(answers, start=1):
+                question_text = answer.question.question_text or "Question"
+                write_line(f"{index}. {question_text}", bold=True, gap=5)
+
+                if answer.question.question_type == "clo_percentage":
+                    clo_rows = _extract_clo_rows_for_pdf(answer)
+                    if clo_rows:
+                        _write_clo_table_to_pdf(
+                            pdf_document,
+                            clo_rows,
+                            title_font if use_unicode_font else body_font,
+                        )
+                    else:
+                        write_line("No CLO data provided", gap=5)
+                else:
+                    answer_text = _format_submission_answer_for_pdf(answer)
+                    write_line(answer_text, gap=5)
+                pdf_document.ln(2)
+
+        pdf_bytes = bytes(pdf_document.output())
+    except Exception as pdf_error:
+        print(f"Submission PDF generation failed: {pdf_error}")
+        return JsonResponse(
+            {"error": f"Failed to generate PDF: {pdf_error}"},
+            status=500,
+        )
+
+    course_code = (submission.course.code or "course").replace(" ", "_")
+    form_type = submission.dynamic_form.form_type.upper()
+    filename = f"submission_{course_code}_{form_type}_{submission.id}.pdf"
+    response = HttpResponse(pdf_bytes, content_type="application/pdf")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+
+@login_required
+@require_http_methods(["GET"])
+def api_outline_pdf(request, outline_id):
+    """Download a course outline as a PDF (faculty: own only; CRC/admin: any)."""
+    try:
+        outline = CourseOutline.objects.select_related(
+            "course", "faculty", "course__department"
+        ).get(id=outline_id)
+    except CourseOutline.DoesNotExist:
+        return JsonResponse({"error": "Course outline not found"}, status=404)
+
+    if request.user.role == User.ROLE_FACULTY and outline.faculty_id != request.user.id:
+        return JsonResponse({"error": "Access denied"}, status=403)
+    if request.user.role not in (
+        User.ROLE_FACULTY,
+        User.ROLE_ADMIN,
+        User.ROLE_CRC_MEMBER,
+    ):
+        return JsonResponse({"error": "Access denied"}, status=403)
+
+    course = outline.course
+    faculty = outline.faculty
+    department_name = course.department.name if course.department else "N/A"
+    submitted_at = (
+        outline.submitted_at.strftime("%B %d, %Y")
+        if outline.submitted_at
+        else "Not submitted"
+    )
+    status_label = (outline.status or "").replace("_", " ").title()
+
+    meta_html = (
+        f"<h1>Course Outline</h1>"
+        f"<p><b>Title:</b> {html_module.escape(outline.title or 'Course Outline')}</p>"
+        f"<p><b>Course:</b> {html_module.escape(course.code)} — "
+        f"{html_module.escape(course.title)}</p>"
+        f"<p><b>Department:</b> {html_module.escape(department_name)}</p>"
+        f"<p><b>Faculty:</b> {html_module.escape(faculty.username)}</p>"
+        f"<p><b>Version:</b> {outline.version}</p>"
+        f"<p><b>Status:</b> {html_module.escape(status_label)}</p>"
+        f"<p><b>Submitted:</b> {html_module.escape(submitted_at)}</p>"
+        "<hr/>"
+    )
+    if outline.notes:
+        meta_html += (
+            f"<p><b>CRC Notes:</b> {html_module.escape(outline.notes)}</p><hr/>"
+        )
+
+    content_html = outline.content or "<p><i>No outline content.</i></p>"
+    # Content is already HTML from the editor; wrap for layout.
+    combined_html = meta_html + f"<div>{content_html}</div>"
+
+    pdf_document = FPDF(orientation="P", unit="mm", format="A4")
+    pdf_document.set_auto_page_break(auto=True, margin=15)
+    pdf_document.set_left_margin(14)
+    pdf_document.set_right_margin(14)
+
+    try:
+        if _register_dejavu_fonts_if_available(pdf_document):
+            pdf_document.add_page()
+            pdf_document.set_font("DejaVuSans", size=11)
+        else:
+            combined_html = _normalize_html_for_core_pdf_fonts(combined_html)
+            pdf_document.add_page()
+            pdf_document.set_font("Helvetica", size=11)
+
+        pdf_document.write_html(combined_html)
+        pdf_bytes = bytes(pdf_document.output())
+    except Exception as pdf_error:
+        print(f"Outline PDF generation failed: {pdf_error}")
+        return JsonResponse(
+            {"error": f"Failed to generate PDF: {pdf_error}"},
+            status=500,
+        )
+
+    course_code = (course.code or "course").replace(" ", "_")
+    filename = f"outline_{course_code}_v{outline.version}_{outline.id}.pdf"
+    response = HttpResponse(pdf_bytes, content_type="application/pdf")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+
 # CRC Dashboard Statistics API
 @login_required
 @user_passes_test(is_admin_or_crc)
@@ -1749,14 +2131,24 @@ def api_approve_submission(request, submission_id):
 def api_reject_submission(request, submission_id):
     """Reject a form submission"""
     try:
-        submission = DynamicFormSubmission.objects.get(id=submission_id)
+        submission = DynamicFormSubmission.objects.select_related(
+            'faculty', 'course', 'dynamic_form'
+        ).get(id=submission_id)
         submission.status = 'revision_requested'
         submission.save()
+
+        email_sent = notify_faculty_form_revision(
+            submission=submission,
+            notes='',
+            request=request,
+            requested_by=request.user,
+        )
         
         return JsonResponse({
             'message': 'Submission rejected and revision requested',
             'submission_id': submission.id,
-            'status': submission.status
+            'status': submission.status,
+            'faculty_notified': email_sent,
         })
     except DynamicFormSubmission.DoesNotExist:
         return JsonResponse({'error': 'Submission not found'}, status=404)
@@ -1773,16 +2165,26 @@ def api_request_revision_submission(request, submission_id):
         data = json.loads(request.body)
         notes = data.get('notes', '')
         
-        submission = DynamicFormSubmission.objects.get(id=submission_id)
+        submission = DynamicFormSubmission.objects.select_related(
+            'faculty', 'course', 'dynamic_form'
+        ).get(id=submission_id)
         submission.status = 'revision_requested'
         
         submission.save()
+
+        email_sent = notify_faculty_form_revision(
+            submission=submission,
+            notes=notes,
+            request=request,
+            requested_by=request.user,
+        )
         
         return JsonResponse({
             'message': 'Revision requested for submission',
             'submission_id': submission.id,
             'status': submission.status,
-            'notes': notes
+            'notes': notes,
+            'faculty_notified': email_sent,
         })
     except DynamicFormSubmission.DoesNotExist:
         return JsonResponse({'error': 'Submission not found'}, status=404)
@@ -2619,6 +3021,295 @@ def api_analysis_clo_achievement(request):
         traceback.print_exc()
         return JsonResponse({'error': str(e)}, status=400)
 
+
+def _parse_clo_percentage_dict(answer_data):
+    """Extract clo1..clo4 numeric scores from a clo_percentage answer_data dict."""
+    scores = {}
+    if not isinstance(answer_data, dict):
+        return scores
+    for clo_num in [1, 2, 3, 4]:
+        for key in (
+            f'clo{clo_num}',
+            f'clo_{clo_num}',
+            f'CLO{clo_num}',
+            f'CLO_{clo_num}',
+        ):
+            if key not in answer_data:
+                continue
+            raw_value = answer_data[key]
+            try:
+                if isinstance(raw_value, str):
+                    raw_value = raw_value.replace('%', '').strip()
+                score_value = float(raw_value)
+                scores[clo_num] = score_value
+                break
+            except (TypeError, ValueError):
+                continue
+    return scores
+
+
+def _short_ccr_criterion_label(question_text, fallback_index):
+    """Map CCR Q6-Q9 question text to a short chart legend label."""
+    text = (question_text or '').lower()
+    if 'student-centered' in text or 'student centered' in text:
+        return 'Student-centered'
+    if 'measurable' in text:
+        return 'Measurable'
+    if 'achievable' in text or 'realistic' in text:
+        return 'Achievable'
+    if 'bloom' in text or 'action verb' in text or "dave" in text:
+        return "Bloom's verb"
+    cleaned = (question_text or '').strip()
+    if cleaned:
+        return cleaned[:42] + ('…' if len(cleaned) > 42 else '')
+    return f'Criterion {fallback_index}'
+
+
+def _clo_number_from_mapping_question(question):
+    """Return 1-4 for CCR Q10-Q13 style questions labeled CLO-1 … CLO-4."""
+    text = (question.question_text or '').strip().lower()
+    match = re.search(r'clo[-\s]?([1-4])\b', text)
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def _normalize_mapping_option(option_value):
+    """Normalize checkbox option labels for Domain / Level / GA Mapping."""
+    text = str(option_value or '').strip().lower()
+    if 'domain' in text:
+        return 'Learning Domain'
+    if text == 'level' or text.startswith('level'):
+        return 'Level'
+    if 'ga' in text or 'graduate' in text:
+        return 'GA Mapping'
+    return None
+
+
+@login_required
+@user_passes_test(is_admin_or_crc)
+@require_http_methods(["GET"])
+def api_analysis_ccr_clo_graphs(request):
+    """
+    Build Analysis Dashboard graphs from real CCR form answers:
+
+    - Q6–Q9 (clo_percentage): CLO achievement / quality criteria
+    - Q10–Q13 (checkbox CLO-1..CLO-4): Learning Domain / Level / GA Mapping
+    - Pie: healthy vs problematic CLO instances (avg Q6–Q9 score < 70)
+    """
+    try:
+        selected_course_id = request.GET.get('course_id')
+        achievement_threshold = 70.0
+
+        submissions = (
+            DynamicFormSubmission.objects.filter(
+                dynamic_form__form_type='ccr',
+                status__in=['submitted', 'approved'],
+            )
+            .select_related('course', 'dynamic_form', 'faculty')
+            .prefetch_related('answers__question')
+        )
+        if selected_course_id:
+            submissions = submissions.filter(course_id=selected_course_id)
+
+        submissions_list = list(submissions)
+        submission_count = len(submissions_list)
+
+        # criterion_key -> {clo_num -> [scores]}
+        criterion_scores = {}
+        criterion_labels = {}
+        # clo_num -> list of per-submission averages (across Q6-Q9)
+        clo_submission_averages = {1: [], 2: [], 3: [], 4: []}
+        # mapping: clo_num -> dimension -> count
+        mapping_dimensions = ['Learning Domain', 'Level', 'GA Mapping']
+        mapping_counts = {
+            clo_num: {dimension: 0 for dimension in mapping_dimensions}
+            for clo_num in [1, 2, 3, 4]
+        }
+        mapping_response_counts = {1: 0, 2: 0, 3: 0, 4: 0}
+
+        healthy_clo_instances = 0
+        problematic_clo_instances = 0
+        clo_health_details = {
+            clo_num: {'healthy': 0, 'problematic': 0, 'averages': []}
+            for clo_num in [1, 2, 3, 4]
+        }
+
+        for submission in submissions_list:
+            quality_answers = []
+            for answer in submission.answers.all():
+                question = answer.question
+                if question.question_type == 'clo_percentage':
+                    quality_answers.append(answer)
+                    continue
+
+                clo_num = _clo_number_from_mapping_question(question)
+                if clo_num is None or question.question_type != 'checkbox':
+                    continue
+
+                mapping_response_counts[clo_num] += 1
+                selected_options = []
+                if isinstance(answer.answer_data, list):
+                    selected_options = answer.answer_data
+                elif answer.answer_text:
+                    selected_options = [
+                        part.strip()
+                        for part in answer.answer_text.split(',')
+                        if part.strip()
+                    ]
+
+                for option in selected_options:
+                    dimension = _normalize_mapping_option(option)
+                    if dimension:
+                        mapping_counts[clo_num][dimension] += 1
+
+            # Sort Q6-Q9 by question order so criteria stay stable.
+            quality_answers.sort(key=lambda item: (item.question.order, item.question.id))
+
+            per_clo_scores_for_submission = {1: [], 2: [], 3: [], 4: []}
+            for criterion_index, answer in enumerate(quality_answers, start=1):
+                question = answer.question
+                criterion_key = f'q_{question.id}'
+                if criterion_key not in criterion_labels:
+                    criterion_labels[criterion_key] = _short_ccr_criterion_label(
+                        question.question_text,
+                        criterion_index,
+                    )
+                    criterion_scores[criterion_key] = {1: [], 2: [], 3: [], 4: []}
+
+                parsed_scores = _parse_clo_percentage_dict(answer.answer_data)
+                for clo_num, score_value in parsed_scores.items():
+                    criterion_scores[criterion_key][clo_num].append(score_value)
+                    per_clo_scores_for_submission[clo_num].append(score_value)
+
+            for clo_num, score_list in per_clo_scores_for_submission.items():
+                if not score_list:
+                    continue
+                average_score = sum(score_list) / len(score_list)
+                clo_submission_averages[clo_num].append(average_score)
+                clo_health_details[clo_num]['averages'].append(average_score)
+                if average_score >= achievement_threshold:
+                    healthy_clo_instances += 1
+                    clo_health_details[clo_num]['healthy'] += 1
+                else:
+                    problematic_clo_instances += 1
+                    clo_health_details[clo_num]['problematic'] += 1
+
+        # Preserve criterion order by first-seen insertion (already sorted per submission).
+        ordered_criterion_keys = list(criterion_scores.keys())
+        criteria_labels = [
+            criterion_labels[key] for key in ordered_criterion_keys
+        ]
+
+        criteria_averages = []
+        for criterion_key in ordered_criterion_keys:
+            row = []
+            for clo_num in [1, 2, 3, 4]:
+                values = criterion_scores[criterion_key][clo_num]
+                row.append(round(sum(values) / len(values), 1) if values else 0)
+            criteria_averages.append(row)
+
+        clo_labels = ['CLO1', 'CLO2', 'CLO3', 'CLO4']
+        average_scores = []
+        achievement_rates = []
+        total_score_counts = []
+        achieved_counts = []
+
+        for clo_num in [1, 2, 3, 4]:
+            all_scores = []
+            for criterion_key in ordered_criterion_keys:
+                all_scores.extend(criterion_scores[criterion_key][clo_num])
+
+            total_score_counts.append(len(all_scores))
+            if all_scores:
+                average_scores.append(round(sum(all_scores) / len(all_scores), 1))
+                achieved = sum(1 for score in all_scores if score >= achievement_threshold)
+                achieved_counts.append(achieved)
+                achievement_rates.append(round((achieved / len(all_scores)) * 100, 1))
+            else:
+                average_scores.append(0)
+                achieved_counts.append(0)
+                achievement_rates.append(0)
+
+        mapping_count_series = {
+            dimension: [
+                mapping_counts[clo_num][dimension] for clo_num in [1, 2, 3, 4]
+            ]
+            for dimension in mapping_dimensions
+        }
+        mapping_coverage_rates = {
+            dimension: [
+                round(
+                    (mapping_counts[clo_num][dimension] / mapping_response_counts[clo_num]) * 100,
+                    1,
+                )
+                if mapping_response_counts[clo_num]
+                else 0
+                for clo_num in [1, 2, 3, 4]
+            ]
+            for dimension in mapping_dimensions
+        }
+
+        problematic_details = []
+        for clo_num in [1, 2, 3, 4]:
+            averages = clo_health_details[clo_num]['averages']
+            overall_average = (
+                round(sum(averages) / len(averages), 1) if averages else 0
+            )
+            problematic_details.append({
+                'clo': f'CLO{clo_num}',
+                'average_score': overall_average,
+                'healthy_instances': clo_health_details[clo_num]['healthy'],
+                'problematic_instances': clo_health_details[clo_num]['problematic'],
+                'status': (
+                    'problematic'
+                    if overall_average and overall_average < achievement_threshold
+                    else ('healthy' if averages else 'no_data')
+                ),
+            })
+
+        return JsonResponse({
+            'submission_count': submission_count,
+            'threshold': achievement_threshold,
+            'source': {
+                'form_type': 'ccr',
+                'achievement_questions': 'Q6-Q9 (clo_percentage criteria)',
+                'mapping_questions': 'Q10-Q13 (CLO Domain / Level / GA Mapping)',
+            },
+            'achievement': {
+                'clos': clo_labels,
+                'criteria_labels': criteria_labels,
+                'criteria_averages': criteria_averages,
+                'average_scores': average_scores,
+                'achievement_rates': achievement_rates,
+                'total_responses': total_score_counts,
+                'achieved_counts': achieved_counts,
+            },
+            'mapping': {
+                'clos': clo_labels,
+                'dimensions': mapping_dimensions,
+                'counts': mapping_count_series,
+                'coverage_rates': mapping_coverage_rates,
+                'response_counts': [
+                    mapping_response_counts[clo_num] for clo_num in [1, 2, 3, 4]
+                ],
+            },
+            'problematic': {
+                'labels': ['Healthy CLOs', 'Problematic CLOs'],
+                'data': [healthy_clo_instances, problematic_clo_instances],
+                'colors': ['#10b981', '#ef4444'],
+                'threshold': achievement_threshold,
+                'details': problematic_details,
+                'total_instances': healthy_clo_instances + problematic_clo_instances,
+            },
+        })
+    except Exception as e:
+        print(f"Error in CCR CLO graphs analysis: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'error': str(e)}, status=400)
+
+
 def extract_clo_score_from_answer(answer):
     """Extract a numerical score (0-100) from an answer"""
     try:
@@ -3024,8 +3715,8 @@ def api_compare_outlines(request):
         if first_outline.course_id != second_outline.course_id:
             return JsonResponse({'error': 'Outlines must be from the same course'}, status=400)
 
-        parsed_first_content = _parse_outline_content(first_outline.content)
-        parsed_second_content = _parse_outline_content(second_outline.content)
+        parsed_first_content = _outline_content_for_comparison(first_outline.content)
+        parsed_second_content = _outline_content_for_comparison(second_outline.content)
 
         outline_meta = {
             'outline1': _serialize_outline_meta(first_outline),
@@ -3124,21 +3815,82 @@ def _parse_outline_content(raw_content):
     return str(raw_content)
 
 
+def _html_to_comparison_text(raw_html):
+    """Convert HTML outline markup into readable plain text for full-document diffs."""
+    if not raw_html:
+        return ''
+
+    text = str(raw_html)
+    # Preserve structure by turning block tags into line breaks.
+    text = re.sub(
+        r'<\s*br\s*/?\s*>',
+        '\n',
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r'</\s*(?:p|div|h[1-6]|li|tr|section|article|table|ul|ol|blockquote|pre)\s*>',
+        '\n',
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r'<\s*(?:p|div|h[1-6]|li|tr|section|article|table|ul|ol|blockquote|pre)(?:\s[^>]*)?>',
+        '\n',
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r'<[^>]+>', ' ', text)
+    text = html_module.unescape(text)
+
+    lines = []
+    for line in text.splitlines():
+        normalized_line = re.sub(r'[ \t\u00a0]+', ' ', line).strip()
+        if normalized_line:
+            lines.append(normalized_line)
+    return '\n'.join(lines)
+
+
+def _outline_content_for_comparison(raw_content):
+    """
+    Normalize outline content for AI + structural comparison.
+
+    HTML editor content is converted to plain text so the whole document
+    (not just the first few thousand HTML characters) is compared.
+    """
+    parsed = _parse_outline_content(raw_content)
+    if isinstance(parsed, (dict, list)):
+        return parsed
+
+    text = str(parsed or '')
+    if re.search(r'<[a-zA-Z][^>]*>', text):
+        return _html_to_comparison_text(text)
+    return text.strip()
+
+
 def _build_fallback_differences(parsed_first_content, parsed_second_content):
     """Always compute structural/textual diffs so we have data even without AI."""
     try:
         if isinstance(parsed_first_content, dict) and isinstance(parsed_second_content, dict):
             return compare_structured_content(parsed_first_content, parsed_second_content)
-        first_text = parsed_first_content if isinstance(parsed_first_content, str) else json.dumps(parsed_first_content, indent=2)
-        second_text = parsed_second_content if isinstance(parsed_second_content, str) else json.dumps(parsed_second_content, indent=2)
+        first_text = (
+            parsed_first_content
+            if isinstance(parsed_first_content, str)
+            else json.dumps(parsed_first_content, indent=2, ensure_ascii=False)
+        )
+        second_text = (
+            parsed_second_content
+            if isinstance(parsed_second_content, str)
+            else json.dumps(parsed_second_content, indent=2, ensure_ascii=False)
+        )
         return compare_text_content(first_text, second_text)
     except Exception as exc:
         print(f"Fallback diff failed: {exc}")
         return {'added': [], 'modified': [], 'deleted': []}
 
 
-def _build_outline_excerpt_for_ai(parsed_content, character_limit=8000):
-    """Format outline content for inclusion in the LLM prompt with a length cap."""
+def _build_outline_excerpt_for_ai(parsed_content, character_limit=120000):
+    """Format full outline content for the LLM prompt (plain text preferred)."""
     if isinstance(parsed_content, (dict, list)):
         try:
             text = json.dumps(parsed_content, indent=2, ensure_ascii=False)
@@ -3147,8 +3899,14 @@ def _build_outline_excerpt_for_ai(parsed_content, character_limit=8000):
     else:
         text = str(parsed_content or '')
 
+    # Soft safety cap only — large enough for full course outlines.
     if len(text) > character_limit:
-        return text[:character_limit] + "\n... [truncated] ..."
+        return (
+            text[:character_limit]
+            + "\n\n... [content truncated after "
+            + str(character_limit)
+            + " characters; remaining sections omitted due to size] ..."
+        )
     return text
 
 
@@ -3264,19 +4022,22 @@ def _generate_ai_outline_comparison(
         "You are an expert academic curriculum reviewer comparing two versions of a "
         "course outline. Produce a precise, professional analysis.\n\n"
         f"Course: {first_outline.course.code} - {first_outline.course.title}\n\n"
+        "IMPORTANT: Both outlines below are the FULL document text (converted from HTML "
+        "when needed). Compare the entire document from beginning to end. Do not ignore "
+        "later sections such as weekly plan, assessment, textbooks, or policies.\n\n"
         "=== OUTLINE A (older / left side) ===\n"
         f"Version: {first_outline.version}\n"
         f"Title: {first_outline.title}\n"
         f"Status: {first_outline.status}\n"
         f"Author: {first_outline.faculty.username if first_outline.faculty_id else 'Unknown'}\n"
-        "Content:\n"
+        "Full content:\n"
         f"{first_excerpt}\n\n"
         "=== OUTLINE B (newer / right side) ===\n"
         f"Version: {second_outline.version}\n"
         f"Title: {second_outline.title}\n"
         f"Status: {second_outline.status}\n"
         f"Author: {second_outline.faculty.username if second_outline.faculty_id else 'Unknown'}\n"
-        "Content:\n"
+        "Full content:\n"
         f"{second_excerpt}\n\n"
         "Compare Outline B against Outline A and respond with ONLY valid JSON, no "
         "Markdown fences, with the following shape:\n"
@@ -3290,16 +4051,22 @@ def _generate_ai_outline_comparison(
         '  "modified_sections": [ { "title": "...", "description": "nature of the change", "old_summary": "what Outline A said", "new_summary": "what Outline B says", "severity": "low|medium|high" } ],\n'
         '  "recommendations": ["actionable improvement recommendations for the new outline"]\n'
         "}\n"
-        "Focus on pedagogically meaningful differences (CLOs, assessment weighting, "
-        "topics, contact hours, references). Ignore trivial formatting/whitespace changes. "
-        "If a category has no items, return an empty list. Keep descriptions concise "
-        "(<= 2 sentences). Output only the JSON object."
+        "Cover differences across the WHOLE outline (course info, CLOs, weekly topics, "
+        "assessment, textbooks, policies, etc.). Ignore trivial formatting/whitespace "
+        "changes. If a category has no items, return an empty list. Keep descriptions "
+        "concise (<= 2 sentences). Output only the JSON object."
     )
 
-    raw_response = call_llm_api(prompt, ai_config)
+    # Longer outlines need more time / output budget.
+    comparison_config = dict(ai_config)
+    comparison_config['timeout'] = max(float(ai_config.get('timeout') or 30), 90.0)
+    comparison_config['max_tokens'] = max(int(ai_config.get('max_tokens') or 4000), 6000)
+
+    raw_response = call_llm_api(prompt, comparison_config)
     parsed_response = _extract_json_from_ai_response(raw_response)
     normalized_response = _normalize_ai_comparison_payload(parsed_response)
     return normalized_response
+
 
 def compare_structured_content(content1, content2):
     """Compare two structured JSON contents"""
@@ -3308,12 +4075,12 @@ def compare_structured_content(content1, content2):
         'modified': [],
         'deleted': []
     }
-    
+
     # Compare sections if they exist
     if 'sections' in content1 and 'sections' in content2:
         sections1 = {section.get('id', str(i)): section for i, section in enumerate(content1['sections'])}
         sections2 = {section.get('id', str(i)): section for i, section in enumerate(content2['sections'])}
-        
+
         # Find added sections
         for section_id, section in sections2.items():
             if section_id not in sections1:
@@ -3322,7 +4089,7 @@ def compare_structured_content(content1, content2):
                     'title': section.get('title', 'Untitled Section'),
                     'content': section
                 })
-        
+
         # Find deleted sections
         for section_id, section in sections1.items():
             if section_id not in sections2:
@@ -3331,7 +4098,7 @@ def compare_structured_content(content1, content2):
                     'title': section.get('title', 'Untitled Section'),
                     'content': section
                 })
-        
+
         # Find modified sections
         for section_id in set(sections1.keys()) & set(sections2.keys()):
             if sections1[section_id] != sections2[section_id]:
@@ -3341,45 +4108,76 @@ def compare_structured_content(content1, content2):
                     'old_content': sections1[section_id],
                     'new_content': sections2[section_id]
                 })
-    
+    else:
+        # Fall back to full-document text comparison for non-section JSON.
+        return compare_text_content(
+            json.dumps(content1, indent=2, ensure_ascii=False),
+            json.dumps(content2, indent=2, ensure_ascii=False),
+        )
+
     return differences
 
+
 def compare_text_content(text1, text2):
-    """Compare two text contents"""
-    lines1 = text1.split('\n')
-    lines2 = text2.split('\n')
-    
+    """Compare two full-document texts using sequence matching on blocks."""
+    blocks1 = [block.strip() for block in re.split(r'\n+', text1 or '') if block.strip()]
+    blocks2 = [block.strip() for block in re.split(r'\n+', text2 or '') if block.strip()]
+
     differences = {
         'added': [],
         'modified': [],
         'deleted': []
     }
-    
-    # Simple line-by-line comparison
-    for i, (line1, line2) in enumerate(itertools.zip_longest(lines1, lines2, fillvalue="")):
-        if i >= len(lines1):
-            # Line added in version 2
-            if line2.strip():
+
+    matcher = SequenceMatcher(a=blocks1, b=blocks2, autojunk=False)
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == 'equal':
+            continue
+
+        if tag == 'insert':
+            for offset, block in enumerate(blocks2[j1:j2]):
                 differences['added'].append({
-                    'line': i + 1,
-                    'content': line2
+                    'line': j1 + offset + 1,
+                    'title': f'Added block {j1 + offset + 1}',
+                    'content': block,
                 })
-        elif i >= len(lines2):
-            # Line deleted in version 2
-            if line1.strip():
+            continue
+
+        if tag == 'delete':
+            for offset, block in enumerate(blocks1[i1:i2]):
                 differences['deleted'].append({
-                    'line': i + 1,
-                    'content': line1
+                    'line': i1 + offset + 1,
+                    'title': f'Removed block {i1 + offset + 1}',
+                    'content': block,
                 })
-        elif line1 != line2:
-            # Line modified
-            differences['modified'].append({
-                'line': i + 1,
-                'old_content': line1,
-                'new_content': line2
-            })
-    
+            continue
+
+        if tag == 'replace':
+            old_blocks = blocks1[i1:i2]
+            new_blocks = blocks2[j1:j2]
+            paired_count = min(len(old_blocks), len(new_blocks))
+            for offset in range(paired_count):
+                differences['modified'].append({
+                    'line': i1 + offset + 1,
+                    'title': f'Changed block {i1 + offset + 1}',
+                    'old_content': old_blocks[offset],
+                    'new_content': new_blocks[offset],
+                })
+            for offset, block in enumerate(new_blocks[paired_count:]):
+                differences['added'].append({
+                    'line': j1 + paired_count + offset + 1,
+                    'title': f'Added block {j1 + paired_count + offset + 1}',
+                    'content': block,
+                })
+            for offset, block in enumerate(old_blocks[paired_count:]):
+                differences['deleted'].append({
+                    'line': i1 + paired_count + offset + 1,
+                    'title': f'Removed block {i1 + paired_count + offset + 1}',
+                    'content': block,
+                })
+
     return differences
+
 
 @login_required
 @user_passes_test(is_admin_or_crc)
@@ -3663,6 +4461,7 @@ def build_cqi_chart_data(context_data):
     statistics = context_data.get("statistics") or {}
     clo_analysis = context_data.get("clo_analysis") or {}
     course_review_summary = context_data.get("course_review_summary") or []
+    cqi_tables = context_data.get("cqi_tables") or {}
 
     approved = int(statistics.get("approved_submissions") or 0)
     pending = int(statistics.get("pending_submissions") or 0)
@@ -3697,6 +4496,17 @@ def build_cqi_chart_data(context_data):
     ccr_total = sum(int(row.get("ccr_submissions") or 0) for row in course_review_summary)
     crr_total = sum(int(row.get("crr_submissions") or 0) for row in course_review_summary)
 
+    table_01_chart = (cqi_tables.get("table_01") or {}).get("chart") or {}
+    table_02_chart = (cqi_tables.get("table_02") or {}).get("chart") or {}
+    table_03_chart = (cqi_tables.get("table_03") or {}).get("chart") or {}
+
+    # Required corrections = CLOs below 70% achievement (negative/attention signal)
+    required_corrections = {
+        "labels": clo_labels,
+        "data": [max(0.0, round(70.0 - float(rate or 0), 1)) for rate in clo_rates],
+        "colors": ["#dc2626", "#ea580c", "#ca8a04", "#b91c1c"],
+    }
+
     return {
         "status_distribution": {
             "labels": status_labels,
@@ -3708,11 +4518,15 @@ def build_cqi_chart_data(context_data):
             "achievement_rates": clo_rates,
             "average_scores": clo_averages,
         },
+        "required_clo_corrections": required_corrections,
         "form_type_distribution": {
             "labels": ["CCR", "CRR"],
             "data": [ccr_total, crr_total],
             "colors": ["#7c3aed", "#2563eb"],
         },
+        "table_01_recommendations": table_01_chart,
+        "table_02_hec": table_02_chart,
+        "table_03_clo_gaps": table_03_chart,
         "metrics": {
             "total_submissions": total,
             "approved_submissions": approved,
@@ -3728,6 +4542,9 @@ def build_cqi_chart_data(context_data):
                 or context_data.get("outlines")
                 or []
             ),
+            "table_01_rows": len((cqi_tables.get("table_01") or {}).get("rows") or []),
+            "table_02_rows": len((cqi_tables.get("table_02") or {}).get("rows") or []),
+            "table_03_rows": len((cqi_tables.get("table_03") or {}).get("rows") or []),
         },
     }
 
@@ -3834,11 +4651,13 @@ def api_generate_cqi_report(request):
         # Generate report using AI
         try:
             report = generate_ai_report(context_data, report_type, ai_config)
-            report_html = markdown_to_cqi_html(report)
+            tables_html = context_data.get("cqi_tables_html") or ""
+            report_html = tables_html + markdown_to_cqi_html(report)
 
             return JsonResponse({
                 'report': report,
                 'report_html': report_html,
+                'tables_html': tables_html,
                 'generated_at': datetime.now().isoformat(),
                 'course_id': course_id,
                 'time_period': time_period,
@@ -3847,11 +4666,23 @@ def api_generate_cqi_report(request):
                 'ai_model': ai_config['model'],
                 'cover': context_data.get('cover'),
                 'chart_data': build_cqi_chart_data(context_data),
+                'cqi_tables': context_data.get('cqi_tables'),
                 'context_summary': {
                     'form_submissions_analyzed': len(context_data.get('form_submissions', [])),
                     'course_outlines_analyzed': len(context_data.get('course_outlines', [])),
                     'clo_analysis_included': bool(context_data.get('clo_analysis', {})),
-                    'statistics': context_data.get('statistics', {})
+                    'statistics': context_data.get('statistics', {}),
+                    'evidence_tables': {
+                        'table_01_rows': len(
+                            ((context_data.get('cqi_tables') or {}).get('table_01') or {}).get('rows') or []
+                        ),
+                        'table_02_rows': len(
+                            ((context_data.get('cqi_tables') or {}).get('table_02') or {}).get('rows') or []
+                        ),
+                        'table_03_rows': len(
+                            ((context_data.get('cqi_tables') or {}).get('table_03') or {}).get('rows') or []
+                        ),
+                    },
                 },
                 'success': True
             })
@@ -3859,10 +4690,12 @@ def api_generate_cqi_report(request):
             print(f"AI generation error: {ai_error}")
             # Fallback to manual report
             fallback_report = generate_fallback_report(context_data, report_type)
-            fallback_html = markdown_to_cqi_html(fallback_report)
+            tables_html = context_data.get("cqi_tables_html") or ""
+            fallback_html = tables_html + markdown_to_cqi_html(fallback_report)
             return JsonResponse({
                 'report': fallback_report,
                 'report_html': fallback_html,
+                'tables_html': tables_html,
                 'generated_at': datetime.now().isoformat(),
                 'course_id': course_id,
                 'time_period': time_period,
@@ -3872,6 +4705,7 @@ def api_generate_cqi_report(request):
                 'error': str(ai_error),
                 'cover': context_data.get('cover'),
                 'chart_data': build_cqi_chart_data(context_data),
+                'cqi_tables': context_data.get('cqi_tables'),
             })
         
     except Exception as e:
@@ -4027,6 +4861,557 @@ def build_course_review_summary_for_cqi(submissions_queryset):
     return sorted(per_course.values(), key=lambda item: (item["course_code"] or "").lower())
 
 
+def _answer_text_value(answer):
+    if answer is None:
+        return ""
+    if answer.answer_text and str(answer.answer_text).strip():
+        return str(answer.answer_text).strip()
+    if isinstance(answer.answer_data, str):
+        return answer.answer_data.strip()
+    return ""
+
+
+def _classify_hec_accordance(answer_text):
+    """Map CCR Q1 free text to Matched / Not Matched / Not Available."""
+    text = (answer_text or "").strip()
+    lowered = text.lower()
+    if not text or lowered in {"n/a", "na", "none", "-", "nil"}:
+        return "not_available"
+    if re.match(r"^(no|n)\b", lowered) or any(
+        phrase in lowered[:160]
+        for phrase in (
+            "not covered",
+            "not included",
+            "does not include",
+            "missing",
+            "not match",
+        )
+    ):
+        return "not_matched"
+    if re.match(r"^(yes|y)\b", lowered) or "covers" in lowered[:120] or "matched" in lowered[:120]:
+        return "matched"
+    if "partial" in lowered:
+        return "not_matched"
+    return "matched" if len(text) > 20 else "not_available"
+
+
+def _recommendation_update_from_content_tools(answer_text):
+    """CCR Q2: Yes = recommendation to update content/tools."""
+    text = (answer_text or "").strip()
+    lowered = text.lower()
+    if not text or lowered in {"n/a", "na", "none", "-", "nil", "no"}:
+        return "No"
+    if re.match(r"^(no|none|n/?a)\b", lowered) and not any(
+        word in lowered for word in ("add", "remove", "update", "replace", "include")
+    ):
+        return "No"
+    if any(
+        word in lowered
+        for word in ("add", "remove", "update", "replace", "reduce", "include", "should", "need")
+    ):
+        return "Yes"
+    return "Yes" if len(text) > 35 else "No"
+
+
+def _recommendation_update_from_week_or_books(answer_text):
+    """CCR Q3/Q4: leading Yes usually means current state is OK (no update)."""
+    text = (answer_text or "").strip()
+    lowered = text.lower()
+    if not text or lowered in {"n/a", "na", "none", "-", "nil"}:
+        return "N/A"
+    if re.match(r"^(no|n)\b", lowered) or lowered.startswith("partial"):
+        return "Yes"
+    if any(
+        phrase in lowered
+        for phrase in (
+            "not appropriate",
+            "not relevant",
+            "outdated",
+            "should be replaced",
+            "need to",
+            "needs to",
+            "better balance is required",
+        )
+    ):
+        return "Yes"
+    if re.match(r"^(yes|y)\b", lowered):
+        return "No"
+    return "Yes" if "update" in lowered or "change" in lowered else "No"
+
+
+def _crr_indicates_clo_not_attained(answer_text):
+    """CCR/CRR Q2-style course outcomes: True when CLOs were not fully met."""
+    text = (answer_text or "").strip()
+    lowered = text.lower()
+    if not text:
+        return False
+    negative_signals = (
+        "not met",
+        "not achieved",
+        "not fully",
+        "partially",
+        "partial",
+        "weak",
+        "not satisfied",
+        "unsatisfied",
+        "only partially",
+        "were only partially",
+        "few clos",
+        "some clos",
+    )
+    if any(signal in lowered for signal in negative_signals):
+        return True
+    if re.match(r"^(no|n)\b", lowered):
+        return True
+    if re.match(r"^(yes|y)\b", lowered) and not any(
+        signal in lowered for signal in ("partial", "however", "weak", "except")
+    ):
+        return False
+    return False
+
+
+def _get_submission_answers_by_order(submission):
+    """Map question.order -> FormAnswer for a submission."""
+    by_order = {}
+    for answer in submission.answers.all():
+        by_order[answer.question.order] = answer
+    return by_order
+
+
+def _course_clo_not_attained_flags(ccr_submission):
+    """
+    From CCR clo_percentage answers (Q6-Q9), mark CLOs with average score < 70
+    as not attained for Table 03.
+    """
+    per_clo_scores = {1: [], 2: [], 3: [], 4: []}
+    for answer in ccr_submission.answers.all():
+        if answer.question.question_type != "clo_percentage":
+            continue
+        parsed = _parse_clo_percentage_dict(answer.answer_data)
+        for clo_num, score in parsed.items():
+            per_clo_scores[clo_num].append(score)
+
+    flags = {}
+    for clo_num in [1, 2, 3, 4]:
+        scores = per_clo_scores[clo_num]
+        if not scores:
+            flags[clo_num] = False
+            continue
+        average_score = sum(scores) / len(scores)
+        flags[clo_num] = average_score < 70.0
+    return flags
+
+
+def build_cqi_evidence_tables(filtered_submissions_queryset):
+    """
+    Build Table 01–03 from real CCR/CRR answers:
+
+    - Table 01: CCR Q2/Q3/Q4 recommendation-to-update flags
+    - Table 02: CCR Q1 HEC accordance
+    - Table 03: CRR outcomes where CLOs not attained (+ CCR CLO flags)
+    """
+    submissions = list(
+        filtered_submissions_queryset.filter(status__in=["submitted", "approved"])
+        .select_related("course", "faculty", "dynamic_form")
+        .prefetch_related("answers__question")
+        .order_by("course__code", "-submission_date")
+    )
+
+    # Latest CCR per course for Tables 01/02 and CLO flags
+    latest_ccr_by_course = {}
+    for submission in submissions:
+        if submission.dynamic_form.form_type != "ccr":
+            continue
+        course_id_value = submission.course_id
+        if course_id_value not in latest_ccr_by_course:
+            latest_ccr_by_course[course_id_value] = submission
+
+    table_01_rows = []
+    table_02_rows = []
+    for index, (course_id_value, submission) in enumerate(
+        sorted(
+            latest_ccr_by_course.items(),
+            key=lambda item: (item[1].course.code or "").lower(),
+        ),
+        start=1,
+    ):
+        answers_by_order = _get_submission_answers_by_order(submission)
+        q1_text = _answer_text_value(answers_by_order.get(0))
+        q2_text = _answer_text_value(answers_by_order.get(1))
+        q3_text = _answer_text_value(answers_by_order.get(2))
+        q4_text = _answer_text_value(answers_by_order.get(3))
+
+        coordinator_name = (submission.course_coordinator or "").strip()
+        if not coordinator_name:
+            coordinator_assignment = (
+                CourseFaculty.objects.filter(
+                    course_id=course_id_value, is_coordinator=True
+                )
+                .select_related("faculty")
+                .first()
+            )
+            if coordinator_assignment:
+                coordinator_name = (
+                    coordinator_assignment.faculty.get_full_name() or ""
+                ).strip() or coordinator_assignment.faculty.username
+
+        content_tools = _recommendation_update_from_content_tools(q2_text)
+        week_wise = _recommendation_update_from_week_or_books(q3_text)
+        textbook = _recommendation_update_from_week_or_books(q4_text)
+
+        table_01_rows.append(
+            {
+                "sr": index,
+                "course_code": submission.course.code,
+                "course_title": submission.course.title,
+                "course_label": f"{submission.course.code} — {submission.course.title}",
+                "coordinator_name": coordinator_name or "N/A",
+                "content_tools_update": content_tools,
+                "week_wise_update": week_wise,
+                "textbook_update": textbook,
+                "q2_excerpt": (q2_text[:180] + "…") if len(q2_text) > 180 else q2_text,
+                "q3_excerpt": (q3_text[:180] + "…") if len(q3_text) > 180 else q3_text,
+                "q4_excerpt": (q4_text[:180] + "…") if len(q4_text) > 180 else q4_text,
+            }
+        )
+
+        hec_status = _classify_hec_accordance(q1_text)
+        table_02_rows.append(
+            {
+                "sr": index,
+                "course_code": submission.course.code,
+                "course_title": submission.course.title,
+                "course_label": f"{submission.course.code} — {submission.course.title}",
+                "hec_status": hec_status,
+                "not_matched": "✓" if hec_status == "not_matched" else "",
+                "matched": "✓" if hec_status == "matched" else "",
+                "not_available": "✓" if hec_status == "not_available" else "",
+                "q1_excerpt": (q1_text[:220] + "…") if len(q1_text) > 220 else q1_text,
+            }
+        )
+
+    # Precompute CLO not-attained flags per course from CCR
+    clo_flags_by_course = {}
+    for course_id_value, submission in latest_ccr_by_course.items():
+        clo_flags_by_course[course_id_value] = _course_clo_not_attained_flags(submission)
+
+    table_03_rows = []
+    table_03_index = 0
+    for submission in submissions:
+        if submission.dynamic_form.form_type != "crr":
+            continue
+        answers_by_order = _get_submission_answers_by_order(submission)
+        # CRR Q2 = order 1 (course outcomes / CLO attainment)
+        outcomes_text = _answer_text_value(answers_by_order.get(1))
+        if not _crr_indicates_clo_not_attained(outcomes_text):
+            continue
+
+        clo_flags = clo_flags_by_course.get(submission.course_id) or {
+            1: False,
+            2: False,
+            3: False,
+            4: False,
+        }
+        # If CCR has no CLO scores, still include the row and mark unknown as blank,
+        # but keep at least one mark if text clearly indicates gap.
+        if not any(clo_flags.values()):
+            # Fall back: mark all as needing review with "•"
+            clo_display = {1: "•", 2: "•", 3: "•", 4: "•"}
+        else:
+            clo_display = {
+                clo_num: ("✓" if clo_flags[clo_num] else "") for clo_num in [1, 2, 3, 4]
+            }
+
+        if not any(clo_display.values()):
+            continue
+
+        table_03_index += 1
+        table_03_rows.append(
+            {
+                "sr": table_03_index,
+                "course_code": submission.course.code,
+                "course_title": submission.course.title,
+                "course_label": f"{submission.course.code} — {submission.course.title}",
+                "section": submission.section or "N/A",
+                "faculty": submission.faculty.username,
+                "clo1": clo_display[1],
+                "clo2": clo_display[2],
+                "clo3": clo_display[3],
+                "clo4": clo_display[4],
+                "outcomes_excerpt": (
+                    (outcomes_text[:200] + "…")
+                    if len(outcomes_text) > 200
+                    else outcomes_text
+                ),
+            }
+        )
+
+    def _count_yes(rows, key):
+        return sum(1 for row in rows if row.get(key) == "Yes")
+
+    table_01_chart = {
+        "labels": [
+            "Content / Tools & Tech",
+            "Week-wise Distribution",
+            "Textbook",
+        ],
+        "data": [
+            _count_yes(table_01_rows, "content_tools_update"),
+            _count_yes(table_01_rows, "week_wise_update"),
+            _count_yes(table_01_rows, "textbook_update"),
+        ],
+        "colors": ["#2563eb", "#d97706", "#7c3aed"],
+    }
+    table_02_chart = {
+        "labels": ["Not Matched", "Matched", "Not Available"],
+        "data": [
+            sum(1 for row in table_02_rows if row["hec_status"] == "not_matched"),
+            sum(1 for row in table_02_rows if row["hec_status"] == "matched"),
+            sum(1 for row in table_02_rows if row["hec_status"] == "not_available"),
+        ],
+        "colors": ["#dc2626", "#16a34a", "#94a3b8"],
+    }
+    table_03_chart = {
+        "labels": ["CLO1", "CLO2", "CLO3", "CLO4"],
+        "data": [
+            sum(1 for row in table_03_rows if row.get(f"clo{clo_num}"))
+            for clo_num in [1, 2, 3, 4]
+        ],
+        "colors": ["#ef4444", "#f97316", "#eab308", "#dc2626"],
+    }
+
+    return {
+        "table_01": {
+            "title": "Table 01: Recommendation to Update Course Materials (CCR Q2–Q4)",
+            "source": "CCR Form Q2, Q3, Q4",
+            "rows": table_01_rows,
+            "chart": table_01_chart,
+        },
+        "table_02": {
+            "title": "Table 02: Accordance with HEC Content (CCR Q1)",
+            "source": "CCR Form Q1",
+            "rows": table_02_rows,
+            "chart": table_02_chart,
+        },
+        "table_03": {
+            "title": "Table 03: Courses / Sections where CLOs were Not Attained (CRR Q2)",
+            "source": "CRR Form Q2 (shown only when CLOs were not fully attained)",
+            "rows": table_03_rows,
+            "chart": table_03_chart,
+            "included": bool(table_03_rows),
+        },
+    }
+
+
+def build_cqi_tables_markdown(cqi_tables):
+    """Markdown pipe tables for AI/fallback narrative."""
+    table_01 = cqi_tables.get("table_01") or {}
+    table_02 = cqi_tables.get("table_02") or {}
+    table_03 = cqi_tables.get("table_03") or {}
+
+    lines = []
+    lines.append(f"### {table_01.get('title', 'Table 01')}")
+    lines.append("")
+    lines.append(
+        "| Sr | Course Title | Course Coordinator | Content / Tools & Tech | Week-wise Distribution | Textbook |"
+    )
+    lines.append("| ---: | --- | --- | :---: | :---: | :---: |")
+    for row in table_01.get("rows") or []:
+        lines.append(
+            f"| {row['sr']} | {row['course_label']} | {row['coordinator_name']} | "
+            f"{row['content_tools_update']} | {row['week_wise_update']} | {row['textbook_update']} |"
+        )
+    if not table_01.get("rows"):
+        lines.append("| — | _No CCR submissions with Q2–Q4 answers in this window._ | | | | |")
+    lines.append("")
+
+    lines.append(f"### {table_02.get('title', 'Table 02')}")
+    lines.append("")
+    lines.append(
+        "| Sr | Course Title | Not Matched with HEC Content | Matched with HEC Content | Not Available |"
+    )
+    lines.append("| ---: | --- | :---: | :---: | :---: |")
+    for row in table_02.get("rows") or []:
+        lines.append(
+            f"| {row['sr']} | {row['course_label']} | {row['not_matched'] or '—'} | "
+            f"{row['matched'] or '—'} | {row['not_available'] or '—'} |"
+        )
+    if not table_02.get("rows"):
+        lines.append("| — | _No CCR Q1 answers in this window._ | | | |")
+    lines.append("")
+
+    if table_03.get("included"):
+        lines.append(f"### {table_03.get('title', 'Table 03')}")
+        lines.append("")
+        lines.append(
+            "| Sr | Course | Section | CLO1 | CLO2 | CLO3 | CLO4 |"
+        )
+        lines.append("| ---: | --- | --- | :---: | :---: | :---: | :---: |")
+        for row in table_03.get("rows") or []:
+            lines.append(
+                f"| {row['sr']} | {row['course_label']} | {row['section']} | "
+                f"{row['clo1'] or '—'} | {row['clo2'] or '—'} | {row['clo3'] or '—'} | {row['clo4'] or '—'} |"
+            )
+        lines.append("")
+    else:
+        lines.append("### Table 03: Courses / Sections where CLOs were Not Attained (CRR Q2)")
+        lines.append("")
+        lines.append(
+            "_No CRR submissions in this window indicated that CLOs were not attained; Table 03 is omitted._"
+        )
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def build_cqi_tables_html(cqi_tables):
+    """Professional HTML tables for report preview / PDF."""
+    table_01 = cqi_tables.get("table_01") or {}
+    table_02 = cqi_tables.get("table_02") or {}
+    table_03 = cqi_tables.get("table_03") or {}
+
+    def badge(value):
+        text = html_module.escape(str(value or ""))
+        if value == "Yes":
+            return f'<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:#fef3c7;color:#92400e;font-weight:600;">{text}</span>'
+        if value == "No":
+            return f'<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:#dcfce7;color:#166534;font-weight:600;">{text}</span>'
+        return f'<span style="color:#64748b;">{text or "—"}</span>'
+
+    def check_cell(value):
+        if value == "✓":
+            return '<span style="color:#dc2626;font-weight:700;">✓</span>'
+        if value == "•":
+            return '<span style="color:#ca8a04;font-weight:700;">•</span>'
+        return '<span style="color:#cbd5e1;">—</span>'
+
+    parts = [
+        '<div class="cqi-evidence-tables">',
+        '<h2>Evidence Tables (from CCR / CRR form answers)</h2>',
+        '<p style="color:#64748b;font-size:0.95rem;">The following tables are generated from real ACQIP form submissions for the selected period.</p>',
+    ]
+
+    # Table 01
+    parts.append(f"<h3>{html_module.escape(table_01.get('title', 'Table 01'))}</h3>")
+    parts.append(
+        f'<p style="color:#64748b;font-size:0.85rem;"><em>Source: {html_module.escape(table_01.get("source", ""))}</em></p>'
+    )
+    parts.append(
+        '<table border="1" cellpadding="8" cellspacing="0" width="100%" '
+        'style="border-collapse:collapse;width:100%;font-size:13px;margin:12px 0 24px;">'
+        "<thead>"
+        '<tr style="background:#f8fafc;">'
+        '<th rowspan="2" style="text-align:left;">Sr.</th>'
+        '<th rowspan="2" style="text-align:left;">Course Title</th>'
+        '<th rowspan="2" style="text-align:left;">Course Coordinator</th>'
+        '<th colspan="3" style="text-align:center;background:#eef2ff;">Recommendation to Update</th>'
+        "</tr>"
+        '<tr style="background:#eef2ff;">'
+        "<th>Content / Tools &amp; Tech</th>"
+        "<th>Week-wise Distribution</th>"
+        "<th>Textbook</th>"
+        "</tr>"
+        "</thead><tbody>"
+    )
+    for row in table_01.get("rows") or []:
+        parts.append(
+            "<tr>"
+            f"<td>{row['sr']}</td>"
+            f"<td><strong>{html_module.escape(row['course_code'])}</strong><br/>"
+            f"{html_module.escape(row['course_title'])}</td>"
+            f"<td>{html_module.escape(row['coordinator_name'])}</td>"
+            f"<td style='text-align:center;'>{badge(row['content_tools_update'])}</td>"
+            f"<td style='text-align:center;'>{badge(row['week_wise_update'])}</td>"
+            f"<td style='text-align:center;'>{badge(row['textbook_update'])}</td>"
+            "</tr>"
+        )
+    if not table_01.get("rows"):
+        parts.append(
+            '<tr><td colspan="6" style="text-align:center;color:#64748b;">'
+            "No CCR Q2–Q4 answers available for this period.</td></tr>"
+        )
+    parts.append("</tbody></table>")
+
+    # Table 02
+    parts.append(f"<h3>{html_module.escape(table_02.get('title', 'Table 02'))}</h3>")
+    parts.append(
+        f'<p style="color:#64748b;font-size:0.85rem;"><em>Source: {html_module.escape(table_02.get("source", ""))}</em></p>'
+    )
+    parts.append(
+        '<table border="1" cellpadding="8" cellspacing="0" width="100%" '
+        'style="border-collapse:collapse;width:100%;font-size:13px;margin:12px 0 24px;">'
+        "<thead>"
+        '<tr style="background:#f8fafc;">'
+        '<th style="text-align:left;">Sr.</th>'
+        '<th style="text-align:left;">Course Title</th>'
+        '<th style="text-align:center;">Not Matched with HEC Content</th>'
+        '<th style="text-align:center;">Matched with HEC Content</th>'
+        '<th style="text-align:center;">Not Available</th>'
+        "</tr></thead><tbody>"
+    )
+    for row in table_02.get("rows") or []:
+        parts.append(
+            "<tr>"
+            f"<td>{row['sr']}</td>"
+            f"<td><strong>{html_module.escape(row['course_code'])}</strong><br/>"
+            f"{html_module.escape(row['course_title'])}</td>"
+            f"<td style='text-align:center;'>{check_cell(row['not_matched'])}</td>"
+            f"<td style='text-align:center;'>{check_cell(row['matched'])}</td>"
+            f"<td style='text-align:center;'>{check_cell(row['not_available'])}</td>"
+            "</tr>"
+        )
+    if not table_02.get("rows"):
+        parts.append(
+            '<tr><td colspan="5" style="text-align:center;color:#64748b;">'
+            "No CCR Q1 answers available for this period.</td></tr>"
+        )
+    parts.append("</tbody></table>")
+
+    # Table 03 conditional
+    if table_03.get("included"):
+        parts.append(f"<h3>{html_module.escape(table_03.get('title', 'Table 03'))}</h3>")
+        parts.append(
+            f'<p style="color:#64748b;font-size:0.85rem;"><em>Source: {html_module.escape(table_03.get("source", ""))}. '
+            "✓ = CLO not attained (CCR quality average &lt; 70%).</em></p>"
+        )
+        parts.append(
+            '<table border="1" cellpadding="8" cellspacing="0" width="100%" '
+            'style="border-collapse:collapse;width:100%;font-size:13px;margin:12px 0 24px;">'
+            "<thead>"
+            '<tr style="background:#f8fafc;">'
+            '<th rowspan="2" style="text-align:left;">Sr.</th>'
+            '<th rowspan="2" style="text-align:left;">Course</th>'
+            '<th rowspan="2" style="text-align:left;">Section</th>'
+            '<th colspan="4" style="text-align:center;background:#fef2f2;">CLO Not Attained</th>'
+            "</tr>"
+            '<tr style="background:#fef2f2;">'
+            "<th>CLO1</th><th>CLO2</th><th>CLO3</th><th>CLO4</th>"
+            "</tr></thead><tbody>"
+        )
+        for row in table_03.get("rows") or []:
+            parts.append(
+                "<tr>"
+                f"<td>{row['sr']}</td>"
+                f"<td><strong>{html_module.escape(row['course_code'])}</strong><br/>"
+                f"{html_module.escape(row['course_title'])}</td>"
+                f"<td>{html_module.escape(row['section'])}</td>"
+                f"<td style='text-align:center;'>{check_cell(row['clo1'])}</td>"
+                f"<td style='text-align:center;'>{check_cell(row['clo2'])}</td>"
+                f"<td style='text-align:center;'>{check_cell(row['clo3'])}</td>"
+                f"<td style='text-align:center;'>{check_cell(row['clo4'])}</td>"
+                "</tr>"
+            )
+        parts.append("</tbody></table>")
+    else:
+        parts.append(
+            "<h3>Table 03: Courses / Sections where CLOs were Not Attained (CRR Q2)</h3>"
+            '<p style="color:#64748b;"><em>No CRR submissions indicated unattained CLOs in this period — table omitted.</em></p>'
+        )
+
+    parts.append("</div>")
+    return "\n".join(parts)
+
+
 def cqi_new_courses_detected(course_id, created_since):
     """Courses first created in the system within the window (proxy for newly offered)."""
     course_queryset = Course.objects.select_related("department").filter(
@@ -4166,6 +5551,9 @@ def collect_data_for_ai(course_id, time_period):
 
     data["course_review_summary"] = course_review_summary
     data["clo_analysis"] = build_clo_analysis_for_cqi_submissions(filtered_submissions)
+    data["cqi_tables"] = build_cqi_evidence_tables(filtered_submissions)
+    data["cqi_tables_markdown"] = build_cqi_tables_markdown(data["cqi_tables"])
+    data["cqi_tables_html"] = build_cqi_tables_html(data["cqi_tables"])
 
     data["submissions"] = []
     submissions_list = list(
@@ -4262,44 +5650,32 @@ REQUIRED MARKDOWN STRUCTURE (headings must match):
   - Correctness of CLOs to GAs mapping
 - State how many courses appear in `course_review_summary` (and labs if distinguishable).
 
-### Table 1: Review summary of each course
-- Output a **markdown pipe table** with one data row per entry in `course_review_summary` (same
-  order as JSON: by course_code).
-- Columns: Sr | Course Title | Course Coordinator | Recommendations to update course
-  content/tools (Yes/No) | Week-wise distribution (Yes/No) | Books/Lab manuals (Yes/No).
-- Derive Yes/No from `has_revision_requested`, form mix, and outline notes when inferable; use
-  **No** when unknown and briefly justify in narrative after the table (do not invent surveys).
-
-### Table 2: New courses
-- If `new_courses_detected` is non-empty: markdown table with Sr | Courses (code — title).
-- If empty: a single sentence that no new courses were flagged in the system for this window.
+### Evidence tables (already computed — do not invent rows)
+- Professional Tables 01–03 are pre-built from real CCR/CRR answers in `cqi_tables` and
+  `cqi_tables_markdown`. The system injects them into the report HTML automatically.
+- Discuss findings from:
+  - `cqi_tables.table_01` (CCR Q2–Q4 recommendation to update content/tools, week-wise, textbook)
+  - `cqi_tables.table_02` (CCR Q1 HEC matched / not matched / not available)
+  - `cqi_tables.table_03` (CRR Q2 CLO not attained; omit discussion if `included` is false)
+- If `new_courses_detected` is non-empty, add a short markdown table: Sr | Courses.
+  Otherwise state that no new courses were flagged.
 
 ## Summary of course and lab reviews
 - Narrative comparing CCR vs CRR coverage using `statistics` and `course_review_summary`.
-- Describe **Figure 1** and **Figure 2** in words only (course vs lab review emphasis), no images.
 
 ## Accordance with HEC curriculum / course materials
-- Narrative on alignment using `course_outlines` and CCR context; do not claim external HEC
-  verification unless stated in notes.
-
-### Table 3: Accordance of HEC Content
-- Markdown pipe table: Sr | Course Title | Not matched with HEC contents | Matched with HEC
-  contents (if available). Use √, N/A, or Yes/No consistently; base only on outline notes and
-  form signals in the JSON.
+- Narrative on HEC alignment using `cqi_tables.table_02` and outline notes; do not claim
+  external HEC verification beyond form answers.
 
 ## Status of CLOs
-- Interpret `clo_analysis` only; describe **Figure 3–5** as narrative summaries (no images).
+- Interpret `clo_analysis`; highlight CLOs below 70% as requiring correction.
 
 ## Course Review Report (CRR)
 - Introduce the CRR form with bullets: Overall performance of students; Course Outcomes; Coverage
   of course contents; Strategy to support underperforming students; Suggested improvements for
   effective course conduct.
 - Use `statistics` and submission list for response counts where possible.
-
-### Table 4: Courses in which few CLOs were not attained
-- If `clo_analysis` shows gaps or low attainment, list plausible courses from
-  `course_review_summary` / submissions; if data does not support partial attainment, state that
-  clearly instead of inventing rows.
+- Reference Table 03 when `cqi_tables.table_03.included` is true.
 
 ## Closing and next steps
 - Short conclusion and 3–5 concrete next steps for the CRC.
@@ -4307,7 +5683,8 @@ REQUIRED MARKDOWN STRUCTURE (headings must match):
 RULES:
 - Professional, analytical, constructive tone.
 - Do not fabricate survey results or external bodies not present in the JSON.
-- Use markdown tables and `##` / `###` headings only (no HTML).
+- Do not invent table rows that contradict `cqi_tables`.
+- Use markdown `##` / `###` headings only (no HTML).
 
 """
     print(f"Generating {report_type} report with {ai_config['provider']} ({ai_config['model']})...")
@@ -4328,19 +5705,13 @@ def generate_fallback_report(context_data, report_type):
     clo = context_data.get("clo_analysis") or {}
     course = context_data.get("course") or {}
     outline_count = len(context_data.get("course_outlines") or context_data.get("outlines") or [])
-
-    table1_lines = [
-        "| Sr | Course Title | Course Coordinator | Content/tools update (Y/N) | Week-wise (Y/N) | Books/labs (Y/N) |",
-        "| --- | --- | --- | --- | --- | --- |",
-    ]
-    for index, row in enumerate(rows, start=1):
-        revision_flag = "Yes" if row.get("has_revision_requested") else "No"
-        pending_flag = "Yes" if row.get("has_pending_submitted") else "No"
-        table1_lines.append(
-            f"| {index} | {row.get('course_title', '')} | {row.get('coordinator_name', '')} | "
-            f"{revision_flag} | {pending_flag} | No |"
-        )
-    table1 = "\n".join(table1_lines) if rows else "_No course rows in this period._"
+    # Professional HTML tables are prepended separately in the API response.
+    evidence_pointer = (
+        "Professional **Tables 01–03** are generated from live CCR/CRR answers and are shown "
+        "in the Evidence Tables section at the top of this report "
+        "(Table 01: recommendation to update; Table 02: HEC accordance; "
+        "Table 03: CLO not attained when applicable)."
+    )
 
     new_courses_list = context_data.get("new_courses_detected", [])
     if new_courses_list:
@@ -4373,7 +5744,7 @@ Automated fallback CQI narrative ({depth}) generated **{datetime.now().strftime(
 
 {scope_note}
 
-The Curriculum Review Committee (CRC) monitors continuous quality improvement using ACQIP CCR and CRR workflows. In the selected period the system recorded **{total}** CCR/CRR submissions (**{approved}** approved, **{approval_pct:.1f}%** approval rate), **{stats.get("pending_submissions", 0)}** pending CRC review, and **{stats.get("revision_requests", 0)}** revision requests. Exit, alumni, and employer surveys are **not stored in ACQIP** unless captured inside form answers.
+The Curriculum Review Committee (CRC) monitors continuous quality improvement using ACQIP CCR and CRR workflows. In the selected period the system recorded **{total}** CCR/CRR submissions (**{approved}** approved, **{approval_pct:.1f}%** approval rate), **{stats.get("pending_submissions", 0)}** pending CRC review, and **{stats.get("revision_requests", 0)}** revision requests.
 
 1. Exit survey — *Not available unless referenced in form text.*
 2. Alumni survey — *Not available unless referenced in form text.*
@@ -4384,68 +5755,30 @@ The Curriculum Review Committee (CRC) monitors continuous quality improvement us
 
 ## Annex-A — Course Content Review Process
 
-The Course Contents Review (CCR) form supports structured review of materials. Dimensions reviewed include:
+The Course Contents Review (CCR) form supports structured review of materials across HEC compliance, instructor feedback, week-wise distribution, textbooks, prerequisites, SMART CLO criteria, learning domains/levels, and GA mapping.
 
-- Compliance of course contents with the HEC recommended contents
-- Instructor's feedback on course contents
-- Week-wise distribution of course contents
-- Relevance and recency of Text and Recommended books
-- Appropriateness of pre-requisite courses
-- Verification of CLOs statements according to SMART criteria
-- Learning domains of CLOs and their level
-- Correctness of CLOs to GAs mapping
+**Courses with activity in this window:** {len(rows)}.
 
-**Courses with activity in this window:** {len(rows)} (see Table 1).
+{evidence_pointer}
 
-### Table 1: Review summary of each course
-
-{table1}
-
-### Table 2: New courses
+### New courses
 
 {table2}
 
 ## Summary of course and lab reviews
 
-CCR submissions are counted per coordinator course; CRR submissions capture instructor-level returns. **Figure 1 / Figure 2** (narrative only): compare CCR vs CRR counts using `ccr_submissions` and `crr_submissions` in the JSON rows when the AI report is available; in this fallback, refer to aggregate totals above.
-
-## Accordance with HEC curriculum / course materials
-
-**Outline records available for analysis:** {outline_count}. Detailed HEC conformance requires manual review of outline bodies; CRC notes on outlines were included in the JSON payload when present.
-
-### Table 3: Accordance of HEC Content
-
-| Sr | Course Title | Not matched with HEC contents | Matched with HEC contents (if available) |
-| --- | --- | --- | --- |
-| _See AI-generated report or complete manual review._ | | | |
+CCR and CRR coverage for this window is summarized in the evidence tables and statistics above. **Outline records available:** {outline_count}.
 
 ## Status of CLOs
 
 {clo_section}
 
-**Figures 3–5 (narrative only):** interpret attainment rates qualitatively from the bullets above.
-
-## Course Review Report (CRR)
-
-The CRR form captures:
-
-- Overall performance of students
-- Course Outcomes
-- Coverage of course contents
-- Strategy to support underperforming students
-- Suggested improvements for effective course conduct
-
-**Counts in window:** total submissions **{total}** (see statistics JSON).
-
-### Table 4: Courses in which few CLOs were not attained
-
-_Generate after CLO data is available; this fallback lists parsed CLO signals only._
-
 ## Closing and next steps
 
-1. Re-run the report with AI enabled for full Table 3/4 inference.
-2. Resolve pending and revision_requested submissions in ACQIP.
-3. Align outline notes with HEC checklist criteria for the next CRC cycle.
+1. Follow up on courses marked **Yes** for recommendation-to-update in Table 01.
+2. Review HEC gaps marked in Table 02 with course coordinators.
+3. Address unattained CLOs listed in Table 03 (when present) through targeted remediation.
+4. Resolve pending and revision-requested submissions in ACQIP.
 
 ---
 _Cover metadata: **{institution}**, **{department}**, **{year}**._
@@ -4479,6 +5812,10 @@ def api_cqi_report_pdf(request):
     except Exception as exc:
         return JsonResponse({"error": f"Markdown conversion failed: {exc}"}, status=400)
 
+    tables_html = (payload.get("tables_html") or "").strip()
+    if not tables_html and payload.get("cqi_tables"):
+        tables_html = build_cqi_tables_html(payload.get("cqi_tables") or {})
+
     cover_html = (
         '<div align="center">'
         f"<p><b>{html_module.escape(institution)}</b></p>"
@@ -4487,7 +5824,7 @@ def api_cqi_report_pdf(request):
         "</div><hr/>"
     )
 
-    combined_html = cover_html + body_html
+    combined_html = cover_html + tables_html + body_html
 
     pdf_document = FPDF(orientation="P", unit="mm", format="A4")
     pdf_document.set_auto_page_break(auto=True, margin=15)
@@ -4630,6 +5967,134 @@ def _decode_chart_image_bytes(data_url_or_base64):
         return None
 
 
+def _add_cqi_evidence_tables_to_docx(document, cqi_tables):
+    """Write professional Table 01–03 into a Word document."""
+    from docx.shared import Pt
+
+    if not cqi_tables:
+        return
+
+    document.add_heading("Evidence Tables (CCR / CRR Form Answers)", level=2)
+
+    table_01 = cqi_tables.get("table_01") or {}
+    document.add_heading(table_01.get("title", "Table 01"), level=3)
+    source_paragraph = document.add_paragraph(
+        f"Source: {table_01.get('source', 'CCR Form')}"
+    )
+    source_paragraph.runs[0].italic = True
+    source_paragraph.runs[0].font.size = Pt(9)
+
+    rows = table_01.get("rows") or []
+    word_table = document.add_table(rows=2 + max(len(rows), 1), cols=6)
+    word_table.style = "Table Grid"
+    headers_top = [
+        "Sr.",
+        "Course Title",
+        "Course Coordinator",
+        "Recommendation to Update",
+        "",
+        "",
+    ]
+    headers_sub = [
+        "",
+        "",
+        "",
+        "Content / Tools & Tech",
+        "Week-wise Distribution",
+        "Textbook",
+    ]
+    for index, label in enumerate(headers_top):
+        word_table.rows[0].cells[index].text = label
+    for index, label in enumerate(headers_sub):
+        word_table.rows[1].cells[index].text = label
+    # Merge header group for Recommendation to Update
+    word_table.rows[0].cells[3].merge(word_table.rows[0].cells[5])
+    word_table.rows[0].cells[3].text = "Recommendation to Update"
+    if rows:
+        for row_offset, row in enumerate(rows):
+            cells = word_table.rows[row_offset + 2].cells
+            cells[0].text = str(row.get("sr", ""))
+            cells[1].text = row.get("course_label") or row.get("course_title") or ""
+            cells[2].text = row.get("coordinator_name") or ""
+            cells[3].text = row.get("content_tools_update") or ""
+            cells[4].text = row.get("week_wise_update") or ""
+            cells[5].text = row.get("textbook_update") or ""
+    else:
+        word_table.rows[2].cells[0].text = "No CCR Q2–Q4 answers in this period."
+        word_table.rows[2].cells[0].merge(word_table.rows[2].cells[5])
+    document.add_paragraph("")
+
+    table_02 = cqi_tables.get("table_02") or {}
+    document.add_heading(table_02.get("title", "Table 02"), level=3)
+    source_paragraph = document.add_paragraph(
+        f"Source: {table_02.get('source', 'CCR Form Q1')}"
+    )
+    source_paragraph.runs[0].italic = True
+    source_paragraph.runs[0].font.size = Pt(9)
+    rows = table_02.get("rows") or []
+    word_table = document.add_table(rows=1 + max(len(rows), 1), cols=5)
+    word_table.style = "Table Grid"
+    for index, label in enumerate(
+        [
+            "Sr.",
+            "Course Title",
+            "Not Matched with HEC Content",
+            "Matched with HEC Content",
+            "Not Available",
+        ]
+    ):
+        word_table.rows[0].cells[index].text = label
+    if rows:
+        for row_offset, row in enumerate(rows):
+            cells = word_table.rows[row_offset + 1].cells
+            cells[0].text = str(row.get("sr", ""))
+            cells[1].text = row.get("course_label") or row.get("course_title") or ""
+            cells[2].text = row.get("not_matched") or "—"
+            cells[3].text = row.get("matched") or "—"
+            cells[4].text = row.get("not_available") or "—"
+    else:
+        word_table.rows[1].cells[0].text = "No CCR Q1 answers in this period."
+        word_table.rows[1].cells[0].merge(word_table.rows[1].cells[4])
+    document.add_paragraph("")
+
+    table_03 = cqi_tables.get("table_03") or {}
+    document.add_heading(table_03.get("title", "Table 03"), level=3)
+    if table_03.get("included"):
+        source_paragraph = document.add_paragraph(
+            f"Source: {table_03.get('source', 'CRR Form Q2')}. ✓ = CLO not attained."
+        )
+        source_paragraph.runs[0].italic = True
+        source_paragraph.runs[0].font.size = Pt(9)
+        rows = table_03.get("rows") or []
+        word_table = document.add_table(rows=2 + len(rows), cols=7)
+        word_table.style = "Table Grid"
+        for index, label in enumerate(
+            ["Sr.", "Course", "Section", "CLO Not Attained", "", "", ""]
+        ):
+            word_table.rows[0].cells[index].text = label
+        word_table.rows[0].cells[3].merge(word_table.rows[0].cells[6])
+        word_table.rows[0].cells[3].text = "CLO Not Attained"
+        for index, label in enumerate(
+            ["", "", "", "CLO1", "CLO2", "CLO3", "CLO4"]
+        ):
+            word_table.rows[1].cells[index].text = label
+        for row_offset, row in enumerate(rows):
+            cells = word_table.rows[row_offset + 2].cells
+            cells[0].text = str(row.get("sr", ""))
+            cells[1].text = row.get("course_label") or ""
+            cells[2].text = row.get("section") or "N/A"
+            cells[3].text = row.get("clo1") or "—"
+            cells[4].text = row.get("clo2") or "—"
+            cells[5].text = row.get("clo3") or "—"
+            cells[6].text = row.get("clo4") or "—"
+    else:
+        note = document.add_paragraph(
+            "No CRR submissions indicated unattained CLOs in this period — table omitted."
+        )
+        note.runs[0].italic = True
+    document.add_paragraph("")
+
+
 @login_required
 @user_passes_test(is_admin_or_crc)
 @csrf_exempt
@@ -4664,6 +6129,7 @@ def api_cqi_report_docx(request):
     cover = payload.get("cover") or {}
     chart_images = payload.get("chart_images") or {}
     metrics = payload.get("metrics") or {}
+    cqi_tables = payload.get("cqi_tables") or {}
     institution = cover.get(
         "institution", "Capital University of Science and Technology"
     )
@@ -4734,30 +6200,45 @@ def api_cqi_report_docx(request):
                         run.bold = True
         document.add_paragraph("")
 
+    _add_cqi_evidence_tables_to_docx(document, cqi_tables)
+
     # Charts
     status_image = _decode_chart_image_bytes(chart_images.get("status_distribution"))
     clo_image = _decode_chart_image_bytes(chart_images.get("clo_achievement"))
     form_type_image = _decode_chart_image_bytes(chart_images.get("form_type_distribution"))
+    table_01_image = _decode_chart_image_bytes(chart_images.get("table_01_recommendations"))
+    table_02_image = _decode_chart_image_bytes(chart_images.get("table_02_hec"))
+    table_03_image = _decode_chart_image_bytes(chart_images.get("table_03_clo_gaps"))
+    corrections_image = _decode_chart_image_bytes(chart_images.get("required_clo_corrections"))
 
-    if status_image or clo_image or form_type_image:
+    if any(
+        [
+            status_image,
+            clo_image,
+            form_type_image,
+            table_01_image,
+            table_02_image,
+            table_03_image,
+            corrections_image,
+        ]
+    ):
         document.add_heading("Analytical Figures", level=2)
 
-    if status_image:
-        caption = document.add_paragraph("Figure 1 — Form Status Distribution")
+    chart_figure_specs = [
+        (status_image, "Figure 1 — Form Status Distribution"),
+        (clo_image, "Figure 2 — CLO Achievement Rates (CCR Q6–Q9)"),
+        (corrections_image, "Figure 3 — Required Correction in CLOs (gap to 70%)"),
+        (form_type_image, "Figure 4 — CCR vs CRR Submissions"),
+        (table_01_image, "Figure 5 — Graph of Table 01 (Recommendation to Update)"),
+        (table_02_image, "Figure 6 — Graph of Table 02 (HEC Accordance)"),
+        (table_03_image, "Figure 7 — Graph of Table 03 (CLO Not Attained)"),
+    ]
+    for image_bytes, caption_text in chart_figure_specs:
+        if not image_bytes:
+            continue
+        caption = document.add_paragraph(caption_text)
         caption.runs[0].italic = True
-        document.add_picture(BytesIO(status_image), width=Inches(5.8))
-        document.add_paragraph("")
-
-    if clo_image:
-        caption = document.add_paragraph("Figure 2 — CLO Achievement Rates")
-        caption.runs[0].italic = True
-        document.add_picture(BytesIO(clo_image), width=Inches(5.8))
-        document.add_paragraph("")
-
-    if form_type_image:
-        caption = document.add_paragraph("Figure 3 — CCR vs CRR Submissions")
-        caption.runs[0].italic = True
-        document.add_picture(BytesIO(form_type_image), width=Inches(5.8))
+        document.add_picture(BytesIO(image_bytes), width=Inches(5.8))
         document.add_paragraph("")
 
     document.add_heading("Detailed CQI Narrative", level=2)
