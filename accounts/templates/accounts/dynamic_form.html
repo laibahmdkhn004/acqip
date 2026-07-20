@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Dynamic Form - ACQIP</title>
+    <title>Review Form - ACQIP</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
       .form-section {
@@ -22,7 +22,7 @@
       <!-- Header -->
       <div class="mb-8">
         <h1 class="text-3xl font-bold text-gray-900">
-          Dynamic Form Submission
+          Review Form Submission
         </h1>
         <p class="text-gray-600 mt-2">
           Fill out the form for your assigned course
@@ -127,6 +127,7 @@
         faculty_dynamic_forms: "/api/faculty/dynamic-forms/",
         submit_dynamic_form: "/api/dynamic-form/submit/",
         faculty_courses: "/api/faculty/my-courses/",
+        submission_details: (id) => `/api/submission-details/${id}/`,
       };
 
       // Get URL parameters
@@ -134,12 +135,14 @@
       const urlCourseId = urlParams.get("course_id");
       const urlFormType = urlParams.get("form_type") || "crr";
       const urlFormId = urlParams.get("form_id");
+      const urlSubmissionId = urlParams.get("submission_id");
 
       // State and Cache
       let currentCourseId = null;
       let currentFormType = urlFormType;
       let currentFormId = urlFormId;
       let currentFormData = null;
+      let currentSubmissionId = urlSubmissionId ? parseInt(urlSubmissionId, 10) : null;
       let assignedCourses = [];
 
       // Enhanced cache with time-based invalidation
@@ -370,6 +373,12 @@
           option.textContent = `${course.code} - ${course.title} ${course.is_coordinator ? "(Coordinator)" : ""}`;
           courseSelect.appendChild(option);
         });
+
+        // Restore course from URL / current selection after options are loaded
+        const preferredCourseId = currentCourseId || urlCourseId;
+        if (preferredCourseId) {
+          courseSelect.value = preferredCourseId;
+        }
       }
 
       function setFormType(formType) {
@@ -614,10 +623,128 @@
         const courseText = selectedOption ? selectedOption.textContent : "";
 
         document.getElementById("course-info").textContent =
-          `Course: ${courseText} | Form Type: ${currentFormType.toUpperCase()}`;
+          `Course: ${courseText} | Form Type: ${currentFormType.toUpperCase()}${
+            currentSubmissionId ? " | Editing draft" : ""
+          }`;
 
         // Render questions with optimized DOM manipulation
         renderQuestionsOptimized(form.questions);
+
+        // Prefill saved answers when editing a draft / revision
+        if (currentSubmissionId) {
+          loadAndPopulateSubmissionAnswers(currentSubmissionId);
+        }
+      }
+
+      async function loadAndPopulateSubmissionAnswers(submissionId) {
+        try {
+          const response = await fetch(API.submission_details(submissionId), {
+            credentials: "include",
+          });
+          if (!response.ok) {
+            console.error("Failed to load submission details", response.status);
+            showNotification(
+              "Could not load previously saved answers.",
+              "warning",
+            );
+            return;
+          }
+
+          const data = await response.json();
+          if (!Array.isArray(data.answers) || data.answers.length === 0) {
+            return;
+          }
+
+          populateFormAnswers(data.answers);
+        } catch (error) {
+          console.error("Error loading submission answers:", error);
+          showNotification(
+            "Could not load previously saved answers.",
+            "error",
+          );
+        }
+      }
+
+      function populateFormAnswers(answers) {
+        answers.forEach((answer) => {
+          const questionId = answer.question_id;
+          const questionType = answer.question_type;
+          const answerText = answer.answer_text;
+          const answerData = answer.answer_data;
+
+          if (questionType === "clo_percentage") {
+            const cloPayload =
+              answerData && typeof answerData === "object" ? answerData : null;
+            if (!cloPayload) return;
+
+            for (let i = 1; i <= 4; i++) {
+              const value =
+                cloPayload[`clo${i}`] ??
+                cloPayload[`CLO${i}`] ??
+                cloPayload[`clo_${i}`] ??
+                cloPayload[`CLO_${i}`];
+              const input = document.querySelector(
+                `[name="question_${questionId}_clo${i}"]`,
+              );
+              if (input && value !== undefined && value !== null && value !== "") {
+                input.value = value;
+              }
+            }
+            return;
+          }
+
+          if (questionType === "checkbox") {
+            let values = [];
+            if (Array.isArray(answerData)) {
+              values = answerData.map(String);
+            } else if (typeof answerData === "string" && answerData) {
+              values = [answerData];
+            } else if (answerText) {
+              try {
+                const parsed = JSON.parse(answerText);
+                values = Array.isArray(parsed) ? parsed.map(String) : [answerText];
+              } catch (e) {
+                values = answerText.split(",").map((item) => item.trim());
+              }
+            }
+
+            const checkboxes = document.querySelectorAll(
+              `input[type="checkbox"][name="question_${questionId}[]"]`,
+            );
+            checkboxes.forEach((checkbox) => {
+              checkbox.checked = values.includes(checkbox.value);
+            });
+            return;
+          }
+
+          if (questionType === "radio") {
+            const value = answerText || (typeof answerData === "string" ? answerData : "");
+            if (!value) return;
+            const radios = document.querySelectorAll(
+              `input[type="radio"][name="question_${questionId}"]`,
+            );
+            radios.forEach((radio) => {
+              radio.checked = radio.value === value;
+            });
+            return;
+          }
+
+          // text, textarea, select, default
+          const input = document.querySelector(
+            `[name="question_${questionId}"]:not([type="radio"]):not([type="checkbox"])`,
+          );
+          if (!input) return;
+
+          if (answerText !== null && answerText !== undefined && answerText !== "") {
+            input.value = answerText;
+          } else if (
+            answerData !== null &&
+            answerData !== undefined &&
+            (typeof answerData === "string" || typeof answerData === "number")
+          ) {
+            input.value = answerData;
+          }
+        });
       }
 
       // Optimized question rendering using DocumentFragment
@@ -980,12 +1107,16 @@
               "success",
             );
 
+            if (result.submission_id) {
+              currentSubmissionId = result.submission_id;
+            }
+
             if (status === "submitted") {
               setTimeout(() => {
                 window.location.href = "/dashboard/";
               }, 1500);
             } else {
-              // Stay on page for drafts
+              // Stay on page for drafts and keep answers populated
               setTimeout(() => {
                 loadFormForCourse(
                   currentCourseId,

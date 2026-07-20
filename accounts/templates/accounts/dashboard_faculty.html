@@ -271,7 +271,7 @@
             class="nav-item flex items-center gap-3 p-2 rounded-md hover:bg-gray-50 text-gray-700"
           >
             <i class="fas fa-clipboard-list w-5 h-5"></i>
-            Dynamic Forms
+            Review Forms
           </a>
           <a
             href="#"
@@ -642,7 +642,7 @@
                     ></i>
                   </div>
                   <h3 class="text-2xl font-semibold text-gray-800 mb-3">
-                    Dynamic Forms
+                    Review Forms
                   </h3>
                   <p class="text-gray-600 max-w-2xl mx-auto mb-4">
                     Submit assessment forms for your courses. The system
@@ -1926,8 +1926,11 @@
       function continueForm(formType, courseId, submissionId) {
         // Find the active form of this type
         const forms = state.activeForms[formType];
-        if (forms.length > 0) {
-          const formId = forms[0].id; // Use the first active form
+        const submission = state.submissions.find((s) => s.id == submissionId);
+        const formId =
+          submission?.dynamic_form?.id ||
+          (forms && forms.length > 0 ? forms[0].id : null);
+        if (formId) {
           window.location.href = `/dynamic-form/?course_id=${courseId}&form_type=${formType}&form_id=${formId}&submission_id=${submissionId}`;
         } else {
           showNotification("No active form available for editing", "error");
@@ -2008,7 +2011,7 @@
         const titles = {
           dashboard: "Faculty Dashboard",
           "my-courses": "My Courses",
-          "dynamic-forms": "Dynamic Forms",
+          "dynamic-forms": "Review Forms",
           submissions: "My Submissions",
           "course-outlines": "Course Outlines",
           profile: "My Profile",
@@ -2646,7 +2649,7 @@
               ? new Date(submission.submission_date)
               : new Date();
             const formType = submission.dynamic_form?.form_type || "unknown";
-            const formName = submission.dynamic_form?.name || "Dynamic Form";
+            const formName = submission.dynamic_form?.name || "Review Form";
             const status = submission.status || "draft";
 
             return `
@@ -2685,21 +2688,33 @@
                             ${date.toLocaleDateString()}
                         </td>
                         <td class="px-4 py-3">
-                            <button onclick="viewSubmission(${
-                              submission.id
-                            })" class="text-blue-600 hover:text-blue-800 mr-2" title="View Details">
-                                <i class="fas fa-eye"></i>
-                            </button>
-                            ${
-                              status === "draft" ||
-                              status === "revision_requested"
-                                ? `
-                                <button onclick="editSubmission(${submission.id})" class="text-green-600 hover:text-green-800 mr-2" title="Edit">
-                                    <i class="fas fa-edit"></i>
-                                </button>
-                            `
-                                : ""
-                            }
+                            <div class="flex flex-wrap items-center gap-2">
+                              <button onclick="viewSubmission(${
+                                submission.id
+                              })" class="text-blue-600 hover:text-blue-800" title="View Details">
+                                  <i class="fas fa-eye"></i>
+                              </button>
+                              <button onclick="printSubmission(${
+                                submission.id
+                              })" class="text-gray-600 hover:text-gray-900" title="Print">
+                                  <i class="fas fa-print"></i>
+                              </button>
+                              <button onclick="downloadSubmission(${
+                                submission.id
+                              })" class="text-indigo-600 hover:text-indigo-800" title="Download PDF">
+                                  <i class="fas fa-download"></i>
+                              </button>
+                              ${
+                                status === "draft" ||
+                                status === "revision_requested"
+                                  ? `
+                                  <button onclick="editSubmission(${submission.id})" class="text-green-600 hover:text-green-800" title="Edit">
+                                      <i class="fas fa-edit"></i>
+                                  </button>
+                              `
+                                  : ""
+                              }
+                            </div>
                         </td>
                     </tr>
                 `;
@@ -2720,6 +2735,206 @@
           }
         } catch (error) {
           showNotification("Failed to load submission details", "error");
+        }
+      }
+
+      async function fetchSubmissionDetails(submissionId) {
+        const response = await fetch(
+          `/api/submission-details/${submissionId}/`,
+          { credentials: "include" },
+        );
+        if (!response.ok) {
+          throw new Error("Failed to load submission details");
+        }
+        return response.json();
+      }
+
+      function formatSubmissionAnswerText(answer) {
+        if (answer.question_type === "clo_percentage") {
+          let cloData = {};
+          if (answer.answer_data && typeof answer.answer_data === "object") {
+            cloData = answer.answer_data;
+          } else if (answer.answer_text) {
+            try {
+              cloData = JSON.parse(answer.answer_text);
+            } catch (e) {
+              return answer.answer_text;
+            }
+          }
+          return Object.keys(cloData)
+            .sort()
+            .map((key) => `${key}: ${cloData[key]}%`)
+            .join(", ");
+        }
+
+        if (answer.answer_text) {
+          return answer.answer_text;
+        }
+
+        if (answer.answer_data) {
+          if (Array.isArray(answer.answer_data)) {
+            return answer.answer_data.join(", ");
+          }
+          if (typeof answer.answer_data === "object") {
+            return Object.entries(answer.answer_data)
+              .map(([key, value]) => `${key}: ${value}`)
+              .join(", ");
+          }
+          return String(answer.answer_data);
+        }
+
+        return "No answer provided";
+      }
+
+      function buildSubmissionPrintHtml(submission) {
+        const answersHtml =
+          submission.answers && submission.answers.length > 0
+            ? submission.answers
+                .map((answer, index) => {
+                  const isCLOPercentage =
+                    answer.question_type === "clo_percentage";
+                  const answerDisplay = isCLOPercentage
+                    ? formatCLOPercentageAnswer(answer)
+                    : formatSubmissionAnswerText(answer).replace(
+                        /\n/g,
+                        "<br>",
+                      );
+                  return `
+                    <div class="answer-block">
+                      <h3>${index + 1}. ${answer.question_text || "Question"}</h3>
+                      <div class="answer-body">${answerDisplay}</div>
+                    </div>
+                  `;
+                })
+                .join("")
+            : "<p><em>No answers submitted for this form</em></p>";
+
+        return `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Form Submission - ${submission.form_name || "Review Form"}</title>
+            <style>
+              body { font-family: Arial, sans-serif; line-height: 1.5; padding: 24px; color: #111; }
+              h1 { font-size: 22px; margin-bottom: 8px; }
+              h2 { font-size: 16px; margin-top: 24px; margin-bottom: 8px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+              h3 { font-size: 14px; margin-bottom: 8px; }
+              .meta { margin-bottom: 20px; }
+              .meta div { margin-bottom: 4px; }
+              .answer-block { margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #eee; }
+              .answer-body table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 6px; }
+              .answer-body th, .answer-body td { border: 1px solid #e5e7eb; padding: 8px 12px; text-align: left; }
+              .answer-body thead { background: #f9fafb; }
+              .answer-body th { font-weight: 600; color: #374151; }
+              .answer-body tr.bg-gray-50 { background: #f9fafb; }
+              @media print { body { padding: 0; } }
+            </style>
+          </head>
+          <body>
+            <h1>Form Submission Details</h1>
+            <div class="meta">
+              <div><strong>Form:</strong> ${submission.form_name || "Unknown"} (${(submission.form_type || "N/A").toUpperCase()})</div>
+              <div><strong>Course:</strong> ${submission.course_code || "N/A"} - ${submission.course_title || "Unknown"}</div>
+              <div><strong>Status:</strong> ${(submission.status || "Unknown").replace("_", " ")}</div>
+              <div><strong>Date:</strong> ${submission.submission_date || "N/A"}</div>
+              <div><strong>Faculty:</strong> ${submission.faculty_name || "N/A"}</div>
+            </div>
+            <h2>Answers</h2>
+            ${answersHtml}
+          </body>
+          </html>
+        `;
+      }
+
+      function buildSubmissionDownloadText(submission) {
+        const lines = [
+          "Form Submission Details",
+          "=======================",
+          `Form: ${submission.form_name || "Unknown"} (${(submission.form_type || "N/A").toUpperCase()})`,
+          `Course: ${submission.course_code || "N/A"} - ${submission.course_title || "Unknown"}`,
+          `Status: ${(submission.status || "Unknown").replace("_", " ")}`,
+          `Date: ${submission.submission_date || "N/A"}`,
+          `Faculty: ${submission.faculty_name || "N/A"}`,
+          "",
+          "Answers",
+          "-------",
+        ];
+
+        if (submission.answers && submission.answers.length > 0) {
+          submission.answers.forEach((answer, index) => {
+            lines.push("");
+            lines.push(`${index + 1}. ${answer.question_text || "Question"}`);
+            lines.push(formatSubmissionAnswerText(answer));
+          });
+        } else {
+          lines.push("");
+          lines.push("No answers submitted for this form");
+        }
+
+        return lines.join("\n");
+      }
+
+      async function printSubmission(submissionId) {
+        try {
+          const submission = await fetchSubmissionDetails(submissionId);
+          const printWindow = window.open("", "_blank");
+          if (!printWindow) {
+            showNotification(
+              "Please allow pop-ups to print this submission.",
+              "warning",
+            );
+            return;
+          }
+          printWindow.document.write(buildSubmissionPrintHtml(submission));
+          printWindow.document.close();
+          printWindow.focus();
+          setTimeout(() => {
+            printWindow.print();
+          }, 250);
+        } catch (error) {
+          console.error(error);
+          showNotification("Failed to print submission", "error");
+        }
+      }
+
+      async function downloadSubmission(submissionId) {
+        try {
+          const response = await fetch(
+            `/api/submissions/${submissionId}/pdf/`,
+            { credentials: "include" },
+          );
+          if (!response.ok) {
+            let message = "Failed to download PDF";
+            try {
+              const errorPayload = await response.json();
+              message = errorPayload.error || message;
+            } catch (parseError) {
+              // keep default message
+            }
+            throw new Error(message);
+          }
+
+          const blob = await response.blob();
+          const objectUrl = URL.createObjectURL(blob);
+          const anchor = document.createElement("a");
+          const disposition = response.headers.get("Content-Disposition") || "";
+          const matchedName = disposition.match(/filename="?([^"]+)"?/i);
+          anchor.href = objectUrl;
+          anchor.download =
+            matchedName && matchedName[1]
+              ? matchedName[1]
+              : `submission_${submissionId}.pdf`;
+          document.body.appendChild(anchor);
+          anchor.click();
+          document.body.removeChild(anchor);
+          URL.revokeObjectURL(objectUrl);
+          showNotification("PDF downloaded", "success");
+        } catch (error) {
+          console.error(error);
+          showNotification(
+            error.message || "Failed to download submission PDF",
+            "error",
+          );
         }
       }
       // Add this new function to show submission details in modal
@@ -3177,12 +3392,14 @@
         if (submission) {
           const formType = submission.dynamic_form?.form_type || "crr";
           const courseId = submission.course?.id;
-          if (courseId) {
-            // Find the active form of this type
-            const forms = state.activeForms[formType];
+          const formId = submission.dynamic_form?.id;
+          if (courseId && formId) {
+            window.location.href = `/dynamic-form/?course_id=${courseId}&form_type=${formType}&form_id=${formId}&submission_id=${submissionId}`;
+          } else if (courseId) {
+            // Fallback: use first active form of this type
+            const forms = state.activeForms[formType] || [];
             if (forms.length > 0) {
-              const formId = forms[0].id;
-              window.location.href = `/dynamic-form/?course_id=${courseId}&form_type=${formType}&form_id=${formId}&submission_id=${submissionId}`;
+              window.location.href = `/dynamic-form/?course_id=${courseId}&form_type=${formType}&form_id=${forms[0].id}&submission_id=${submissionId}`;
             } else {
               showNotification("No active form available for editing", "error");
             }
@@ -3943,7 +4160,7 @@
               ? new Date(submission.submission_date)
               : new Date();
             const formType = submission.dynamic_form?.form_type || "unknown";
-            const formName = submission.dynamic_form?.name || "Dynamic Form";
+            const formName = submission.dynamic_form?.name || "Review Form";
             const status = submission.status || "draft";
 
             return `
@@ -4144,6 +4361,8 @@
       window.cancelOutlineEditor = cancelOutlineEditor;
       window.refreshSubmissions = refreshSubmissions;
       window.viewSubmission = viewSubmission;
+      window.printSubmission = printSubmission;
+      window.downloadSubmission = downloadSubmission;
       window.editSubmission = editSubmission;
       window.editOutline = editOutline;
       window.submitExistingOutline = submitExistingOutline;

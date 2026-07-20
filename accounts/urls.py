@@ -92,9 +92,12 @@ urlpatterns = [
     # Faculty Users API
     path("api/faculty-users/", api_views.api_faculty_users, name="api_faculty_users"),
     path("api/courses/<int:course_id>/faculty-assignments/", api_views.api_course_faculty_assignments, name="api_course_faculty_assignments"),
+    path("api/faculty/<int:user_id>/course-assignments/", api_views.api_faculty_course_assignments, name="api_faculty_course_assignments"),
     
     # Submission Details
     path("api/submission-details/<int:submission_id>/", api_views.api_submission_details, name="api_submission_details"),
+    path("api/submissions/<int:submission_id>/pdf/", api_views.api_submission_pdf, name="api_submission_pdf"),
+    path("api/outlines/<int:outline_id>/pdf/", api_views.api_outline_pdf, name="api_outline_pdf"),
     
     # Faculty-specific APIs
     path("api/faculty/submissions/", api_views.api_faculty_submissions_list, name="api_faculty_submissions_list"),
@@ -147,6 +150,7 @@ urlpatterns = [
     path("api/crc/analysis/submissions-over-time/", api_views.api_analysis_submissions_over_time, name="api_analysis_submissions_over_time"),
     path("api/crc/analysis/form-status/", api_views.api_analysis_form_status, name="api_analysis_form_status"),
     path("api/crc/analysis/clo-achievement/", api_views.api_analysis_clo_achievement, name="api_analysis_clo_achievement"),
+    path("api/crc/analysis/ccr-clo-graphs/", api_views.api_analysis_ccr_clo_graphs, name="api_analysis_ccr_clo_graphs"),
     path("api/crc/compare-outlines/", api_views.api_compare_outlines, name="api_compare_outlines"),
     path("api/crc/generate-cqi-report/", api_views.api_generate_cqi_report, name="api_generate_cqi_report"),
     path("api/crc/cqi-report-pdf/", api_views.api_cqi_report_pdf, name="api_cqi_report_pdf"),
