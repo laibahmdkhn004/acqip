@@ -11,13 +11,14 @@ from difflib import SequenceMatcher
 import html as html_module
 import markdown
 
-from django.http import JsonResponse, HttpResponse
+from django.http import JsonResponse, HttpResponse, FileResponse
+from django.urls import reverse
 from fpdf import FPDF
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 import json
 from django.contrib.auth.decorators import login_required, user_passes_test
-from .models import Course, User, Department, DynamicForm, FormQuestion, DynamicFormSubmission, FormAnswer, CourseFaculty, CourseOutline
+from .models import Course, User, Department, Section, DynamicForm, FormQuestion, DynamicFormSubmission, FormAnswer, CourseFaculty, CourseOutline
 from .notifications import (
     notify_faculty_form_revision,
     notify_faculty_outline_revision,
@@ -37,6 +38,89 @@ def is_admin(user):
 
 def is_admin_or_crc(user):
     return user.is_authenticated and user.role in [User.ROLE_ADMIN, User.ROLE_CRC_MEMBER]
+
+
+def course_catalogue_file_payload(course):
+    """Return catalogue file metadata for a course."""
+    if not course.catalogue_file:
+        return {
+            'has_catalogue_file': False,
+            'catalogue_file_name': None,
+            'catalogue_download_url': None,
+        }
+    return {
+        'has_catalogue_file': True,
+        'catalogue_file_name': os.path.basename(course.catalogue_file.name),
+        'catalogue_download_url': reverse('api_course_catalogue_download', args=[course.id]),
+    }
+
+
+def course_faculty_section_payload(assignment):
+    """Serialize assigned sections for a CourseFaculty row."""
+    sections = list(assignment.sections.all())
+    return {
+        'section_ids': [section.id for section in sections],
+        'sections': [
+            {
+                'id': section.id,
+                'code': section.code,
+                'name': section.name,
+            }
+            for section in sections
+        ],
+        'section': assignment.section_display(),
+    }
+
+
+def normalize_section_ids(raw_section_ids):
+    """Normalize section id values from API payloads into a list of ints."""
+    if raw_section_ids is None:
+        return []
+    if isinstance(raw_section_ids, str):
+        raw_section_ids = [
+            part.strip()
+            for part in raw_section_ids.split(',')
+            if part.strip()
+        ]
+    if not isinstance(raw_section_ids, (list, tuple)):
+        raw_section_ids = [raw_section_ids]
+
+    section_ids = []
+    for raw_id in raw_section_ids:
+        try:
+            section_ids.append(int(raw_id))
+        except (TypeError, ValueError):
+            continue
+    return section_ids
+
+
+def set_course_faculty_sections(assignment, raw_section_ids):
+    """Attach Section rows to a CourseFaculty assignment."""
+    section_ids = normalize_section_ids(raw_section_ids)
+    if not section_ids:
+        assignment.sections.clear()
+        return
+    sections = Section.objects.filter(id__in=section_ids)
+    assignment.sections.set(sections)
+
+
+def parse_course_request_payload(request):
+    """Parse course create/update payload from JSON or multipart form data."""
+    content_type = (request.content_type or '').lower()
+    if 'multipart/form-data' in content_type:
+        data = request.POST.dict()
+        if 'credits' in data and data['credits'] != '':
+            try:
+                data['credits'] = int(data['credits'])
+            except (TypeError, ValueError):
+                data['credits'] = 3
+        if 'department_id' in data and data['department_id'] != '':
+            try:
+                data['department_id'] = int(data['department_id'])
+            except (TypeError, ValueError):
+                pass
+        return data, request.FILES.get('catalogue_file')
+    return json.loads(request.body or '{}'), None
 
 
 def course_outline_to_dict(outline):
@@ -93,6 +177,96 @@ def api_departments_create(request):
         return JsonResponse({'error': str(e)}, status=400)
 
 
+# Section API Views
+@login_required
+@user_passes_test(is_admin_or_crc)
+@require_http_methods(["GET"])
+def api_sections(request):
+    sections = list(Section.objects.values('id', 'name', 'code', 'description', 'created_at'))
+    for section in sections:
+        if section.get('created_at'):
+            section['created_at'] = section['created_at'].isoformat()
+    return JsonResponse(sections, safe=False)
+
+
+@login_required
+@user_passes_test(is_admin)
+@csrf_exempt
+@require_http_methods(["POST"])
+def api_sections_create(request):
+    try:
+        data = json.loads(request.body)
+        code = (data.get('code') or '').strip()
+        name = (data.get('name') or '').strip()
+        if not name or not code:
+            return JsonResponse({'error': 'Section name and code are required'}, status=400)
+        if Section.objects.filter(code__iexact=code).exists():
+            return JsonResponse({'error': 'Section code already exists'}, status=400)
+        section = Section.objects.create(
+            name=name,
+            code=code,
+            description=data.get('description', '') or '',
+        )
+        return JsonResponse({
+            'id': section.id,
+            'name': section.name,
+            'code': section.code,
+            'description': section.description,
+        }, status=201)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+
+@login_required
+@user_passes_test(is_admin)
+@csrf_exempt
+@require_http_methods(["GET", "PUT", "DELETE"])
+def api_section_detail(request, section_id):
+    try:
+        section = Section.objects.get(id=section_id)
+
+        if request.method == 'GET':
+            return JsonResponse({
+                'section': {
+                    'id': section.id,
+                    'name': section.name,
+                    'code': section.code,
+                    'description': section.description,
+                }
+            })
+
+        if request.method == 'PUT':
+            data = json.loads(request.body)
+            name = (data.get('name') or section.name or '').strip()
+            code = (data.get('code') or section.code or '').strip()
+            if not name or not code:
+                return JsonResponse({'error': 'Section name and code are required'}, status=400)
+            if Section.objects.filter(code__iexact=code).exclude(id=section.id).exists():
+                return JsonResponse({'error': 'Section code already exists'}, status=400)
+            section.name = name
+            section.code = code
+            if 'description' in data:
+                section.description = data.get('description') or ''
+            section.save()
+            return JsonResponse({
+                'id': section.id,
+                'name': section.name,
+                'code': section.code,
+                'description': section.description,
+            })
+
+        assignment_count = section.faculty_assignments.count()
+        section.delete()
+        return JsonResponse({
+            'message': 'Section deleted successfully',
+            'cleared_assignments': assignment_count,
+        })
+    except Section.DoesNotExist:
+        return JsonResponse({'error': 'Section not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+
 @login_required
 @user_passes_test(is_admin)
 @csrf_exempt
@@ -113,13 +287,14 @@ def api_department_detail(request, department_id):
                 course_faculty = CourseFaculty.objects.filter(course_id=course['id']).select_related('faculty')
                 faculty_data = []
                 for cf in course_faculty:
-                    faculty_data.append({
+                    faculty_payload = {
                         'id': cf.faculty.id,
                         'username': cf.faculty.username,
                         'email': cf.faculty.email,
                         'is_coordinator': cf.is_coordinator,
-                        'section': cf.section
-                    })
+                    }
+                    faculty_payload.update(course_faculty_section_payload(cf))
+                    faculty_data.append(faculty_payload)
                 course_data['faculty'] = faculty_data
                 courses_list.append(course_data)
             
@@ -175,29 +350,39 @@ def api_department_detail(request, department_id):
 @login_required
 @user_passes_test(is_admin_or_crc)
 @require_http_methods(["GET"])
+@login_required
+@user_passes_test(is_admin_or_crc)
 def api_courses(request):
-    courses = list(Course.objects.select_related('department').values(
-        'id', 'title', 'code', 'description', 'department_id', 'credits',
-        'department__code', 'department__name'
-    ))
+    courses = list(Course.objects.select_related('department').all())
+    courses_data = []
     for course in courses:
-        course['department_code'] = course.pop('department__code') or ''
-        course['department_name'] = course.pop('department__name') or ''
+        course_data = {
+            'id': course.id,
+            'title': course.title,
+            'code': course.code,
+            'description': course.description,
+            'department_id': course.department_id,
+            'credits': course.credits,
+            'department_code': course.department.code if course.department else '',
+            'department_name': course.department.name if course.department else '',
+        }
+        course_data.update(course_catalogue_file_payload(course))
         coordinator = CourseFaculty.objects.filter(
-            course_id=course['id'], 
+            course_id=course.id,
             is_coordinator=True
-        ).select_related('faculty').first()
-        
+        ).select_related('faculty').prefetch_related('sections').first()
+
         if coordinator:
-            course['course_coordinator_id'] = coordinator.faculty.id
-            course['course_coordinator_name'] = coordinator.faculty.username
-            course['coordinator_section'] = coordinator.section
+            course_data['course_coordinator_id'] = coordinator.faculty.id
+            course_data['course_coordinator_name'] = coordinator.faculty.username
+            course_data['coordinator_section'] = coordinator.section_display()
         else:
-            course['course_coordinator_id'] = None
-            course['course_coordinator_name'] = None
-            course['coordinator_section'] = None
-    
-    return JsonResponse(courses, safe=False)
+            course_data['course_coordinator_id'] = None
+            course_data['course_coordinator_name'] = None
+            course_data['coordinator_section'] = None
+        courses_data.append(course_data)
+
+    return JsonResponse(courses_data, safe=False)
 
 @csrf_exempt
 @login_required
@@ -205,73 +390,130 @@ def api_courses(request):
 @require_http_methods(["POST"])
 def api_courses_create(request):
     try:
-        data = json.loads(request.body)
+        data, catalogue_file = parse_course_request_payload(request)
         department = Department.objects.get(id=data.get('department_id'))
-        course = Course.objects.create(
+        course = Course(
             title=data.get('title'),
             code=data.get('code'),
             description=data.get('description', ''),
             department=department,
-            credits=data.get('credits', 3)
+            credits=data.get('credits', 3) or 3,
         )
-        
+        if catalogue_file:
+            course.catalogue_file = catalogue_file
+        course.save()
+
         faculty_assignments = data.get('faculty_assignments', [])
+        if isinstance(faculty_assignments, str):
+            try:
+                faculty_assignments = json.loads(faculty_assignments)
+            except json.JSONDecodeError:
+                faculty_assignments = []
+
         for assignment in faculty_assignments:
             faculty_id = assignment.get('faculty_id')
             is_coordinator = assignment.get('is_coordinator', False)
-            section = assignment.get('section', '')
-            
+            section_ids = assignment.get('section_ids', assignment.get('section', []))
+
             if faculty_id:
                 faculty = User.objects.get(id=faculty_id, role=User.ROLE_FACULTY)
-                CourseFaculty.objects.create(
+                course_faculty = CourseFaculty.objects.create(
                     course=course,
                     faculty=faculty,
                     is_coordinator=is_coordinator,
-                    section=section
                 )
-        
-        return JsonResponse({
+                set_course_faculty_sections(course_faculty, section_ids)
+
+        response_data = {
             'id': course.id,
             'title': course.title,
             'code': course.code,
             'description': course.description,
             'department_id': course.department.id,
-            'credits': course.credits
-        }, status=201)
+            'credits': course.credits,
+        }
+        response_data.update(course_catalogue_file_payload(course))
+        return JsonResponse(response_data, status=201)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
 
 @csrf_exempt
 @login_required
 @user_passes_test(is_admin_or_crc)
-@require_http_methods(["PUT"])
+@require_http_methods(["PUT", "POST"])
 def api_course_update(request, course_id):
     try:
-        data = json.loads(request.body)
+        data, catalogue_file = parse_course_request_payload(request)
         course = Course.objects.get(id=course_id)
         course.title = data.get('title', course.title)
         course.code = data.get('code', course.code)
         course.description = data.get('description', course.description)
-        course.credits = data.get('credits', course.credits)
-        
-        if 'department_id' in data:
+        if 'credits' in data and data.get('credits') not in (None, ''):
+            course.credits = data.get('credits')
+
+        if 'department_id' in data and data.get('department_id') not in (None, ''):
             department = Department.objects.get(id=data['department_id'])
             course.department = department
-        
+
+        if catalogue_file:
+            if course.catalogue_file:
+                course.catalogue_file.delete(save=False)
+            course.catalogue_file = catalogue_file
+
         course.save()
-        
-        return JsonResponse({
+
+        response_data = {
             'id': course.id,
             'title': course.title,
             'code': course.code,
             'description': course.description,
             'department_id': course.department.id,
-            'credits': course.credits
-        })
+            'credits': course.credits,
+        }
+        response_data.update(course_catalogue_file_payload(course))
+        return JsonResponse(response_data)
     except Course.DoesNotExist:
         return JsonResponse({'error': 'Course not found'}, status=404)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
+
+
+@login_required
+@require_http_methods(["GET"])
+def api_course_catalogue_download(request, course_id):
+    """Download the uploaded course catalogue file for a course."""
+    try:
+        course = Course.objects.get(id=course_id)
+        if not course.catalogue_file:
+            return JsonResponse({'error': 'No catalogue file uploaded for this course'}, status=404)
+        return FileResponse(
+            course.catalogue_file.open('rb'),
+            as_attachment=True,
+            filename=os.path.basename(course.catalogue_file.name),
+        )
+    except Course.DoesNotExist:
+        return JsonResponse({'error': 'Course not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+
+@login_required
+@require_http_methods(["GET"])
+def api_course_catalogues_list(request):
+    """List all courses with catalogue download info (faculty/CRC/admin)."""
+    courses = Course.objects.select_related('department').order_by('code')
+    courses_data = []
+    for course in courses:
+        course_data = {
+            'id': course.id,
+            'title': course.title,
+            'code': course.code,
+            'department_name': course.department.name if course.department else '',
+            'department_code': course.department.code if course.department else '',
+        }
+        course_data.update(course_catalogue_file_payload(course))
+        courses_data.append(course_data)
+    return JsonResponse(courses_data, safe=False)
 
 # Assign/Update Course Faculty
 @csrf_exempt
@@ -283,27 +525,37 @@ def api_assign_course_faculty(request, course_id):
         data = json.loads(request.body)
         course = Course.objects.get(id=course_id)
         
-        # Clear existing assignments
-        CourseFaculty.objects.filter(course=course).delete()
-        
         # Create new assignments
         faculty_assignments = data.get('faculty_assignments', [])
+
+        coordinator_count = sum(
+            1 for assignment in faculty_assignments
+            if assignment.get('faculty_id') and assignment.get('is_coordinator', False)
+        )
+        if coordinator_count > 1:
+            return JsonResponse({
+                'error': 'A course can have only one coordinator',
+                'success': False,
+            }, status=400)
+        
+        # Clear existing assignments
+        CourseFaculty.objects.filter(course=course).delete()
         
         assignments_created = 0
         for assignment in faculty_assignments:
             faculty_id = assignment.get('faculty_id')
             is_coordinator = assignment.get('is_coordinator', False)
-            section = assignment.get('section', '')
+            section_ids = assignment.get('section_ids', assignment.get('section', []))
             
             if faculty_id:
                 try:
                     faculty = User.objects.get(id=faculty_id, role=User.ROLE_FACULTY)
-                    CourseFaculty.objects.create(
+                    course_faculty = CourseFaculty.objects.create(
                         course=course,
                         faculty=faculty,
                         is_coordinator=is_coordinator,
-                        section=section
                     )
+                    set_course_faculty_sections(course_faculty, section_ids)
                     assignments_created += 1
                 except User.DoesNotExist:
                     continue
@@ -342,6 +594,7 @@ def api_assign_courses_to_faculty(request, user_id):
         course_ids = data.get('course_ids', [])
         coordinator_info = data.get('coordinator_info', {}) or {}
         section_info = data.get('section_info', {}) or {}
+        section_ids_info = data.get('section_ids_info', {}) or {}
 
         def mapping_get(mapping, course_id, default=None):
             if not isinstance(mapping, dict):
@@ -357,6 +610,27 @@ def api_assign_courses_to_faculty(request, user_id):
                 return mapping[as_int]
             return default
 
+        # Validate coordinator conflicts before changing assignments
+        for course_id in course_ids:
+            if not bool(mapping_get(coordinator_info, course_id, False)):
+                continue
+            try:
+                course = Course.objects.get(id=course_id)
+            except Course.DoesNotExist:
+                continue
+            existing_coordinator = CourseFaculty.objects.filter(
+                course=course,
+                is_coordinator=True,
+            ).exclude(faculty=faculty_member).select_related('faculty').first()
+            if existing_coordinator:
+                return JsonResponse({
+                    'error': (
+                        f'Course {course.code} already has coordinator '
+                        f'{existing_coordinator.faculty.username}'
+                    ),
+                    'success': False,
+                }, status=400)
+
         # Replace this faculty's course assignments with the submitted selection
         CourseFaculty.objects.filter(faculty=faculty_member).delete()
 
@@ -366,12 +640,16 @@ def api_assign_courses_to_faculty(request, user_id):
                 course = Course.objects.get(id=course_id)
             except Course.DoesNotExist:
                 continue
-            CourseFaculty.objects.create(
+            is_coordinator = bool(mapping_get(coordinator_info, course_id, False))
+            course_faculty = CourseFaculty.objects.create(
                 course=course,
                 faculty=faculty_member,
-                is_coordinator=bool(mapping_get(coordinator_info, course_id, False)),
-                section=mapping_get(section_info, course_id, '') or '',
+                is_coordinator=is_coordinator,
             )
+            section_ids = mapping_get(section_ids_info, course_id, None)
+            if section_ids is None:
+                section_ids = mapping_get(section_info, course_id, [])
+            set_course_faculty_sections(course_faculty, section_ids)
             assignments_created += 1
 
         return JsonResponse({
@@ -390,11 +668,13 @@ def api_faculty_courses(request):
     if request.user.role != User.ROLE_FACULTY:
         return JsonResponse({'error': 'Access denied'}, status=403)
     
-    course_assignments = CourseFaculty.objects.filter(faculty=request.user).select_related('course', 'course__department')
+    course_assignments = CourseFaculty.objects.filter(faculty=request.user).select_related(
+        'course', 'course__department'
+    ).prefetch_related('sections')
     
     courses_data = []
     for assignment in course_assignments:
-        courses_data.append({
+        course_data = {
             'id': assignment.course.id,
             'title': assignment.course.title,
             'code': assignment.course.code,
@@ -403,8 +683,9 @@ def api_faculty_courses(request):
             'department_name': assignment.course.department.name if assignment.course.department else '',
             'department_code': assignment.course.department.code if assignment.course.department else '',
             'is_coordinator': assignment.is_coordinator,
-            'section': assignment.section
-        })
+        }
+        course_data.update(course_faculty_section_payload(assignment))
+        courses_data.append(course_data)
     
     return JsonResponse(courses_data, safe=False)
 
@@ -787,7 +1068,7 @@ def api_faculty_dynamic_forms(request):
         # Get all courses assigned to this faculty
         course_assignments = CourseFaculty.objects.filter(
             faculty=request.user
-        ).select_related('course').order_by('course__code')
+        ).select_related('course').prefetch_related('sections').order_by('course__code')
         
         assigned_courses = []
         for assignment in course_assignments:
@@ -795,13 +1076,14 @@ def api_faculty_dynamic_forms(request):
             if form_type == 'ccr' and not assignment.is_coordinator:
                 continue
                 
-            assigned_courses.append({
+            course_payload = {
                 'id': assignment.course.id,
                 'code': assignment.course.code,
                 'title': assignment.course.title,
                 'is_coordinator': assignment.is_coordinator,
-                'section': assignment.section,
-            })
+            }
+            course_payload.update(course_faculty_section_payload(assignment))
+            assigned_courses.append(course_payload)
         
         # Get questions for ALL active forms
         forms_with_questions = []
@@ -867,7 +1149,7 @@ def api_form_availability(request):
                 'course_code': assignment.course.code,
                 'course_title': assignment.course.title,
                 'is_coordinator': assignment.is_coordinator,
-                'section': assignment.section,
+                'section': assignment.section_display(),
                 'forms_available': {
                     'ccr': ccr_forms if assignment.is_coordinator else [],
                     'crr': crr_forms
@@ -900,7 +1182,7 @@ def api_form_availability(request):
 @csrf_exempt
 @require_http_methods(["POST"])
 def api_submit_dynamic_form(request):
-    """Submit UNIVERSAL form (CCR/CRR) for a specific course"""
+    """Submit UNIVERSAL form (CCR/CRR) for a specific course section"""
     if request.user.role != User.ROLE_FACULTY:
         return JsonResponse({'error': 'Access denied'}, status=403)
     
@@ -908,17 +1190,18 @@ def api_submit_dynamic_form(request):
         data = json.loads(request.body)
         course_id = data.get('course_id')
         form_id = data.get('form_id')  # Now form_id is required since multiple forms
+        section_id = data.get('section_id')
         answers = data.get('answers', {})
         status = data.get('status', 'draft')  # 'draft' or 'submitted'
         
-        print(f"Form submission attempt: user={request.user.username}, course_id={course_id}, form_id={form_id}, status={status}")
+        print(f"Form submission attempt: user={request.user.username}, course_id={course_id}, form_id={form_id}, section_id={section_id}, status={status}")
         
         if not form_id:
             return JsonResponse({'error': 'form_id is required. Multiple forms may be active.'}, status=400)
         
         # Validate course assignment
         try:
-            course_assignment = CourseFaculty.objects.get(
+            course_assignment = CourseFaculty.objects.prefetch_related('sections').get(
                 faculty=request.user,
                 course_id=course_id
             )
@@ -941,27 +1224,56 @@ def api_submit_dynamic_form(request):
         
         # Get course
         course = Course.objects.get(id=course_id)
+
+        assigned_section = None
+        assigned_sections = list(course_assignment.sections.all())
+        if assigned_sections:
+            if not section_id:
+                return JsonResponse({
+                    'error': 'section_id is required. Submit this form for one assigned section.',
+                }, status=400)
+            try:
+                section_id = int(section_id)
+            except (TypeError, ValueError):
+                return JsonResponse({'error': 'Invalid section_id'}, status=400)
+            assigned_section = next(
+                (section for section in assigned_sections if section.id == section_id),
+                None,
+            )
+            if not assigned_section:
+                return JsonResponse({
+                    'error': 'Selected section is not assigned to you for this course.',
+                }, status=400)
+        elif section_id:
+            # Faculty has no sections on assignment; ignore unexpected section_id
+            section_id = None
         
-        # Check if already submitted (if this is a submission, not draft)
+        # Check if already submitted for this course + section
         existing_submission = DynamicFormSubmission.objects.filter(
             faculty=request.user,
             course_id=course_id,
-            dynamic_form=form
+            dynamic_form=form,
+            assigned_section=assigned_section,
         ).first()
         
         # Allow resubmission if in draft or revision requested status
         # Only block if trying to submit when already submitted
         if existing_submission and existing_submission.status == 'submitted' and status == 'submitted':
+            section_label = assigned_section.code if assigned_section else 'this course'
             return JsonResponse({
-                'error': 'You have already submitted this form for the selected course.',
+                'error': f'You have already submitted this form for section {section_label}.',
                 'submission_id': existing_submission.id,
                 'status': existing_submission.status
             }, status=400)
         
+        section_code = assigned_section.code if assigned_section else ''
+
         # Create or update submission
         if existing_submission:
             submission = existing_submission
             submission.status = status
+            submission.assigned_section = assigned_section
+            submission.section = section_code
             
             # Update submission date if submitting (not draft)
             if status == 'submitted':
@@ -976,10 +1288,11 @@ def api_submit_dynamic_form(request):
                 dynamic_form=form,
                 faculty=request.user,
                 course=course,
+                assigned_section=assigned_section,
                 course_code_title=f"{course.code} - {course.title}",
                 course_coordinator=request.user.username if course_assignment.is_coordinator else "",
                 is_coordinator=course_assignment.is_coordinator,
-                section=course_assignment.section,
+                section=section_code,
                 status=status,
                 submission_date=datetime.now() if status == 'submitted' else None
             )
@@ -1012,6 +1325,8 @@ def api_submit_dynamic_form(request):
             'message': f'Form {"submitted" if status == "submitted" else "saved as draft"} successfully!',
             'submission_id': submission.id,
             'status': submission.status,
+            'section_id': assigned_section.id if assigned_section else None,
+            'section': section_code,
             'success': True
         })
         
@@ -1042,10 +1357,16 @@ def api_faculty_users(request):
 @require_http_methods(["GET"])
 def api_course_faculty_assignments(request, course_id):
     try:
-        assignments = CourseFaculty.objects.filter(course_id=course_id).values(
-            'faculty_id', 'is_coordinator', 'section'
-        )
-        return JsonResponse(list(assignments), safe=False)
+        assignments = CourseFaculty.objects.filter(course_id=course_id).prefetch_related('sections')
+        payload = []
+        for assignment in assignments:
+            row = {
+                'faculty_id': assignment.faculty_id,
+                'is_coordinator': assignment.is_coordinator,
+            }
+            row.update(course_faculty_section_payload(assignment))
+            payload.append(row)
+        return JsonResponse(payload, safe=False)
     except Exception as e:
         return JsonResponse([], safe=False)
 
@@ -1059,22 +1380,23 @@ def api_faculty_course_assignments(request, user_id):
         faculty_member = User.objects.get(id=user_id, role=User.ROLE_FACULTY)
         assignments = CourseFaculty.objects.filter(faculty=faculty_member).select_related(
             'course', 'course__department'
-        )
+        ).prefetch_related('sections')
         payload = []
         for assignment in assignments:
-            payload.append({
+            row = {
                 'course_id': assignment.course_id,
                 'course_code': assignment.course.code,
                 'course_title': assignment.course.title,
                 'is_coordinator': assignment.is_coordinator,
-                'section': assignment.section or '',
                 'department_name': (
                     assignment.course.department.name if assignment.course.department else ''
                 ),
                 'department_code': (
                     assignment.course.department.code if assignment.course.department else ''
                 ),
-            })
+            }
+            row.update(course_faculty_section_payload(assignment))
+            payload.append(row)
         return JsonResponse(payload, safe=False)
     except User.DoesNotExist:
         return JsonResponse({'error': 'Faculty member not found'}, status=404)
@@ -1182,7 +1504,7 @@ def api_crc_faculty_list(request):
                     'id': assignment.course.id,
                     'code': assignment.course.code,
                     'title': assignment.course.title,
-                    'section': assignment.section,
+                    'section': assignment.section_display(),
                     'is_coordinator': assignment.is_coordinator
                 }
                 
@@ -1241,7 +1563,8 @@ def api_crc_course_catalogue(request):
                     'faculty': current_outline.faculty.username if current_outline else ''
                 } if current_outline else None,
                 'total_outlines': len(all_outlines),
-                'outlines': all_outlines
+                'outlines': all_outlines,
+                **course_catalogue_file_payload(course),
             })
         
         return JsonResponse(catalogue, safe=False)
@@ -2590,7 +2913,7 @@ def api_faculty_form_availability(request):
                     'course_code': assignment.course.code,
                     'course_title': assignment.course.title,
                     'is_coordinator': assignment.is_coordinator,
-                    'section': assignment.section,
+                    'section': assignment.section_display(),
                     'forms_available': {
                         'ccr': ccr_active and assignment.is_coordinator,
                         'crr': crr_active

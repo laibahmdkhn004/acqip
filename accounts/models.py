@@ -30,12 +30,26 @@ class Department(models.Model):
         return f"{self.code} - {self.name}"
 
 
+class Section(models.Model):
+    name = models.CharField(max_length=200)
+    code = models.CharField(max_length=20, unique=True)
+    description = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['code']
+
+    def __str__(self):
+        return f"{self.code} - {self.name}"
+
+
 class Course(models.Model):
     title = models.CharField(max_length=200)
     code = models.CharField(max_length=20, unique=True)
     description = models.TextField(blank=True)
     department = models.ForeignKey(Department, on_delete=models.CASCADE, related_name='courses')
     credits = models.IntegerField(default=3)
+    catalogue_file = models.FileField(upload_to='course_catalogues/', blank=True, null=True)
     faculty = models.ManyToManyField(User, through='CourseFaculty', related_name='assigned_courses', blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -48,12 +62,35 @@ class CourseFaculty(models.Model):
     course = models.ForeignKey(Course, on_delete=models.CASCADE)
     faculty = models.ForeignKey(User, on_delete=models.CASCADE)
     is_coordinator = models.BooleanField(default=False)
-    section = models.CharField(max_length=20, blank=True, null=True)
+    sections = models.ManyToManyField(Section, blank=True, related_name='faculty_assignments')
     created_at = models.DateTimeField(auto_now_add=True)
     
     class Meta:
         unique_together = ('course', 'faculty')
+        constraints = [
+            models.UniqueConstraint(
+                fields=['course'],
+                condition=models.Q(is_coordinator=True),
+                name='unique_coordinator_per_course',
+            ),
+        ]
     
+    def save(self, *args, **kwargs):
+        # Enforce one coordinator per course: demote any existing coordinator first
+        if self.is_coordinator:
+            CourseFaculty.objects.filter(
+                course_id=self.course_id,
+                is_coordinator=True,
+            ).exclude(pk=self.pk).update(is_coordinator=False)
+        super().save(*args, **kwargs)
+
+    def section_display(self):
+        section_labels = [
+            section.code or section.name
+            for section in self.sections.all()
+        ]
+        return ', '.join(section_labels)
+
     def __str__(self):
         return f"{self.faculty.username} - {self.course.code} (Coordinator: {self.is_coordinator})"
 
@@ -143,6 +180,13 @@ class DynamicFormSubmission(models.Model):
     dynamic_form = models.ForeignKey(DynamicForm, on_delete=models.CASCADE)
     faculty = models.ForeignKey(User, on_delete=models.CASCADE)
     course = models.ForeignKey(Course, on_delete=models.CASCADE)
+    assigned_section = models.ForeignKey(
+        Section,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='form_submissions',
+    )
     
     course_code_title = models.CharField(max_length=300)
     course_coordinator = models.CharField(max_length=200, blank=True)
@@ -154,10 +198,18 @@ class DynamicFormSubmission(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_DRAFT)
     
     class Meta:
-        unique_together = ['faculty', 'course', 'dynamic_form']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['faculty', 'course', 'dynamic_form', 'assigned_section'],
+                name='unique_form_submission_per_section',
+            ),
+        ]
     
     def __str__(self):
-        return f"Dynamic Submission by {self.faculty.username} for {self.course.code}"
+        section_label = self.section or (
+            self.assigned_section.code if self.assigned_section_id else 'No section'
+        )
+        return f"Dynamic Submission by {self.faculty.username} for {self.course.code} ({section_label})"
 
 
 class FormAnswer(models.Model):

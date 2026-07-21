@@ -168,7 +168,7 @@ def dynamic_form(request):
             'code': assignment.course.code,
             'department': assignment.course.department.name if assignment.course.department else '',
             'is_coordinator': assignment.is_coordinator,
-            'section': assignment.section
+            'section': assignment.section_display()
         })
     
     # Check form type from URL
@@ -241,7 +241,7 @@ def dashboard(request):
                 'department': assignment.course.department.name if assignment.course.department else '',
                 'department_code': assignment.course.department.code if assignment.course.department else '',
                 'is_coordinator': assignment.is_coordinator,
-                'section': assignment.section
+                'section': assignment.section_display()
             })
         
         # Get recent form submissions (only for universal CCR/CRR forms)
@@ -505,7 +505,7 @@ def faculty_dashboard(request):
             'credits': assignment.course.credits,
             'department': assignment.course.department.name if assignment.course.department else '',
             'is_coordinator': assignment.is_coordinator,
-            'section': assignment.section
+            'section': assignment.section_display()
         })
     
     # Get recent form submissions (only for universal forms)

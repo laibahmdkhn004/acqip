@@ -2,7 +2,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from django import forms
-from .models import User, Course, Department, DynamicForm, FormQuestion, DynamicFormSubmission, FormAnswer, CourseFaculty, CourseOutline, AnalyticsCache
+from .models import User, Course, Department, Section, DynamicForm, FormQuestion, DynamicFormSubmission, FormAnswer, CourseFaculty, CourseOutline, AnalyticsCache
 from django.utils.html import format_html
 
 # Custom form for FormQuestion
@@ -20,6 +20,7 @@ class CourseFacultyInline(admin.TabularInline):
     model = CourseFaculty
     extra = 1
     raw_id_fields = ('faculty',)
+    autocomplete_fields = ('sections',)
 
 # Inline for Course Outline versions
 class CourseOutlineInline(admin.TabularInline):
@@ -50,9 +51,16 @@ class DepartmentAdmin(admin.ModelAdmin):
         return obj.courses.count()
     course_count.short_description = 'Courses'
 
+
+@admin.register(Section)
+class SectionAdmin(admin.ModelAdmin):
+    list_display = ('name', 'code', 'created_at')
+    search_fields = ('name', 'code')
+    list_filter = ('created_at',)
+
 @admin.register(Course)
 class CourseAdmin(admin.ModelAdmin):
-    list_display = ('title', 'code', 'department', 'credits', 'created_at', 'faculty_count')
+    list_display = ('title', 'code', 'department', 'credits', 'catalogue_file', 'created_at', 'faculty_count')
     search_fields = ('title', 'code', 'department__name')
     list_filter = ('department', 'created_at')
     inlines = [CourseFacultyInline, CourseOutlineInline]
@@ -63,10 +71,15 @@ class CourseAdmin(admin.ModelAdmin):
 
 @admin.register(CourseFaculty)
 class CourseFacultyAdmin(admin.ModelAdmin):
-    list_display = ('course', 'faculty', 'is_coordinator', 'section', 'created_at')
+    list_display = ('course', 'faculty', 'is_coordinator', 'section_list', 'created_at')
     list_filter = ('is_coordinator', 'created_at', 'course__department')
-    search_fields = ('course__title', 'faculty__username', 'section')
-    list_editable = ('is_coordinator', 'section')
+    search_fields = ('course__title', 'faculty__username', 'sections__code', 'sections__name')
+    list_editable = ('is_coordinator',)
+    filter_horizontal = ('sections',)
+
+    def section_list(self, obj):
+        return obj.section_display() or '—'
+    section_list.short_description = 'Sections'
 
 # Dynamic Form Admin
 class FormQuestionInline(admin.TabularInline):
@@ -126,11 +139,12 @@ class FormQuestionAdmin(admin.ModelAdmin):
 
 @admin.register(DynamicFormSubmission)
 class DynamicFormSubmissionAdmin(admin.ModelAdmin):
-    list_display = ('faculty', 'course', 'dynamic_form', 'status', 'is_coordinator', 'submission_date', 'answer_count')
-    list_filter = ('status', 'submission_date', 'course', 'dynamic_form', 'is_coordinator')
-    search_fields = ('faculty__username', 'course__title', 'course_coordinator')
+    list_display = ('faculty', 'course', 'assigned_section', 'section', 'dynamic_form', 'status', 'is_coordinator', 'submission_date', 'answer_count')
+    list_filter = ('status', 'submission_date', 'course', 'dynamic_form', 'is_coordinator', 'assigned_section')
+    search_fields = ('faculty__username', 'course__title', 'course_coordinator', 'section')
     readonly_fields = ('submission_date', 'updated_at')
     list_editable = ('status',)
+    raw_id_fields = ('assigned_section',)
     
     def answer_count(self, obj):
         return obj.answers.count()
