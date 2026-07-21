@@ -539,6 +539,7 @@
       // API Configuration
       const API = {
         departments: "{% url 'api_departments' %}",
+        sections: "{% url 'api_sections' %}",
         courses: "{% url 'api_courses' %}",
         courses_create: "{% url 'api_courses_create' %}",
         course_update: (id) =>
@@ -711,9 +712,11 @@
 
       async function fetchAPI(url, options = {}) {
         const requestUrl = resolveApiRequestUrl(url);
+        const isFormData =
+          typeof FormData !== "undefined" && options.body instanceof FormData;
         const defaultOptions = {
           headers: {
-            "Content-Type": "application/json",
+            ...(isFormData ? {} : { "Content-Type": "application/json" }),
             "X-CSRFToken": getCSRFToken(),
           },
           credentials: "include", // ← ADD THIS LINE
@@ -723,6 +726,10 @@
           const response = await fetch(requestUrl, {
             ...defaultOptions,
             ...options,
+            headers: {
+              ...defaultOptions.headers,
+              ...(options.headers || {}),
+            },
           });
           if (!response.ok) {
             const errorText = await response.text();
@@ -1343,8 +1350,13 @@
                 <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
                 <textarea name="description" rows="3" class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500" placeholder="Course description..."></textarea>
               </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Course Catalogue</label>
+                <input type="file" name="catalogue_file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt" class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm" />
+                <p class="text-xs text-gray-500 mt-1">Optional. Upload a catalogue document for this course.</p>
+              </div>
               <div class="flex gap-3 justify-end pt-4 border-t">
-                <button type="button" onclick="elements.modal.classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
+                <button type="button" onclick="document.getElementById('modal').classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
                 <button type="submit" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">Create Course</button>
               </div>
             </form>
@@ -1355,19 +1367,12 @@
           document.getElementById("create-course-form").onsubmit = async (e) => {
             e.preventDefault();
             const formData = new FormData(e.target);
-            const data = {
-              title: formData.get("title"),
-              code: formData.get("code"),
-              department_id: parseInt(formData.get("department_id"), 10),
-              credits: parseInt(formData.get("credits"), 10) || 3,
-              description: formData.get("description"),
-              faculty_assignments: [],
-            };
+            formData.set("faculty_assignments", JSON.stringify([]));
 
             try {
               await fetchAPI(API.courses_create, {
                 method: "POST",
-                body: JSON.stringify(data),
+                body: formData,
               });
               elements.modal.classList.add("hidden");
               await renderCoursesPage();
@@ -1426,8 +1431,25 @@
                 <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
                 <textarea name="description" rows="3" class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">${String(course.description || "").replace(/</g, "&lt;")}</textarea>
               </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Course Catalogue</label>
+                ${
+                  course.has_catalogue_file
+                    ? `
+                  <p class="text-sm text-gray-600 mb-2">
+                    Current file:
+                    <a href="${course.catalogue_download_url}" class="text-purple-600 hover:underline" target="_blank" rel="noopener">
+                      ${course.catalogue_file_name || "Download current catalogue"}
+                    </a>
+                  </p>
+                `
+                    : `<p class="text-sm text-gray-500 mb-2">No catalogue file uploaded yet.</p>`
+                }
+                <input type="file" name="catalogue_file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt" class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm" />
+                <p class="text-xs text-gray-500 mt-1">Upload a new file to replace the current catalogue.</p>
+              </div>
               <div class="flex gap-3 justify-end pt-4 border-t">
-                <button type="button" onclick="elements.modal.classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
+                <button type="button" onclick="document.getElementById('modal').classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
                 <button type="submit" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">Save Changes</button>
               </div>
             </form>
@@ -1438,18 +1460,14 @@
           document.getElementById("edit-course-form").onsubmit = async (e) => {
             e.preventDefault();
             const formData = new FormData(e.target);
-            const data = {
-              title: formData.get("title"),
-              code: formData.get("code"),
-              department_id: parseInt(formData.get("department_id"), 10),
-              credits: parseInt(formData.get("credits"), 10) || 3,
-              description: formData.get("description"),
-            };
+            if (!formData.get("catalogue_file") || !formData.get("catalogue_file").name) {
+              formData.delete("catalogue_file");
+            }
 
             try {
               await fetchAPI(API.course_update(courseId), {
-                method: "PUT",
-                body: JSON.stringify(data),
+                method: "POST",
+                body: formData,
               });
               elements.modal.classList.add("hidden");
               await renderCoursesPage();
@@ -1466,6 +1484,34 @@
         }
       }
 
+      function buildSectionMultiSelect(selectName, selectedIds = [], disabled = false) {
+        const selected = new Set((selectedIds || []).map((id) => String(id)));
+        const options = (window.__sectionsCache || [])
+          .map(
+            (section) => `
+          <option value="${section.id}" ${selected.has(String(section.id)) ? "selected" : ""}>
+            ${section.code} - ${section.name}
+          </option>
+        `,
+          )
+          .join("");
+        return `
+          <select name="${selectName}" multiple
+                  class="section-select min-w-[10rem] w-40 border border-gray-300 px-2 py-1 rounded text-sm ${disabled ? "opacity-50 cursor-not-allowed" : ""}"
+                  ${disabled ? "disabled" : ""}
+                  title="Hold Ctrl/Cmd to select multiple sections">
+            ${options || '<option disabled value="">No sections available</option>'}
+          </select>
+        `;
+      }
+
+      async function ensureSectionsLoaded() {
+        if (!Array.isArray(window.__sectionsCache)) {
+          window.__sectionsCache = await fetchAPI(API.sections);
+        }
+        return window.__sectionsCache;
+      }
+
       async function openCourseFacultyAssignmentModal(courseId) {
         try {
           const [courses, faculty, currentAssignments] = await Promise.all([
@@ -1473,6 +1519,7 @@
             fetchAPI(API.faculty_users),
             fetchAPI(API.course_faculty_assignments(courseId)).catch(() => []),
           ]);
+          await ensureSectionsLoaded();
 
           const course = courses.find((c) => c.id == courseId);
           if (!course) throw new Error("Course not found");
@@ -1491,7 +1538,8 @@
                 <p class="text-sm text-gray-600">${course.code} • ${course.department_name || course.department_code || ""}</p>
               </div>
               <div>
-                <h5 class="font-medium text-gray-900 mb-3">Select Faculty Members</h5>
+                <h5 class="font-medium text-gray-900 mb-1">Select Faculty Members</h5>
+                <p class="text-sm text-gray-500 mb-3">Only one faculty member can be marked as coordinator for this course. Hold Ctrl/Cmd to select multiple sections.</p>
                 <div class="space-y-3 max-h-96 overflow-y-auto">
                   ${facultyList
                     .map((fac) => {
@@ -1511,16 +1559,13 @@
                           </div>
                           <div class="flex items-center space-x-3">
                             <label class="flex items-center space-x-2">
-                              <input type="checkbox" name="coordinator_${fac.id}"
+                              <input type="radio" name="course_coordinator" value="${fac.id}"
                                 ${assignment?.is_coordinator ? "checked" : ""}
                                 ${!assignment ? "disabled" : ""}
-                                class="coordinator-checkbox rounded border-gray-300 text-green-600 focus:ring-green-500">
+                                class="coordinator-radio border-gray-300 text-green-600 focus:ring-green-500">
                               <span class="text-sm text-gray-700">Coordinator</span>
                             </label>
-                            <input type="text" name="section_${fac.id}" value="${assignment?.section || ""}"
-                              placeholder="Section"
-                              class="section-input w-24 border border-gray-300 px-2 py-1 rounded text-sm ${!assignment ? "opacity-50 cursor-not-allowed" : ""}"
-                              ${!assignment ? "disabled" : ""}>
+                            ${buildSectionMultiSelect(`section_ids_${fac.id}`, assignment?.section_ids || [], !assignment)}
                           </div>
                         </div>
                       </div>
@@ -1542,19 +1587,28 @@
           assignForm.addEventListener("change", (e) => {
             if (e.target.classList.contains("faculty-checkbox")) {
               const facultyId = e.target.value;
-              const coordinatorCheckbox = assignForm.querySelector(
-                `input[name="coordinator_${facultyId}"]`,
+              const coordinatorRadio = assignForm.querySelector(
+                `input.coordinator-radio[value="${facultyId}"]`,
               );
-              const sectionInput = assignForm.querySelector(
-                `input[name="section_${facultyId}"]`,
+              const sectionSelect = assignForm.querySelector(
+                `select[name="section_ids_${facultyId}"]`,
               );
-              if (coordinatorCheckbox) {
-                coordinatorCheckbox.disabled = !e.target.checked;
-                if (!e.target.checked) coordinatorCheckbox.checked = false;
+              if (coordinatorRadio) {
+                coordinatorRadio.disabled = !e.target.checked;
+                if (!e.target.checked) coordinatorRadio.checked = false;
               }
-              if (sectionInput) {
-                sectionInput.disabled = !e.target.checked;
-                if (!e.target.checked) sectionInput.value = "";
+              if (sectionSelect) {
+                sectionSelect.disabled = !e.target.checked;
+                sectionSelect.classList.toggle("opacity-50", !e.target.checked);
+                sectionSelect.classList.toggle(
+                  "cursor-not-allowed",
+                  !e.target.checked,
+                );
+                if (!e.target.checked) {
+                  Array.from(sectionSelect.options).forEach((option) => {
+                    option.selected = false;
+                  });
+                }
               }
             }
           });
@@ -1565,10 +1619,16 @@
             const facultyIds = formData
               .getAll("faculty_ids")
               .map((id) => parseInt(id, 10));
+            const coordinatorFacultyId = formData.get("course_coordinator")
+              ? parseInt(formData.get("course_coordinator"), 10)
+              : null;
             const facultyAssignments = facultyIds.map((id) => ({
               faculty_id: id,
-              is_coordinator: formData.get(`coordinator_${id}`) === "on",
-              section: formData.get(`section_${id}`) || "",
+              is_coordinator: coordinatorFacultyId === id,
+              section_ids: formData
+                .getAll(`section_ids_${id}`)
+                .map((sectionId) => parseInt(sectionId, 10))
+                .filter(Boolean),
             }));
 
             try {
@@ -2215,7 +2275,7 @@
                                                       `
                                                       }
                                                   </div>
-                                                  <div class="mt-4">
+                                                  <div class="mt-4 flex flex-wrap items-center gap-4">
                                                       <button onclick="viewCourseOutlines(${
                                                         course.course_id
                                                       })" class="text-blue-600 hover:text-blue-800 text-sm">
@@ -2224,11 +2284,24 @@
                                                           })
                                                       </button>
                                                       ${
+                                                        course.has_catalogue_file
+                                                          ? `
+                                                          <a href="${course.catalogue_download_url}" class="text-purple-600 hover:text-purple-800 text-sm inline-flex items-center">
+                                                              <i class="fas fa-download mr-1"></i> Download Catalogue
+                                                          </a>
+                                                          `
+                                                          : `
+                                                          <span class="text-gray-400 text-sm inline-flex items-center">
+                                                              <i class="fas fa-ban mr-1"></i> No catalogue file
+                                                          </span>
+                                                          `
+                                                      }
+                                                      ${
                                                         course.outlines &&
                                                         course.outlines.length >
                                                           0
                                                           ? `
-                                                          <div class="mt-3 text-sm text-gray-600">
+                                                          <div class="w-full mt-3 text-sm text-gray-600">
                                                               Recent versions:
                                                               ${course.outlines
                                                                 .slice(0, 3)

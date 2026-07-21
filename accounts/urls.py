@@ -50,9 +50,15 @@ urlpatterns = [
     path("api/departments/create/", api_views.api_departments_create, name="api_departments_create"),
     path("api/departments/<int:department_id>/", api_views.api_department_detail, name="api_department_detail"),
     
+    path("api/sections/", api_views.api_sections, name="api_sections"),
+    path("api/sections/create/", api_views.api_sections_create, name="api_sections_create"),
+    path("api/sections/<int:section_id>/", api_views.api_section_detail, name="api_section_detail"),
+    
     path("api/courses/", api_views.api_courses, name="api_courses"),
     path("api/courses/create/", api_views.api_courses_create, name="api_courses_create"),
+    path("api/courses/catalogues/", api_views.api_course_catalogues_list, name="api_course_catalogues_list"),
     path("api/courses/<int:course_id>/", api_views.api_course_update, name="api_course_update"),
+    path("api/courses/<int:course_id>/catalogue/download/", api_views.api_course_catalogue_download, name="api_course_catalogue_download"),
     path("api/courses/<int:course_id>/delete/", api_views.api_course_delete, name="api_course_delete"),
     path("api/courses/<int:course_id>/assign-faculty/", api_views.api_assign_course_faculty, name="api_assign_course_faculty"),
     

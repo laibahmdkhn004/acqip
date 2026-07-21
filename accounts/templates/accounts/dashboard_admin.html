@@ -257,6 +257,26 @@
           </a>
           <a
             href="#"
+            data-page="sections"
+            class="nav-item flex items-center gap-3 p-2 rounded-md hover:bg-gray-50 text-gray-700"
+          >
+            <svg
+              class="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M4 6h16M4 10h16M4 14h10M4 18h10"
+              />
+            </svg>
+            Sections
+          </a>
+          <a
+            href="#"
             data-page="courses"
             class="nav-item flex items-center gap-3 p-2 rounded-md hover:bg-gray-50 text-gray-700"
           >
@@ -669,6 +689,11 @@
         department_detail: (id) => `{% url 'api_department_detail' 0 %}`.replace("0", id),
         department_update: (id) => `{% url 'api_department_update' 0 %}`.replace("0", id),
 
+        // Section APIs
+        sections: "{% url 'api_sections' %}",
+        sections_create: "{% url 'api_sections_create' %}",
+        section_detail: (id) => `{% url 'api_section_detail' 0 %}`.replace("0", id),
+
         // Course APIs
         courses: "{% url 'api_courses' %}",
         courses_create: "{% url 'api_courses_create' %}",
@@ -770,15 +795,23 @@
 
       // Fetch utility with error handling
       async function fetchAPI(url, options = {}) {
+        const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
         const defaultOptions = {
           headers: {
-            'Content-Type': 'application/json',
+            ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
             'X-CSRFToken': getCSRFToken(),
           },
           credentials: 'same-origin'
         };
 
-        const mergedOptions = { ...defaultOptions, ...options };
+        const mergedOptions = {
+          ...defaultOptions,
+          ...options,
+          headers: {
+            ...defaultOptions.headers,
+            ...(options.headers || {}),
+          },
+        };
 
         try {
           const response = await fetch(url, mergedOptions);
@@ -986,6 +1019,9 @@
             break;
           case 'departments':
             renderDepartmentsPage();
+            break;
+          case 'sections':
+            renderSectionsPage();
             break;
           case 'courses':
             renderCoursesPage();
@@ -1236,6 +1272,221 @@
               </div>
             </div>
           `;
+        }
+      }
+
+      function buildSectionMultiSelect(selectName, selectedIds = [], disabled = false) {
+        const selected = new Set((selectedIds || []).map((id) => String(id)));
+        const options = (window.__sectionsCache || []).map((section) => `
+          <option value="${section.id}" ${selected.has(String(section.id)) ? 'selected' : ''}>
+            ${section.code} - ${section.name}
+          </option>
+        `).join('');
+        return `
+          <select name="${selectName}" multiple
+                  class="section-select min-w-[10rem] w-40 border border-gray-300 px-2 py-1 rounded text-sm ${disabled ? 'opacity-50 cursor-not-allowed' : ''}"
+                  ${disabled ? 'disabled' : ''}
+                  title="Hold Ctrl/Cmd to select multiple sections">
+            ${options || '<option disabled value=\"\">No sections available</option>'}
+          </select>
+        `;
+      }
+
+      async function ensureSectionsLoaded() {
+        if (!Array.isArray(window.__sectionsCache)) {
+          window.__sectionsCache = await fetchAPI(API.sections);
+        }
+        return window.__sectionsCache;
+      }
+
+      async function renderSectionsPage() {
+        pageTitle.textContent = 'Section Management';
+        pageSubtitle.textContent = 'Create and manage course sections';
+
+        actionButtons.innerHTML = `
+          <button onclick="openSectionCreateModal()" class="px-4 py-2 bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors">
+            Create Section
+          </button>
+        `;
+
+        try {
+          const sections = await fetchAPI(API.sections);
+          window.__sectionsCache = sections;
+
+          const content = `
+            <div class="bg-white rounded-lg shadow">
+              <div class="px-6 py-4 border-b">
+                <div class="flex justify-between items-center">
+                  <h3 class="text-lg font-medium">All Sections</h3>
+                  <span class="text-sm text-gray-500">${sections.length} sections</span>
+                </div>
+              </div>
+              <div class="p-6">
+                ${sections.length > 0 ? `
+                  <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-left">
+                      <thead class="bg-gray-50">
+                        <tr>
+                          <th class="px-4 py-3 font-medium text-gray-700">Name</th>
+                          <th class="px-4 py-3 font-medium text-gray-700">Code</th>
+                          <th class="px-4 py-3 font-medium text-gray-700">Description</th>
+                          <th class="px-4 py-3 font-medium text-gray-700">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody class="divide-y divide-gray-200">
+                        ${sections.map(section => `
+                          <tr class="hover:bg-gray-50">
+                            <td class="px-4 py-3 font-medium">${section.name}</td>
+                            <td class="px-4 py-3 text-gray-600 font-mono">${section.code}</td>
+                            <td class="px-4 py-3 text-gray-600">${section.description || 'No description'}</td>
+                            <td class="px-4 py-3">
+                              <button onclick="openSectionEditModal(${section.id})" class="text-purple-600 hover:text-purple-800 text-sm font-medium mr-3">Edit</button>
+                              <button onclick="deleteSection(${section.id}, '${(section.name || '').replace(/'/g, "\\'")}')" class="text-red-600 hover:text-red-800 text-sm font-medium">Delete</button>
+                            </td>
+                          </tr>
+                        `).join('')}
+                      </tbody>
+                    </table>
+                  </div>
+                ` : `
+                  <div class="text-center py-12">
+                    <p class="text-gray-500 mb-4">No sections found</p>
+                    <button onclick="openSectionCreateModal()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                      Create First Section
+                    </button>
+                  </div>
+                `}
+              </div>
+            </div>
+          `;
+
+          document.getElementById('content-area').innerHTML = content;
+        } catch (error) {
+          console.error('Error loading sections:', error);
+          document.getElementById('content-area').innerHTML = `
+            <div class="bg-white rounded-lg shadow p-6">
+              <div class="text-center py-8 text-red-600">
+                Error loading sections. Please try again.
+              </div>
+            </div>
+          `;
+        }
+      }
+
+      async function openSectionCreateModal() {
+        modalTitle.textContent = 'Create Section';
+        modalBody.innerHTML = `
+          <form id="create-section-form" class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Section Name *</label>
+              <input type="text" name="name" required class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="e.g., Morning Section A" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Section Code *</label>
+              <input type="text" name="code" required class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="e.g., A, B, M1" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+              <textarea name="description" rows="3" class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="Optional section description"></textarea>
+            </div>
+            <div class="flex gap-3 justify-end pt-4 border-t">
+              <button type="button" onclick="document.getElementById('modal').classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
+              <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Create Section</button>
+            </div>
+          </form>
+        `;
+
+        modal.classList.remove('hidden');
+
+        document.getElementById('create-section-form').onsubmit = async (e) => {
+          e.preventDefault();
+          const formData = new FormData(e.target);
+          const data = Object.fromEntries(formData.entries());
+
+          try {
+            await fetchAPI(API.sections_create, {
+              method: 'POST',
+              body: JSON.stringify(data)
+            });
+            window.__sectionsCache = null;
+            modal.classList.add('hidden');
+            renderSectionsPage();
+            showNotification('Section created successfully', 'success');
+          } catch (error) {
+            showNotification('Error creating section: ' + error.message, 'error');
+          }
+        };
+      }
+
+      async function openSectionEditModal(sectionId) {
+        try {
+          const response = await fetchAPI(API.section_detail(sectionId));
+          const section = response.section;
+
+          modalTitle.textContent = 'Edit Section';
+          modalBody.innerHTML = `
+            <form id="edit-section-form" class="space-y-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Section Name *</label>
+                <input type="text" name="name" value="${section.name || ''}" required class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Section Code *</label>
+                <input type="text" name="code" value="${section.code || ''}" required class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <textarea name="description" rows="3" class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">${section.description || ''}</textarea>
+              </div>
+              <div class="flex gap-3 justify-end pt-4 border-t">
+                <button type="button" onclick="document.getElementById('modal').classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
+                <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Update Section</button>
+              </div>
+            </form>
+          `;
+
+          modal.classList.remove('hidden');
+
+          document.getElementById('edit-section-form').onsubmit = async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData.entries());
+
+            try {
+              await fetchAPI(API.section_detail(section.id), {
+                method: 'PUT',
+                body: JSON.stringify(data)
+              });
+              window.__sectionsCache = null;
+              modal.classList.add('hidden');
+              renderSectionsPage();
+              showNotification('Section updated successfully', 'success');
+            } catch (error) {
+              showNotification('Error updating section: ' + error.message, 'error');
+            }
+          };
+        } catch (error) {
+          showNotification('Error loading section data', 'error');
+        }
+      }
+
+      async function deleteSection(sectionId, sectionName) {
+        const displayName = sectionName || 'this section';
+        const confirmed = confirm(
+          `Are you sure you want to delete "${displayName}"?\n\n` +
+          'This will remove it from all faculty course assignments.'
+        );
+        if (!confirmed) {
+          return;
+        }
+
+        try {
+          await fetchAPI(API.section_detail(sectionId), { method: 'DELETE' });
+          window.__sectionsCache = null;
+          renderSectionsPage();
+          showNotification('Section deleted successfully', 'success');
+        } catch (error) {
+          showNotification('Error deleting section: ' + error.message, 'error');
         }
       }
 
@@ -1796,8 +2047,13 @@
                 <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
                 <textarea name="description" rows="3" class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500" placeholder="Course description..."></textarea>
               </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Course Catalogue</label>
+                <input type="file" name="catalogue_file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt" class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm" />
+                <p class="text-xs text-gray-500 mt-1">Optional. Upload a catalogue document for this course.</p>
+              </div>
               <div class="flex gap-3 justify-end pt-4 border-t">
-                <button type="button" onclick="modal.classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
+                <button type="button" onclick="document.getElementById('modal').classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
                 <button type="submit" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">Create Course</button>
               </div>
             </form>
@@ -1808,20 +2064,12 @@
           document.getElementById('create-course-form').onsubmit = async (e) => {
             e.preventDefault();
             const formData = new FormData(e.target);
-
-            const data = {
-              title: formData.get('title'),
-              code: formData.get('code'),
-              department_id: parseInt(formData.get('department_id')),
-              credits: parseInt(formData.get('credits')) || 3,
-              description: formData.get('description'),
-              faculty_assignments: [] // Empty array - faculty will be assigned separately
-            };
+            formData.set('faculty_assignments', JSON.stringify([]));
 
             try {
               await fetchAPI(API.courses_create, {
                 method: 'POST',
-                body: JSON.stringify(data)
+                body: formData
               });
 
               modal.classList.add('hidden');
@@ -1877,8 +2125,21 @@
                 <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
                 <textarea name="description" rows="3" class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">${course.description || ''}</textarea>
               </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Course Catalogue</label>
+                ${course.has_catalogue_file ? `
+                  <p class="text-sm text-gray-600 mb-2">
+                    Current file:
+                    <a href="${course.catalogue_download_url}" class="text-purple-600 hover:underline" target="_blank" rel="noopener">
+                      ${course.catalogue_file_name || 'Download current catalogue'}
+                    </a>
+                  </p>
+                ` : '<p class="text-sm text-gray-500 mb-2">No catalogue file uploaded yet.</p>'}
+                <input type="file" name="catalogue_file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt" class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm" />
+                <p class="text-xs text-gray-500 mt-1">Upload a new file to replace the current catalogue.</p>
+              </div>
               <div class="flex gap-3 justify-end pt-4 border-t">
-                <button type="button" onclick="modal.classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
+                <button type="button" onclick="document.getElementById('modal').classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
                 <button type="submit" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">Save Changes</button>
               </div>
             </form>
@@ -1889,19 +2150,14 @@
           document.getElementById('edit-course-form').onsubmit = async (e) => {
             e.preventDefault();
             const formData = new FormData(e.target);
-
-            const data = {
-              title: formData.get('title'),
-              code: formData.get('code'),
-              department_id: parseInt(formData.get('department_id')),
-              credits: parseInt(formData.get('credits')) || 3,
-              description: formData.get('description')
-            };
+            if (!formData.get('catalogue_file') || !formData.get('catalogue_file').name) {
+              formData.delete('catalogue_file');
+            }
 
             try {
               await fetchAPI(API.course_update(courseId), {
-                method: 'PUT',
-                body: JSON.stringify(data)
+                method: 'POST',
+                body: formData
               });
 
               modal.classList.add('hidden');
@@ -1921,8 +2177,9 @@
           const [courses, faculty, currentAssignments] = await Promise.all([
             fetchAPI(API.courses),
             fetchAPI(API.faculty_users),
-            fetchAPI(API.course_faculty_assignments(courseId)).catch(() => [])
+            fetchAPI(API.course_faculty_assignments(courseId)).catch(() => []),
           ]);
+          await ensureSectionsLoaded();
 
           const course = courses.find(c => c.id == courseId);
           if (!course) throw new Error('Course not found');
@@ -1943,13 +2200,14 @@
               </div>
 
               <div>
-                <h5 class="font-medium text-gray-900 mb-3">Select Faculty Members</h5>
+                <h5 class="font-medium text-gray-900 mb-1">Select Faculty Members</h5>
+                <p class="text-sm text-gray-500 mb-3">Only one faculty member can be marked as coordinator for this course. Hold Ctrl/Cmd to select multiple sections.</p>
                 <div class="space-y-3 max-h-96 overflow-y-auto">
                   ${facultyList.map(fac => {
                     const assignment = assignmentsMap[fac.id] || assignmentsMap[String(fac.id)];
                     return `
                       <div class="border border-gray-200 rounded-lg p-4">
-                        <div class="flex items-center justify-between">
+                        <div class="flex items-center justify-between gap-3 flex-wrap">
                           <div class="flex items-center space-x-3">
                             <input type="checkbox"
                                    name="faculty_ids"
@@ -1964,19 +2222,15 @@
                           </div>
                           <div class="flex items-center space-x-3">
                             <label class="flex items-center space-x-2">
-                              <input type="checkbox"
-                                     name="coordinator_${fac.id}"
+                              <input type="radio"
+                                     name="course_coordinator"
+                                     value="${fac.id}"
                                      ${assignment?.is_coordinator ? 'checked' : ''}
                                      ${!assignment ? 'disabled' : ''}
-                                     class="coordinator-checkbox rounded border-gray-300 text-green-600 focus:ring-green-500">
+                                     class="coordinator-radio border-gray-300 text-green-600 focus:ring-green-500">
                               <span class="text-sm text-gray-700">Coordinator</span>
                             </label>
-                            <input type="text"
-                                   name="section_${fac.id}"
-                                   value="${assignment?.section || ''}"
-                                   placeholder="Section"
-                                   class="section-input w-24 border border-gray-300 px-2 py-1 rounded text-sm ${!assignment ? 'opacity-50 cursor-not-allowed' : ''}"
-                                   ${!assignment ? 'disabled' : ''}>
+                            ${buildSectionMultiSelect(`section_ids_${fac.id}`, assignment?.section_ids || [], !assignment)}
                           </div>
                         </div>
                       </div>
@@ -1986,7 +2240,7 @@
               </div>
 
               <div class="flex gap-3 justify-end pt-4 border-t">
-                <button type="button" onclick="facultyAssignmentModal.classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
+                <button type="button" onclick="document.getElementById('faculty-assignment-modal').classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
                 <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Save Assignments</button>
               </div>
             </form>
@@ -1994,25 +2248,28 @@
 
           facultyAssignmentModal.classList.remove('hidden');
 
-          // Add event listeners for checkbox interactions
           const form = document.getElementById('assign-faculty-form');
           form.addEventListener('change', (e) => {
             if (e.target.classList.contains('faculty-checkbox')) {
               const facultyId = e.target.value;
-              const coordinatorCheckbox = form.querySelector(`input[name="coordinator_${facultyId}"]`);
-              const sectionInput = form.querySelector(`input[name="section_${facultyId}"]`);
+              const coordinatorRadio = form.querySelector(`input.coordinator-radio[value="${facultyId}"]`);
+              const sectionSelect = form.querySelector(`select[name="section_ids_${facultyId}"]`);
 
-              if (coordinatorCheckbox) {
-                coordinatorCheckbox.disabled = !e.target.checked;
+              if (coordinatorRadio) {
+                coordinatorRadio.disabled = !e.target.checked;
                 if (!e.target.checked) {
-                  coordinatorCheckbox.checked = false;
+                  coordinatorRadio.checked = false;
                 }
               }
 
-              if (sectionInput) {
-                sectionInput.disabled = !e.target.checked;
+              if (sectionSelect) {
+                sectionSelect.disabled = !e.target.checked;
+                sectionSelect.classList.toggle('opacity-50', !e.target.checked);
+                sectionSelect.classList.toggle('cursor-not-allowed', !e.target.checked);
                 if (!e.target.checked) {
-                  sectionInput.value = '';
+                  Array.from(sectionSelect.options).forEach((option) => {
+                    option.selected = false;
+                  });
                 }
               }
             }
@@ -2022,11 +2279,14 @@
             e.preventDefault();
             const formData = new FormData(e.target);
             const facultyIds = formData.getAll('faculty_ids').map(id => parseInt(id));
+            const coordinatorFacultyId = formData.get('course_coordinator')
+              ? parseInt(formData.get('course_coordinator'), 10)
+              : null;
 
             const facultyAssignments = facultyIds.map(id => ({
               faculty_id: id,
-              is_coordinator: formData.get(`coordinator_${id}`) === 'on',
-              section: formData.get(`section_${id}`) || ''
+              is_coordinator: coordinatorFacultyId === id,
+              section_ids: formData.getAll(`section_ids_${id}`).map((sectionId) => parseInt(sectionId, 10)).filter(Boolean)
             }));
 
             try {
@@ -2154,10 +2414,6 @@
                   <input type="email" name="email" value="${user.email || ''}" required class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500" />
                 </div>
               </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">New Password (leave blank to keep current)</label>
-                <input type="password" name="password" class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500" placeholder="Enter new password" />
-              </div>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label class="block text-sm font-medium text-gray-700 mb-1">Role *</label>
@@ -2190,11 +2446,6 @@
             const formData = new FormData(e.target);
             const data = Object.fromEntries(formData.entries());
 
-            // Remove password if empty
-            if (!data.password) {
-              delete data.password;
-            }
-
             try {
               await fetchAPI(API.user_update(userId), {
                 method: 'PUT',
@@ -2220,6 +2471,7 @@
             fetchAPI(API.faculty_users),
             fetchAPI(API.faculty_course_assignments(userId)).catch(() => [])
           ]);
+          await ensureSectionsLoaded();
 
           const faculty = facultyUsers.results?.find(f => f.id == userId);
           if (!faculty) throw new Error('Faculty not found');
@@ -2241,39 +2493,44 @@
               </div>
 
               <div>
-                <h5 class="font-medium text-gray-900 mb-3">Select Courses to Assign</h5>
+                <h5 class="font-medium text-gray-900 mb-1">Select Courses to Assign</h5>
+                <p class="text-sm text-gray-500 mb-3">Coordinator is disabled when another faculty is already assigned as coordinator for that course. Hold Ctrl/Cmd to select multiple sections.</p>
                 <div class="space-y-3 max-h-96 overflow-y-auto">
                   ${courses.map(course => {
                     const assignment = assignmentsMap[course.id];
+                    const existingCoordinatorId = course.course_coordinator_id;
+                    const isCurrentFacultyCoordinator = existingCoordinatorId == userId;
+                    const hasOtherCoordinator = Boolean(existingCoordinatorId) && !isCurrentFacultyCoordinator;
+                    const coordinatorDisabled = !assignment || hasOtherCoordinator;
+                    const coordinatorHint = hasOtherCoordinator
+                      ? `Assigned to ${course.course_coordinator_name}`
+                      : 'Coordinator';
                     return `
                     <div class="border border-gray-200 rounded-lg p-4">
-                      <div class="flex items-center justify-between">
+                      <div class="flex items-center justify-between gap-3 flex-wrap">
                         <div class="flex items-center space-x-3">
                           <input type="checkbox"
                                  name="course_ids"
                                  value="${course.id}"
                                  ${assignment ? 'checked' : ''}
-                                 class="course-checkbox rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                                 class="course-checkbox rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                 data-has-other-coordinator="${hasOtherCoordinator ? 'true' : 'false'}">
                           <div>
                             <div class="font-medium">${course.title}</div>
                             <div class="text-sm text-gray-500">${course.code} • ${courseDepartmentLabel(course)}</div>
                           </div>
                         </div>
                         <div class="flex items-center space-x-3">
-                          <label class="flex items-center space-x-2">
+                          <label class="flex items-center space-x-2 ${hasOtherCoordinator ? 'opacity-60' : ''}" title="${hasOtherCoordinator ? coordinatorHint : ''}">
                             <input type="checkbox"
                                    name="coordinator_${course.id}"
-                                   ${assignment?.is_coordinator ? 'checked' : ''}
-                                   ${!assignment ? 'disabled' : ''}
+                                   ${assignment?.is_coordinator || isCurrentFacultyCoordinator ? 'checked' : ''}
+                                   ${coordinatorDisabled ? 'disabled' : ''}
+                                   data-has-other-coordinator="${hasOtherCoordinator ? 'true' : 'false'}"
                                    class="coordinator-checkbox rounded border-gray-300 text-green-600 focus:ring-green-500">
-                            <span class="text-sm text-gray-700">Coordinator</span>
+                            <span class="text-sm text-gray-700">${coordinatorHint}</span>
                           </label>
-                          <input type="text"
-                                 name="section_${course.id}"
-                                 value="${assignment?.section || ''}"
-                                 placeholder="Section"
-                                 class="section-input w-24 border border-gray-300 px-2 py-1 rounded text-sm ${!assignment ? 'opacity-50 cursor-not-allowed' : ''}"
-                                 ${!assignment ? 'disabled' : ''}>
+                          ${buildSectionMultiSelect(`section_ids_${course.id}`, assignment?.section_ids || [], !assignment)}
                         </div>
                       </div>
                     </div>
@@ -2283,7 +2540,7 @@
               </div>
 
               <div class="flex gap-3 justify-end pt-4 border-t">
-                <button type="button" onclick="modal.classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
+                <button type="button" onclick="document.getElementById('modal').classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
                 <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Assign Courses</button>
               </div>
             </form>
@@ -2291,27 +2548,31 @@
 
           modal.classList.remove('hidden');
 
-          // Add event listeners for checkbox interactions
           const form = document.getElementById('assign-faculty-courses-form');
+
           form.addEventListener('change', (e) => {
             if (e.target.classList.contains('course-checkbox')) {
               const courseId = e.target.value;
-              const coordinatorCheckbox = form.querySelector(`input[name="coordinator_${courseId}"]`);
-              const sectionInput = form.querySelector(`input[name="section_${courseId}"]`);
+              const coordinatorCheckbox = form.querySelector(`input.coordinator-checkbox[name="coordinator_${courseId}"]`);
+              const sectionSelect = form.querySelector(`select[name="section_ids_${courseId}"]`);
+              const hasOtherCoordinator = e.target.dataset.hasOtherCoordinator === 'true';
 
               if (coordinatorCheckbox) {
-                coordinatorCheckbox.disabled = !e.target.checked;
-                if (!e.target.checked) {
+                const shouldDisable = !e.target.checked || hasOtherCoordinator;
+                coordinatorCheckbox.disabled = shouldDisable;
+                if (!e.target.checked || hasOtherCoordinator) {
                   coordinatorCheckbox.checked = false;
                 }
               }
 
-              if (sectionInput) {
-                sectionInput.disabled = !e.target.checked;
-                sectionInput.classList.toggle('opacity-50', !e.target.checked);
-                sectionInput.classList.toggle('cursor-not-allowed', !e.target.checked);
+              if (sectionSelect) {
+                sectionSelect.disabled = !e.target.checked;
+                sectionSelect.classList.toggle('opacity-50', !e.target.checked);
+                sectionSelect.classList.toggle('cursor-not-allowed', !e.target.checked);
                 if (!e.target.checked) {
-                  sectionInput.value = '';
+                  Array.from(sectionSelect.options).forEach((option) => {
+                    option.selected = false;
+                  });
                 }
               }
             }
@@ -2323,17 +2584,19 @@
             const courseIds = formData.getAll('course_ids').map(id => parseInt(id, 10));
 
             const coordinatorInfo = {};
-            const sectionInfo = {};
+            const sectionIdsInfo = {};
 
             courseIds.forEach(courseId => {
               coordinatorInfo[String(courseId)] = formData.get(`coordinator_${courseId}`) === 'on';
-              sectionInfo[String(courseId)] = formData.get(`section_${courseId}`) || '';
+              sectionIdsInfo[String(courseId)] = formData.getAll(`section_ids_${courseId}`)
+                .map((sectionId) => parseInt(sectionId, 10))
+                .filter(Boolean);
             });
 
             const data = {
               course_ids: courseIds,
               coordinator_info: coordinatorInfo,
-              section_info: sectionInfo
+              section_ids_info: sectionIdsInfo
             };
 
             try {
@@ -2358,6 +2621,9 @@
       window.viewDepartment = viewDepartment;
       window.openDepartmentEditModal = openDepartmentEditModal;
       window.deleteDepartment = deleteDepartment;
+      window.openSectionCreateModal = openSectionCreateModal;
+      window.openSectionEditModal = openSectionEditModal;
+      window.deleteSection = deleteSection;
       window.editCourse = editCourse;
       window.deleteCourse = deleteCourse;
       window.openCourseFacultyAssignmentModal = openCourseFacultyAssignmentModal;
