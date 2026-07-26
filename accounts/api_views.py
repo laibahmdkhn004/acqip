@@ -18,7 +18,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 import json
 from django.contrib.auth.decorators import login_required, user_passes_test
-from .models import Course, User, Department, Section, DynamicForm, FormQuestion, DynamicFormSubmission, FormAnswer, CourseFaculty, CourseOutline
+from .models import Course, CourseCatalog, User, Department, Section, DynamicForm, FormQuestion, DynamicFormSubmission, FormAnswer, CourseFaculty, CourseOutline
 from .notifications import (
     notify_faculty_form_revision,
     notify_faculty_outline_revision,
@@ -87,18 +87,16 @@ def set_active_role(request, role_code):
     return True
 
 
-def course_catalogue_file_payload(course):
-    """Return catalogue file metadata for a course."""
-    if not course.catalogue_file:
-        return {
-            'has_catalogue_file': False,
-            'catalogue_file_name': None,
-            'catalogue_download_url': None,
-        }
+def course_catalog_payload(catalog):
+    """Return serialized CourseCatalog metadata."""
     return {
-        'has_catalogue_file': True,
-        'catalogue_file_name': os.path.basename(course.catalogue_file.name),
-        'catalogue_download_url': reverse('api_course_catalogue_download', args=[course.id]),
+        'id': catalog.id,
+        'name': catalog.name,
+        'file_name': os.path.basename(catalog.file.name) if catalog.file else None,
+        'download_url': reverse('api_course_catalog_download', args=[catalog.id]) if catalog.file else None,
+        'created_by': catalog.created_by.username if catalog.created_by_id else None,
+        'created_at': catalog.created_at.isoformat() if catalog.created_at else None,
+        'updated_at': catalog.updated_at.isoformat() if catalog.updated_at else None,
     }
 
 
@@ -196,11 +194,24 @@ def parse_course_request_payload(request):
                 pass
         if 'is_lab' in data:
             data['is_lab'] = parse_bool_flag(data.get('is_lab'), default=False)
-        return data, request.FILES.get('catalogue_file')
+        return data
     data = json.loads(request.body or '{}')
     if 'is_lab' in data:
         data['is_lab'] = parse_bool_flag(data.get('is_lab'), default=False)
-    return data, None
+    return data
+
+
+def parse_course_catalog_request_payload(request):
+    """Parse course catalog create/update payload from multipart or JSON."""
+    content_type = (request.content_type or '').lower()
+    if 'multipart/form-data' in content_type:
+        return {
+            'name': (request.POST.get('name') or '').strip(),
+        }, request.FILES.get('file')
+    data = json.loads(request.body or '{}')
+    return {
+        'name': str(data.get('name') or '').strip(),
+    }, None
 
 
 def course_outline_to_dict(outline):
@@ -447,7 +458,6 @@ def api_courses(request):
             'department_code': course.department.code if course.department else '',
             'department_name': course.department.name if course.department else '',
         }
-        course_data.update(course_catalogue_file_payload(course))
         coordinator = CourseFaculty.objects.filter(
             course_id=course.id,
             is_coordinator=True
@@ -471,7 +481,7 @@ def api_courses(request):
 @require_http_methods(["POST"])
 def api_courses_create(request):
     try:
-        data, catalogue_file = parse_course_request_payload(request)
+        data = parse_course_request_payload(request)
         department = Department.objects.get(id=data.get('department_id'))
         course = Course(
             title=data.get('title'),
@@ -481,8 +491,6 @@ def api_courses_create(request):
             credits=data.get('credits', 3) or 3,
             is_lab=parse_bool_flag(data.get('is_lab'), default=False),
         )
-        if catalogue_file:
-            course.catalogue_file = catalogue_file
         course.save()
 
         faculty_assignments = data.get('faculty_assignments', [])
@@ -515,7 +523,6 @@ def api_courses_create(request):
             'credits': course.credits,
             'is_lab': bool(course.is_lab),
         }
-        response_data.update(course_catalogue_file_payload(course))
         return JsonResponse(response_data, status=201)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
@@ -526,7 +533,7 @@ def api_courses_create(request):
 @require_http_methods(["PUT", "POST"])
 def api_course_update(request, course_id):
     try:
-        data, catalogue_file = parse_course_request_payload(request)
+        data = parse_course_request_payload(request)
         course = Course.objects.get(id=course_id)
         course.title = data.get('title', course.title)
         course.code = data.get('code', course.code)
@@ -541,11 +548,6 @@ def api_course_update(request, course_id):
             department = Department.objects.get(id=data['department_id'])
             course.department = department
 
-        if catalogue_file:
-            if course.catalogue_file:
-                course.catalogue_file.delete(save=False)
-            course.catalogue_file = catalogue_file
-
         course.save()
 
         response_data = {
@@ -557,7 +559,6 @@ def api_course_update(request, course_id):
             'credits': course.credits,
             'is_lab': bool(course.is_lab),
         }
-        response_data.update(course_catalogue_file_payload(course))
         return JsonResponse(response_data)
     except Course.DoesNotExist:
         return JsonResponse({'error': 'Course not found'}, status=404)
@@ -567,40 +568,102 @@ def api_course_update(request, course_id):
 
 @login_required
 @require_http_methods(["GET"])
-def api_course_catalogue_download(request, course_id):
-    """Download the uploaded course catalogue file for a course."""
+def api_course_catalogs_list(request):
+    """List standalone course catalogs (faculty/CRC/admin)."""
+    catalogs = CourseCatalog.objects.select_related('created_by').all()
+    return JsonResponse([course_catalog_payload(catalog) for catalog in catalogs], safe=False)
+
+
+@csrf_exempt
+@login_required
+@user_passes_test(is_admin_or_crc)
+@require_http_methods(["POST"])
+def api_course_catalogs_create(request):
+    """Create a standalone course catalog (name + file)."""
     try:
-        course = Course.objects.get(id=course_id)
-        if not course.catalogue_file:
-            return JsonResponse({'error': 'No catalogue file uploaded for this course'}, status=404)
-        return FileResponse(
-            course.catalogue_file.open('rb'),
-            as_attachment=True,
-            filename=os.path.basename(course.catalogue_file.name),
+        data, catalog_file = parse_course_catalog_request_payload(request)
+        name = data.get('name')
+        if not name:
+            return JsonResponse({'error': 'Course Catalogue Name is required'}, status=400)
+        if not catalog_file:
+            return JsonResponse({'error': 'Catalogue file is required'}, status=400)
+
+        catalog = CourseCatalog.objects.create(
+            name=name,
+            file=catalog_file,
+            created_by=request.user,
         )
-    except Course.DoesNotExist:
-        return JsonResponse({'error': 'Course not found'}, status=404)
+        return JsonResponse(course_catalog_payload(catalog), status=201)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+
+@csrf_exempt
+@login_required
+@user_passes_test(is_admin_or_crc)
+@require_http_methods(["PUT", "POST"])
+def api_course_catalog_update(request, catalog_id):
+    """Update a course catalog name and/or file."""
+    try:
+        catalog = CourseCatalog.objects.get(id=catalog_id)
+        data, catalog_file = parse_course_catalog_request_payload(request)
+        name = data.get('name')
+        if name:
+            catalog.name = name
+        if catalog_file:
+            if catalog.file:
+                catalog.file.delete(save=False)
+            catalog.file = catalog_file
+        if not catalog.name:
+            return JsonResponse({'error': 'Course Catalogue Name is required'}, status=400)
+        catalog.save()
+        return JsonResponse(course_catalog_payload(catalog))
+    except CourseCatalog.DoesNotExist:
+        return JsonResponse({'error': 'Course catalog not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+
+@csrf_exempt
+@login_required
+@user_passes_test(is_admin_or_crc)
+@require_http_methods(["DELETE", "POST"])
+def api_course_catalog_delete(request, catalog_id):
+    """Delete a course catalog and its file."""
+    try:
+        catalog = CourseCatalog.objects.get(id=catalog_id)
+        if catalog.file:
+            catalog.file.delete(save=False)
+        catalog.delete()
+        return JsonResponse({'success': True, 'message': 'Course catalog deleted'})
+    except CourseCatalog.DoesNotExist:
+        return JsonResponse({'error': 'Course catalog not found'}, status=404)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
 
 
 @login_required
 @require_http_methods(["GET"])
-def api_course_catalogues_list(request):
-    """List all courses with catalogue download info (faculty/CRC/admin)."""
-    courses = Course.objects.select_related('department').order_by('code')
-    courses_data = []
-    for course in courses:
-        course_data = {
-            'id': course.id,
-            'title': course.title,
-            'code': course.code,
-            'department_name': course.department.name if course.department else '',
-            'department_code': course.department.code if course.department else '',
-        }
-        course_data.update(course_catalogue_file_payload(course))
-        courses_data.append(course_data)
-    return JsonResponse(courses_data, safe=False)
+def api_course_catalog_download(request, catalog_id):
+    """Download a standalone course catalog file."""
+    try:
+        catalog = CourseCatalog.objects.get(id=catalog_id)
+        if not catalog.file:
+            return JsonResponse({'error': 'No file uploaded for this catalog'}, status=404)
+        return FileResponse(
+            catalog.file.open('rb'),
+            as_attachment=True,
+            filename=os.path.basename(catalog.file.name),
+        )
+    except CourseCatalog.DoesNotExist:
+        return JsonResponse({'error': 'Course catalog not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+
+# Keep old URL name working for any leftover references
+api_course_catalogues_list = api_course_catalogs_list
+
 
 # Assign/Update Course Faculty
 @csrf_exempt
@@ -1843,7 +1906,6 @@ def api_crc_course_catalogue(request):
                 } if current_outline else None,
                 'total_outlines': len(all_outlines),
                 'outlines': all_outlines,
-                **course_catalogue_file_payload(course),
             })
         
         return JsonResponse(catalogue, safe=False)

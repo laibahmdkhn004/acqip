@@ -57,9 +57,13 @@ urlpatterns = [
     
     path("api/courses/", api_views.api_courses, name="api_courses"),
     path("api/courses/create/", api_views.api_courses_create, name="api_courses_create"),
-    path("api/courses/catalogues/", api_views.api_course_catalogues_list, name="api_course_catalogues_list"),
+    path("api/courses/catalogues/", api_views.api_course_catalogs_list, name="api_course_catalogues_list"),
+    path("api/course-catalogs/", api_views.api_course_catalogs_list, name="api_course_catalogs_list"),
+    path("api/course-catalogs/create/", api_views.api_course_catalogs_create, name="api_course_catalogs_create"),
+    path("api/course-catalogs/<int:catalog_id>/", api_views.api_course_catalog_update, name="api_course_catalog_update"),
+    path("api/course-catalogs/<int:catalog_id>/delete/", api_views.api_course_catalog_delete, name="api_course_catalog_delete"),
+    path("api/course-catalogs/<int:catalog_id>/download/", api_views.api_course_catalog_download, name="api_course_catalog_download"),
     path("api/courses/<int:course_id>/", api_views.api_course_update, name="api_course_update"),
-    path("api/courses/<int:course_id>/catalogue/download/", api_views.api_course_catalogue_download, name="api_course_catalogue_download"),
     path("api/courses/<int:course_id>/delete/", api_views.api_course_delete, name="api_course_delete"),
     path("api/courses/<int:course_id>/assign-faculty/", api_views.api_assign_course_faculty, name="api_assign_course_faculty"),
     

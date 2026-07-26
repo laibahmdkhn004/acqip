@@ -10,6 +10,12 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
       rel="stylesheet"
     />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css"
+    />
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
     <style>
       body {
@@ -43,6 +49,57 @@
         background-color: #f5f3ff;
         color: #7c3aed;
         border-left: 3px solid #7c3aed;
+      }
+      .select2-container {
+        width: 100% !important;
+        min-width: 16rem;
+      }
+      .select2-container--default .select2-selection--multiple {
+        min-height: 38px;
+        border-color: #d1d5db;
+        border-radius: 0.5rem;
+        padding: 2px 4px;
+      }
+      .select2-container--default.select2-container--focus .select2-selection--multiple {
+        border-color: #8b5cf6;
+        outline: none;
+        box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.25);
+      }
+      .select2-container--default .select2-selection--multiple .select2-selection__choice {
+        background-color: #ede9fe;
+        border-color: #c4b5fd;
+        color: #5b21b6;
+        border-radius: 9999px;
+        padding: 2px 8px 2px 4px;
+        margin-top: 4px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .select2-container--default .select2-selection--multiple .select2-selection__choice__remove {
+        position: static;
+        margin-right: 2px;
+        padding: 0 4px;
+        border: none;
+        color: #7c3aed;
+        font-weight: 600;
+        line-height: 1;
+      }
+      .select2-container--default .select2-selection--multiple .select2-selection__choice__remove:hover {
+        background: transparent;
+        color: #5b21b6;
+      }
+      .select2-container--default .select2-selection--multiple .select2-selection__choice__display {
+        padding-left: 0;
+        cursor: default;
+      }
+      .select2-dropdown {
+        border-color: #d1d5db;
+        border-radius: 0.5rem;
+        z-index: 1100;
+      }
+      .select2-container--default .select2-results__option--highlighted.select2-results__option--selectable {
+        background-color: #7c3aed;
       }
       .sidebar-scroll {
         scrollbar-width: thin;
@@ -1280,17 +1337,61 @@
         const selected = new Set((selectedIds || []).map((id) => String(id)));
         const options = (window.__sectionsCache || []).map((section) => `
           <option value="${section.id}" ${selected.has(String(section.id)) ? 'selected' : ''}>
-            ${section.code} - ${section.name}
+            ${section.name || section.code}
           </option>
         `).join('');
         return `
-          <select name="${selectName}" multiple
-                  class="section-select min-w-[10rem] w-40 border border-gray-300 px-2 py-1 rounded text-sm ${disabled ? 'opacity-50 cursor-not-allowed' : ''}"
-                  ${disabled ? 'disabled' : ''}
-                  title="Hold Ctrl/Cmd to select multiple sections">
-            ${options || '<option disabled value=\"\">No sections available</option>'}
-          </select>
+          <div class="section-select-wrap min-w-[16rem] w-72">
+            <select name="${selectName}" multiple
+                    class="section-select"
+                    data-placeholder="Select sections..."
+                    ${disabled ? 'disabled' : ''}>
+              ${options || '<option disabled value="">No sections available</option>'}
+            </select>
+          </div>
         `;
+      }
+
+      function initSectionSelect2($scope, dropdownParent) {
+        if (typeof window.jQuery === 'undefined' || !window.jQuery.fn.select2) {
+          return;
+        }
+        const $ = window.jQuery;
+        const $root = $scope ? $($scope) : $(document);
+        $root.find('select.section-select').each(function () {
+          const $select = $(this);
+          if ($select.hasClass('select2-hidden-accessible')) {
+            $select.select2('destroy');
+          }
+          $select.select2({
+            width: '100%',
+            placeholder: $select.data('placeholder') || 'Select sections...',
+            allowClear: true,
+            closeOnSelect: false,
+            dropdownParent: dropdownParent ? $(dropdownParent) : $(document.body),
+          });
+        });
+      }
+
+      function setSectionSelectEnabled(sectionSelect, enabled) {
+        if (!sectionSelect) return;
+        if (typeof window.jQuery !== 'undefined' && window.jQuery.fn.select2) {
+          const $select = window.jQuery(sectionSelect);
+          $select.prop('disabled', !enabled);
+          if (!enabled) {
+            $select.val(null).trigger('change');
+          }
+          $select.trigger('change.select2');
+          return;
+        }
+        sectionSelect.disabled = !enabled;
+        sectionSelect.classList.toggle('opacity-50', !enabled);
+        sectionSelect.classList.toggle('cursor-not-allowed', !enabled);
+        if (!enabled) {
+          Array.from(sectionSelect.options).forEach((option) => {
+            option.selected = false;
+          });
+        }
       }
 
       async function ensureSectionsLoaded() {
@@ -2065,11 +2166,6 @@
                 <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
                 <textarea name="description" rows="3" class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500" placeholder="Course description..."></textarea>
               </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Course Catalogue</label>
-                <input type="file" name="catalogue_file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt" class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm" />
-                <p class="text-xs text-gray-500 mt-1">Optional. Upload a catalogue document for this course.</p>
-              </div>
               <div class="flex gap-3 justify-end pt-4 border-t">
                 <button type="button" onclick="document.getElementById('modal').classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
                 <button type="submit" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">Create Course</button>
@@ -2150,19 +2246,6 @@
                 <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
                 <textarea name="description" rows="3" class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">${course.description || ''}</textarea>
               </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Course Catalogue</label>
-                ${course.has_catalogue_file ? `
-                  <p class="text-sm text-gray-600 mb-2">
-                    Current file:
-                    <a href="${course.catalogue_download_url}" class="text-purple-600 hover:underline" target="_blank" rel="noopener">
-                      ${course.catalogue_file_name || 'Download current catalogue'}
-                    </a>
-                  </p>
-                ` : '<p class="text-sm text-gray-500 mb-2">No catalogue file uploaded yet.</p>'}
-                <input type="file" name="catalogue_file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt" class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm" />
-                <p class="text-xs text-gray-500 mt-1">Upload a new file to replace the current catalogue.</p>
-              </div>
               <div class="flex gap-3 justify-end pt-4 border-t">
                 <button type="button" onclick="document.getElementById('modal').classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
                 <button type="submit" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">Save Changes</button>
@@ -2176,9 +2259,6 @@
             e.preventDefault();
             const formData = new FormData(e.target);
             formData.set('is_lab', e.target.querySelector('[name="is_lab"]')?.checked ? 'true' : 'false');
-            if (!formData.get('catalogue_file') || !formData.get('catalogue_file').name) {
-              formData.delete('catalogue_file');
-            }
 
             try {
               await fetchAPI(API.course_update(courseId), {
@@ -2227,7 +2307,7 @@
 
               <div>
                 <h5 class="font-medium text-gray-900 mb-1">Select Faculty Members</h5>
-                <p class="text-sm text-gray-500 mb-3">Only one faculty member can be marked as coordinator for this course. Hold Ctrl/Cmd to select multiple sections.</p>
+                <p class="text-sm text-gray-500 mb-3">Only one faculty member can be marked as coordinator for this course. Search and select one or more sections from the dropdown.</p>
                 <div class="space-y-3 max-h-96 overflow-y-auto">
                   ${facultyList.map(fac => {
                     const assignment = assignmentsMap[fac.id] || assignmentsMap[String(fac.id)];
@@ -2273,6 +2353,7 @@
           `;
 
           facultyAssignmentModal.classList.remove('hidden');
+          initSectionSelect2(facultyAssignmentBody, facultyAssignmentModal);
 
           const form = document.getElementById('assign-faculty-form');
           form.addEventListener('change', (e) => {
@@ -2288,16 +2369,7 @@
                 }
               }
 
-              if (sectionSelect) {
-                sectionSelect.disabled = !e.target.checked;
-                sectionSelect.classList.toggle('opacity-50', !e.target.checked);
-                sectionSelect.classList.toggle('cursor-not-allowed', !e.target.checked);
-                if (!e.target.checked) {
-                  Array.from(sectionSelect.options).forEach((option) => {
-                    option.selected = false;
-                  });
-                }
-              }
+              setSectionSelectEnabled(sectionSelect, e.target.checked);
             }
           });
 
@@ -2559,7 +2631,7 @@
 
               <div>
                 <h5 class="font-medium text-gray-900 mb-1">Select Courses to Assign</h5>
-                <p class="text-sm text-gray-500 mb-3">Coordinator is disabled when another faculty is already assigned as coordinator for that course. Hold Ctrl/Cmd to select multiple sections.</p>
+                <p class="text-sm text-gray-500 mb-3">Coordinator is disabled when another faculty is already assigned as coordinator for that course. Search and select one or more sections from the dropdown.</p>
                 <div class="space-y-3 max-h-96 overflow-y-auto">
                   ${courses.map(course => {
                     const assignment = assignmentsMap[course.id];
@@ -2612,6 +2684,7 @@
           `;
 
           modal.classList.remove('hidden');
+          initSectionSelect2(modalBody, modal);
 
           const form = document.getElementById('assign-faculty-courses-form');
 
@@ -2630,16 +2703,7 @@
                 }
               }
 
-              if (sectionSelect) {
-                sectionSelect.disabled = !e.target.checked;
-                sectionSelect.classList.toggle('opacity-50', !e.target.checked);
-                sectionSelect.classList.toggle('cursor-not-allowed', !e.target.checked);
-                if (!e.target.checked) {
-                  Array.from(sectionSelect.options).forEach((option) => {
-                    option.selected = false;
-                  });
-                }
-              }
+              setSectionSelectEnabled(sectionSelect, e.target.checked);
             }
           });
 
