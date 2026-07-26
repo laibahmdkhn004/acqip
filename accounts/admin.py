@@ -70,9 +70,9 @@ class SectionAdmin(admin.ModelAdmin):
 
 @admin.register(Course)
 class CourseAdmin(admin.ModelAdmin):
-    list_display = ('title', 'code', 'department', 'credits', 'catalogue_file', 'created_at', 'faculty_count')
+    list_display = ('title', 'code', 'department', 'credits', 'is_lab', 'catalogue_file', 'created_at', 'faculty_count')
     search_fields = ('title', 'code', 'department__name')
-    list_filter = ('department', 'created_at')
+    list_filter = ('is_lab', 'department', 'created_at')
     inlines = [CourseFacultyInline, CourseOutlineInline]
     
     def faculty_count(self, obj):
