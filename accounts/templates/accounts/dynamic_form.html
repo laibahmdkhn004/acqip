@@ -272,7 +272,7 @@
         if (formInfo) {
           if (urlFormType === "lrr") {
             formInfo.textContent =
-              "LRR Form: For lab instructors only. Submit once for each assigned course section.";
+              "LRR Form: For lab instructors only. Submit once for each assigned lab course section.";
             formInfo.classList.remove("hidden");
           } else if (urlFormType === "ccr") {
             formInfo.textContent =
@@ -512,10 +512,16 @@
         }
 
         const isCcr = currentFormType === "ccr" || urlFormType === "ccr";
+        const isLrr = currentFormType === "lrr" || urlFormType === "lrr";
 
         assignedCourses.forEach((course) => {
           const sections = Array.isArray(course.sections) ? course.sections : [];
           const coordinatorLabel = course.is_coordinator ? " (Coordinator)" : "";
+
+          // LRR is only for courses marked as lab
+          if (isLrr && !course.is_lab) {
+            return;
+          }
 
           // CCR is course-level based on coordinator status (no section required)
           if (isCcr) {
@@ -686,7 +692,7 @@
           formInfo.classList.remove("hidden");
         } else if (formType === "lrr") {
           formInfo.textContent =
-            "LRR Form: For lab instructors only. Submit once for each assigned course section.";
+            "LRR Form: For lab instructors only. Submit once for each assigned lab course section.";
           formInfo.classList.remove("hidden");
         } else {
           formInfo.textContent =

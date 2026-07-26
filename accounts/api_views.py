@@ -168,6 +168,17 @@ def set_course_faculty_sections(assignment, raw_section_ids):
     assignment.sections.set(sections)
 
 
+def parse_bool_flag(value, default=False):
+    """Parse checkbox / JSON boolean-like values."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    return str(value).strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
 def parse_course_request_payload(request):
     """Parse course create/update payload from JSON or multipart form data."""
     content_type = (request.content_type or '').lower()
@@ -183,8 +194,13 @@ def parse_course_request_payload(request):
                 data['department_id'] = int(data['department_id'])
             except (TypeError, ValueError):
                 pass
+        if 'is_lab' in data:
+            data['is_lab'] = parse_bool_flag(data.get('is_lab'), default=False)
         return data, request.FILES.get('catalogue_file')
-    return json.loads(request.body or '{}'), None
+    data = json.loads(request.body or '{}')
+    if 'is_lab' in data:
+        data['is_lab'] = parse_bool_flag(data.get('is_lab'), default=False)
+    return data, None
 
 
 def course_outline_to_dict(outline):
@@ -427,6 +443,7 @@ def api_courses(request):
             'description': course.description,
             'department_id': course.department_id,
             'credits': course.credits,
+            'is_lab': bool(course.is_lab),
             'department_code': course.department.code if course.department else '',
             'department_name': course.department.name if course.department else '',
         }
@@ -462,6 +479,7 @@ def api_courses_create(request):
             description=data.get('description', ''),
             department=department,
             credits=data.get('credits', 3) or 3,
+            is_lab=parse_bool_flag(data.get('is_lab'), default=False),
         )
         if catalogue_file:
             course.catalogue_file = catalogue_file
@@ -495,6 +513,7 @@ def api_courses_create(request):
             'description': course.description,
             'department_id': course.department.id,
             'credits': course.credits,
+            'is_lab': bool(course.is_lab),
         }
         response_data.update(course_catalogue_file_payload(course))
         return JsonResponse(response_data, status=201)
@@ -515,6 +534,9 @@ def api_course_update(request, course_id):
         if 'credits' in data and data.get('credits') not in (None, ''):
             course.credits = data.get('credits')
 
+        if 'is_lab' in data:
+            course.is_lab = parse_bool_flag(data.get('is_lab'), default=False)
+
         if 'department_id' in data and data.get('department_id') not in (None, ''):
             department = Department.objects.get(id=data['department_id'])
             course.department = department
@@ -533,6 +555,7 @@ def api_course_update(request, course_id):
             'description': course.description,
             'department_id': course.department.id,
             'credits': course.credits,
+            'is_lab': bool(course.is_lab),
         }
         response_data.update(course_catalogue_file_payload(course))
         return JsonResponse(response_data)
@@ -744,6 +767,7 @@ def api_faculty_courses(request):
             'code': assignment.course.code,
             'description': assignment.course.description,
             'credits': assignment.course.credits,
+            'is_lab': bool(assignment.course.is_lab),
             'department_name': assignment.course.department.name if assignment.course.department else '',
             'department_code': assignment.course.department.code if assignment.course.department else '',
             'is_coordinator': assignment.is_coordinator,
@@ -1170,12 +1194,16 @@ def api_faculty_dynamic_forms(request):
             # For CCR form, only show courses where user is coordinator
             if form_type == 'ccr' and not assignment.is_coordinator:
                 continue
+            # LRR is only for courses marked as lab
+            if form_type == 'lrr' and not assignment.course.is_lab:
+                continue
                 
             course_payload = {
                 'id': assignment.course.id,
                 'code': assignment.course.code,
                 'title': assignment.course.title,
                 'is_coordinator': assignment.is_coordinator,
+                'is_lab': bool(assignment.course.is_lab),
             }
             course_payload.update(course_faculty_section_payload(assignment))
             assigned_courses.append(course_payload)
@@ -1246,18 +1274,22 @@ def api_form_availability(request):
         
         courses_data = []
         for assignment in course_assignments:
+            course_is_lab = bool(assignment.course.is_lab)
             courses_data.append({
                 'course_id': assignment.course.id,
                 'course_code': assignment.course.code,
                 'course_title': assignment.course.title,
                 'is_coordinator': assignment.is_coordinator,
+                'is_lab': course_is_lab,
                 'section': assignment.section_display(),
                 'forms_available': {
                     'ccr': ccr_forms if (is_faculty and assignment.is_coordinator) else [],
                     'crr': crr_forms if is_faculty else [],
-                    'lrr': lrr_forms if is_lab_instructor else [],
+                    'lrr': lrr_forms if (is_lab_instructor and course_is_lab) else [],
                 }
             })
+
+        has_lab_course = any(course['is_lab'] for course in courses_data)
         
         return JsonResponse({
             'active_forms': {
@@ -1268,11 +1300,11 @@ def api_form_availability(request):
             'global_availability': {
                 'ccr': is_faculty and len(ccr_forms) > 0,
                 'crr': is_faculty and len(crr_forms) > 0,
-                'lrr': is_lab_instructor and len(lrr_forms) > 0,
+                'lrr': is_lab_instructor and len(lrr_forms) > 0 and has_lab_course,
             },
             'user_can_submit_ccr': is_faculty and len(ccr_forms) > 0 and is_coordinator_for_any,
             'user_can_submit_crr': is_faculty and len(crr_forms) > 0,
-            'user_can_submit_lrr': is_lab_instructor and len(lrr_forms) > 0,
+            'user_can_submit_lrr': is_lab_instructor and len(lrr_forms) > 0 and has_lab_course,
             'user_role': request.user.role,
             'courses': courses_data,
             'status': 'success'
@@ -1377,8 +1409,13 @@ def api_submit_dynamic_form(request):
         
         if form.form_type == 'ccr' and not course_assignment.is_coordinator:
             return JsonResponse({'error': 'Only course coordinators can submit CCR forms'}, status=403)
-        
+
         course = Course.objects.get(id=course_id)
+
+        if form.form_type == 'lrr' and not course.is_lab:
+            return JsonResponse({
+                'error': 'LRR forms can only be submitted for lab courses.',
+            }, status=400)
 
         # CCR is course-level (coordinator status), not section-based.
         assigned_section = None
@@ -1530,15 +1567,12 @@ def api_submission_file_download(request, submission_id):
     except DynamicFormSubmission.DoesNotExist:
         return JsonResponse({'error': 'Submission not found'}, status=404)
 
-    if is_faculty_or_lab_instructor(request.user) and submission.faculty_id != request.user.id:
-        return JsonResponse({'error': 'Access denied'}, status=403)
-    if not request.user.has_role(
-        User.ROLE_FACULTY,
-        User.ROLE_LAB_INSTRUCTOR,
-        User.ROLE_ADMIN,
-        User.ROLE_CRC_MEMBER,
-    ):
-        return JsonResponse({'error': 'Access denied'}, status=403)
+    # Admin/CRC can access any submission; faculty/lab may only access their own.
+    if not is_admin_or_crc(request.user):
+        if is_faculty_or_lab_instructor(request.user) and submission.faculty_id != request.user.id:
+            return JsonResponse({'error': 'Access denied'}, status=403)
+        if not request.user.has_role(User.ROLE_FACULTY, User.ROLE_LAB_INSTRUCTOR):
+            return JsonResponse({'error': 'Access denied'}, status=403)
 
     if not submission.uploaded_file:
         return JsonResponse({'error': 'No file uploaded for this submission'}, status=404)
@@ -2202,17 +2236,13 @@ def api_get_course_outline(request):
                 course_id=course_pk,
             ).exists()
 
-        def faculty_is_coordinator_for_course(course_pk):
-            return CourseFaculty.objects.filter(
-                faculty=request.user,
-                course_id=course_pk,
-                is_coordinator=True,
-            ).exists()
-
         if outline_id:
             outline = CourseOutline.objects.select_related('course', 'faculty').get(
                 id=outline_id
             )
+            # Faculty may only open outlines they authored.
+            if outline.faculty_id != request.user.id:
+                return JsonResponse({'error': 'Access denied'}, status=403)
             if not faculty_assigned_to_course(outline.course_id):
                 return JsonResponse({'error': 'Access denied'}, status=403)
             return JsonResponse(course_outline_to_dict(outline))
@@ -2226,38 +2256,11 @@ def api_get_course_outline(request):
         if not faculty_assigned_to_course(course_id):
             return JsonResponse({'error': 'Access denied'}, status=403)
 
-        if faculty_is_coordinator_for_course(course_id):
-            outline = CourseOutline.objects.filter(
-                course_id=course_id,
-                faculty=request.user,
-            ).select_related('course', 'faculty').order_by('-version').first()
-        else:
-            outline = (
-                CourseOutline.objects.filter(
-                    course_id=course_id,
-                    is_current=True,
-                )
-                .select_related('course', 'faculty')
-                .order_by('-version')
-                .first()
-            )
-            if not outline:
-                outline = (
-                    CourseOutline.objects.filter(
-                        course_id=course_id,
-                        status=CourseOutline.STATUS_APPROVED,
-                    )
-                    .select_related('course', 'faculty')
-                    .order_by('-version')
-                    .first()
-                )
-            if not outline:
-                outline = (
-                    CourseOutline.objects.filter(course_id=course_id)
-                    .select_related('course', 'faculty')
-                    .order_by('-version')
-                    .first()
-                )
+        # Always resolve to the current user's own outline for this course.
+        outline = CourseOutline.objects.filter(
+            course_id=course_id,
+            faculty=request.user,
+        ).select_related('course', 'faculty').order_by('-version').first()
 
         if outline:
             return JsonResponse(course_outline_to_dict(outline))
@@ -2280,8 +2283,8 @@ def api_submission_details(request, submission_id):
     try:
         submission = DynamicFormSubmission.objects.get(id=submission_id)
         
-        # Check permissions
-        if is_faculty_or_lab_instructor(request.user) and submission.faculty != request.user:
+        # Admin/CRC can view any submission; faculty/lab only their own.
+        if not is_admin_or_crc(request.user) and is_faculty_or_lab_instructor(request.user) and submission.faculty != request.user:
             return JsonResponse({'error': 'Access denied'}, status=403)
         
         # Get all answers for this submission
@@ -2447,15 +2450,12 @@ def api_submission_pdf(request, submission_id):
     except DynamicFormSubmission.DoesNotExist:
         return JsonResponse({"error": "Submission not found"}, status=404)
 
-    if is_faculty_or_lab_instructor(request.user) and submission.faculty_id != request.user.id:
-        return JsonResponse({"error": "Access denied"}, status=403)
-    if not request.user.has_role(
-        User.ROLE_FACULTY,
-        User.ROLE_LAB_INSTRUCTOR,
-        User.ROLE_ADMIN,
-        User.ROLE_CRC_MEMBER,
-    ):
-        return JsonResponse({"error": "Access denied"}, status=403)
+    # Admin/CRC can download any submission; faculty/lab only their own.
+    if not is_admin_or_crc(request.user):
+        if is_faculty_or_lab_instructor(request.user) and submission.faculty_id != request.user.id:
+            return JsonResponse({"error": "Access denied"}, status=403)
+        if not request.user.has_role(User.ROLE_FACULTY, User.ROLE_LAB_INSTRUCTOR):
+            return JsonResponse({"error": "Access denied"}, status=403)
 
     answers = (
         FormAnswer.objects.filter(submission=submission)
@@ -2558,13 +2558,11 @@ def api_outline_pdf(request, outline_id):
     except CourseOutline.DoesNotExist:
         return JsonResponse({"error": "Course outline not found"}, status=404)
 
-    if request.user.has_role(User.ROLE_FACULTY) and outline.faculty_id != request.user.id:
-        return JsonResponse({"error": "Access denied"}, status=403)
-    if request.user.role not in (
-        User.ROLE_FACULTY,
-        User.ROLE_ADMIN,
-        User.ROLE_CRC_MEMBER,
-    ):
+    if request.user.has_role(User.ROLE_ADMIN, User.ROLE_CRC_MEMBER):
+        pass
+    elif request.user.has_role(User.ROLE_FACULTY) and outline.faculty_id == request.user.id:
+        pass
+    else:
         return JsonResponse({"error": "Access denied"}, status=403)
 
     course = outline.course
@@ -2858,7 +2856,7 @@ def api_faculty_submissions(request):
 @login_required
 @require_http_methods(["GET"])
 def api_faculty_course_outlines(request):
-    """Faculty: outlines for assigned courses. CRC: all outlines that have entered review (not drafts)."""
+    """Faculty: only own outlines. CRC: all outlines that have entered review (not drafts)."""
     if not request.user.has_role(User.ROLE_FACULTY, User.ROLE_CRC_MEMBER):
         return JsonResponse({'error': 'Access denied'}, status=403)
     
@@ -2872,12 +2870,9 @@ def api_faculty_course_outlines(request):
                 ]
             ).select_related('course', 'faculty').order_by('-submitted_at', '-approved_at', '-updated_at', '-id')
         else:
-            assigned_course_ids = CourseFaculty.objects.filter(
-                faculty=request.user
-            ).values_list('course_id', flat=True)
-
+            # Faculty may only see outlines they authored — not other faculty on shared courses.
             outlines = CourseOutline.objects.filter(
-                course_id__in=assigned_course_ids
+                faculty=request.user
             ).select_related('course', 'faculty').order_by('course_id', '-version', '-created_at')
         
         outlines_list = []
@@ -3187,16 +3182,18 @@ def api_faculty_form_availability(request):
             
             courses_data = []
             for assignment in course_assignments:
+                course_is_lab = bool(assignment.course.is_lab)
                 courses_data.append({
                     'course_id': assignment.course.id,
                     'course_code': assignment.course.code,
                     'course_title': assignment.course.title,
                     'is_coordinator': assignment.is_coordinator,
+                    'is_lab': course_is_lab,
                     'section': assignment.section_display(),
                     'forms_available': {
                         'ccr': is_faculty and ccr_active and assignment.is_coordinator,
                         'crr': is_faculty and crr_active,
-                        'lrr': is_lab_instructor and lrr_active,
+                        'lrr': is_lab_instructor and lrr_active and course_is_lab,
                     }
                 })
             
@@ -3204,7 +3201,9 @@ def api_faculty_form_availability(request):
                 'global_availability': {
                     'ccr': is_faculty and ccr_active,
                     'crr': is_faculty and crr_active,
-                    'lrr': is_lab_instructor and lrr_active,
+                    'lrr': is_lab_instructor and lrr_active and any(
+                        course['is_lab'] for course in courses_data
+                    ),
                 },
                 'courses': courses_data,
                 'user_role': request.user.role,
@@ -3212,18 +3211,20 @@ def api_faculty_form_availability(request):
         else:
             # Check specific course
             try:
-                assignment = CourseFaculty.objects.get(
+                assignment = CourseFaculty.objects.select_related('course').get(
                     faculty=request.user,
                     course_id=course_id
                 )
+                course_is_lab = bool(assignment.course.is_lab)
                 
                 return JsonResponse({
                     'course_id': course_id,
                     'is_coordinator': assignment.is_coordinator,
+                    'is_lab': course_is_lab,
                     'forms_available': {
                         'ccr': is_faculty and ccr_active and assignment.is_coordinator,
                         'crr': is_faculty and crr_active,
-                        'lrr': is_lab_instructor and lrr_active,
+                        'lrr': is_lab_instructor and lrr_active and course_is_lab,
                     },
                     'user_role': request.user.role,
                 })

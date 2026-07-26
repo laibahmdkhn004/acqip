@@ -816,7 +816,7 @@
                   <div>
                     <h3 class="font-semibold">Course Outlines</h3>
                     <p class="text-sm text-gray-600 mt-1">
-                      View outlines for every course you are assigned to. Only
+                      View and manage course outlines you have created. Only
                       course coordinators can create or edit outlines.
                     </p>
                   </div>
@@ -1921,6 +1921,9 @@
           availableCourses = state.courses.filter(
             (course) => course.is_coordinator,
           );
+        } else if (formType === "lrr") {
+          // LRR only for lab courses
+          availableCourses = state.courses.filter((course) => course.is_lab);
         } else {
           // For CRR, all assigned courses
           availableCourses = state.courses;

@@ -128,6 +128,10 @@ class Course(models.Model):
     description = models.TextField(blank=True)
     department = models.ForeignKey(Department, on_delete=models.CASCADE, related_name='courses')
     credits = models.IntegerField(default=3)
+    is_lab = models.BooleanField(
+        default=False,
+        help_text='Mark as a lab course. LRR forms are only available for lab courses.',
+    )
     catalogue_file = models.FileField(upload_to='course_catalogues/', blank=True, null=True)
     faculty = models.ManyToManyField(User, through='CourseFaculty', related_name='assigned_courses', blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

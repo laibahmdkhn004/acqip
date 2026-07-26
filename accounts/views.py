@@ -218,6 +218,7 @@ def dynamic_form(request):
             'code': assignment.course.code,
             'department': assignment.course.department.name if assignment.course.department else '',
             'is_coordinator': assignment.is_coordinator,
+            'is_lab': bool(assignment.course.is_lab),
             'section': assignment.section_display(),
             'sections': [
                 {'id': s.id, 'code': s.code, 'name': s.name}
@@ -548,6 +549,7 @@ def faculty_dashboard(request):
             'code': assignment.course.code,
             'description': assignment.course.description,
             'credits': assignment.course.credits,
+            'is_lab': bool(assignment.course.is_lab),
             'department': assignment.course.department.name if assignment.course.department else '',
             'is_coordinator': assignment.is_coordinator,
             'section': assignment.section_display()
