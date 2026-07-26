@@ -1157,11 +1157,11 @@
             </button>
           </div>
           <p class="text-sm text-gray-600">
-            Download catalogue files uploaded for each course.
+            Download course catalogue documents.
           </p>
         </div>
         <div id="catalog-modal-list" class="p-6 space-y-3 overflow-y-auto flex-1">
-          <p class="text-sm text-gray-500 text-center py-6">Loading courses...</p>
+          <p class="text-sm text-gray-500 text-center py-6">Loading catalogs...</p>
         </div>
         <div class="flex justify-end p-4 border-t">
           <button
@@ -4443,31 +4443,29 @@
         if (!listContainer) return;
 
         listContainer.innerHTML = `
-          <p class="text-sm text-gray-500 text-center py-6">Loading courses...</p>
+          <p class="text-sm text-gray-500 text-center py-6">Loading catalogs...</p>
         `;
 
         try {
-          const response = await fetch("/api/courses/catalogues/");
+          const response = await fetch("/api/course-catalogs/");
           if (!response.ok) {
-            throw new Error("Failed to load course catalogues");
+            throw new Error("Failed to load course catalogs");
           }
-          const courses = await response.json();
+          const catalogs = await response.json();
 
-          if (!Array.isArray(courses) || courses.length === 0) {
+          if (!Array.isArray(catalogs) || catalogs.length === 0) {
             listContainer.innerHTML = `
-              <p class="text-sm text-gray-500 text-center py-6">No courses found.</p>
+              <p class="text-sm text-gray-500 text-center py-6">No course catalogs available.</p>
             `;
             return;
           }
 
-          listContainer.innerHTML = courses
-            .map((course) => {
-              const departmentLabel =
-                course.department_name || course.department_code || "No department";
-              if (course.has_catalogue_file && course.catalogue_download_url) {
+          listContainer.innerHTML = catalogs
+            .map((catalog) => {
+              if (catalog.download_url) {
                 return `
                   <a
-                    href="${course.catalogue_download_url}"
+                    href="${catalog.download_url}"
                     class="flex items-center justify-between gap-3 w-full px-4 py-3 rounded-lg border border-gray-200 hover:border-purple-300 hover:bg-purple-50 transition-colors"
                   >
                     <span class="flex items-center gap-3 min-w-0">
@@ -4476,10 +4474,10 @@
                       </span>
                       <span class="min-w-0">
                         <span class="block text-sm font-medium text-gray-800 truncate">
-                          ${course.code} - ${course.title}
+                          ${catalog.name || "Untitled catalog"}
                         </span>
                         <span class="block text-xs text-gray-500 truncate">
-                          ${departmentLabel}${course.catalogue_file_name ? ` • ${course.catalogue_file_name}` : ""}
+                          ${catalog.file_name || "Download file"}${catalog.created_by ? ` • ${catalog.created_by}` : ""}
                         </span>
                       </span>
                     </span>
@@ -4498,9 +4496,9 @@
                     </span>
                     <span class="min-w-0">
                       <span class="block text-sm font-medium text-gray-700 truncate">
-                        ${course.code} - ${course.title}
+                        ${catalog.name || "Untitled catalog"}
                       </span>
-                      <span class="block text-xs text-gray-500 truncate">${departmentLabel}</span>
+                      <span class="block text-xs text-gray-500 truncate">No file</span>
                     </span>
                   </span>
                   <span class="text-xs text-gray-400 shrink-0">No file</span>
@@ -4510,7 +4508,7 @@
             .join("");
         } catch (error) {
           listContainer.innerHTML = `
-            <p class="text-sm text-red-500 text-center py-6">Error loading course catalogues.</p>
+            <p class="text-sm text-red-500 text-center py-6">Error loading course catalogs.</p>
           `;
         }
       }

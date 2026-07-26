@@ -16,9 +16,15 @@
     />
     <link
       rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css"
+    />
+    <link
+      rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.css"
     />
     <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
     <style>
       body {
         font-family: Inter, system-ui, sans-serif;
@@ -41,6 +47,57 @@
         background-color: #f5f3ff;
         color: #7c3aed;
         border-left: 3px solid #7c3aed;
+      }
+      .select2-container {
+        width: 100% !important;
+        min-width: 16rem;
+      }
+      .select2-container--default .select2-selection--multiple {
+        min-height: 38px;
+        border-color: #d1d5db;
+        border-radius: 0.5rem;
+        padding: 2px 4px;
+      }
+      .select2-container--default.select2-container--focus .select2-selection--multiple {
+        border-color: #8b5cf6;
+        outline: none;
+        box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.25);
+      }
+      .select2-container--default .select2-selection--multiple .select2-selection__choice {
+        background-color: #ede9fe;
+        border-color: #c4b5fd;
+        color: #5b21b6;
+        border-radius: 9999px;
+        padding: 2px 8px 2px 4px;
+        margin-top: 4px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .select2-container--default .select2-selection--multiple .select2-selection__choice__remove {
+        position: static;
+        margin-right: 2px;
+        padding: 0 4px;
+        border: none;
+        color: #7c3aed;
+        font-weight: 600;
+        line-height: 1;
+      }
+      .select2-container--default .select2-selection--multiple .select2-selection__choice__remove:hover {
+        background: transparent;
+        color: #5b21b6;
+      }
+      .select2-container--default .select2-selection--multiple .select2-selection__choice__display {
+        padding-left: 0;
+        cursor: default;
+      }
+      .select2-dropdown {
+        border-color: #d1d5db;
+        border-radius: 0.5rem;
+        z-index: 1100;
+      }
+      .select2-container--default .select2-results__option--highlighted.select2-results__option--selectable {
+        background-color: #7c3aed;
       }
       .form-badge,
       .status-badge,
@@ -247,7 +304,13 @@
             href="#"
             data-page="course-catalogue"
             class="nav-item flex items-center gap-3 p-2 rounded-md hover:bg-gray-50 text-gray-700"
-            ><i class="fas fa-book"></i>Course Catalogue</a
+            ><i class="fas fa-book"></i>Course Outlines</a
+          >
+          <a
+            href="#"
+            data-page="course-catalogs"
+            class="nav-item flex items-center gap-3 p-2 rounded-md hover:bg-gray-50 text-gray-700"
+            ><i class="fas fa-folder-open"></i>Course Catalogs</a
           >
           <a
             href="#"
@@ -554,6 +617,12 @@
         faculty_users: "{% url 'api_faculty_users' %}",
         crc_faculty_list: "{% url 'api_crc_faculty_list' %}",
         crc_course_catalogue: "{% url 'api_crc_course_catalogue' %}",
+        course_catalogs: "{% url 'api_course_catalogs_list' %}",
+        course_catalogs_create: "{% url 'api_course_catalogs_create' %}",
+        course_catalog_update: (id) =>
+          `{% url 'api_course_catalog_update' 0 %}`.replace("0", String(id)),
+        course_catalog_delete: (id) =>
+          `{% url 'api_course_catalog_delete' 0 %}`.replace("0", String(id)),
         crc_update_course_outline: "{% url 'api_crc_update_course_outline' %}",
         crc_course_outline_submissions:
           "{% url 'api_crc_course_outline_submissions' %}",
@@ -894,6 +963,7 @@
           faculty: renderFacultyPage,
           courses: renderCoursesPage,
           "course-catalogue": renderCourseCataloguePage,
+          "course-catalogs": renderCourseCatalogsPage,
           "outline-submissions": renderOutlineSubmissionsPage,
           "crc-my-course-outlines": renderCrcMyCourseOutlinesPage,
           "form-submissions": renderFormSubmissionsPage,
@@ -1398,11 +1468,6 @@
                 <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
                 <textarea name="description" rows="3" class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500" placeholder="Course description..."></textarea>
               </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Course Catalogue</label>
-                <input type="file" name="catalogue_file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt" class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm" />
-                <p class="text-xs text-gray-500 mt-1">Optional. Upload a catalogue document for this course.</p>
-              </div>
               <div class="flex gap-3 justify-end pt-4 border-t">
                 <button type="button" onclick="document.getElementById('modal').classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
                 <button type="submit" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">Create Course</button>
@@ -1492,23 +1557,6 @@
                 <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
                 <textarea name="description" rows="3" class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">${String(course.description || "").replace(/</g, "&lt;")}</textarea>
               </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Course Catalogue</label>
-                ${
-                  course.has_catalogue_file
-                    ? `
-                  <p class="text-sm text-gray-600 mb-2">
-                    Current file:
-                    <a href="${course.catalogue_download_url}" class="text-purple-600 hover:underline" target="_blank" rel="noopener">
-                      ${course.catalogue_file_name || "Download current catalogue"}
-                    </a>
-                  </p>
-                `
-                    : `<p class="text-sm text-gray-500 mb-2">No catalogue file uploaded yet.</p>`
-                }
-                <input type="file" name="catalogue_file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt" class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm" />
-                <p class="text-xs text-gray-500 mt-1">Upload a new file to replace the current catalogue.</p>
-              </div>
               <div class="flex gap-3 justify-end pt-4 border-t">
                 <button type="button" onclick="document.getElementById('modal').classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
                 <button type="submit" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">Save Changes</button>
@@ -1527,9 +1575,6 @@
                 ? "true"
                 : "false",
             );
-            if (!formData.get("catalogue_file") || !formData.get("catalogue_file").name) {
-              formData.delete("catalogue_file");
-            }
 
             try {
               await fetchAPI(API.course_update(courseId), {
@@ -1557,19 +1602,63 @@
           .map(
             (section) => `
           <option value="${section.id}" ${selected.has(String(section.id)) ? "selected" : ""}>
-            ${section.code} - ${section.name}
+            ${section.name || section.code}
           </option>
         `,
           )
           .join("");
         return `
-          <select name="${selectName}" multiple
-                  class="section-select min-w-[10rem] w-40 border border-gray-300 px-2 py-1 rounded text-sm ${disabled ? "opacity-50 cursor-not-allowed" : ""}"
-                  ${disabled ? "disabled" : ""}
-                  title="Hold Ctrl/Cmd to select multiple sections">
-            ${options || '<option disabled value="">No sections available</option>'}
-          </select>
+          <div class="section-select-wrap min-w-[16rem] w-72">
+            <select name="${selectName}" multiple
+                    class="section-select"
+                    data-placeholder="Select sections..."
+                    ${disabled ? "disabled" : ""}>
+              ${options || '<option disabled value="">No sections available</option>'}
+            </select>
+          </div>
         `;
+      }
+
+      function initSectionSelect2($scope, dropdownParent) {
+        if (typeof window.jQuery === "undefined" || !window.jQuery.fn.select2) {
+          return;
+        }
+        const $ = window.jQuery;
+        const $root = $scope ? $($scope) : $(document);
+        $root.find("select.section-select").each(function () {
+          const $select = $(this);
+          if ($select.hasClass("select2-hidden-accessible")) {
+            $select.select2("destroy");
+          }
+          $select.select2({
+            width: "100%",
+            placeholder: $select.data("placeholder") || "Select sections...",
+            allowClear: true,
+            closeOnSelect: false,
+            dropdownParent: dropdownParent ? $(dropdownParent) : $(document.body),
+          });
+        });
+      }
+
+      function setSectionSelectEnabled(sectionSelect, enabled) {
+        if (!sectionSelect) return;
+        if (typeof window.jQuery !== "undefined" && window.jQuery.fn.select2) {
+          const $select = window.jQuery(sectionSelect);
+          $select.prop("disabled", !enabled);
+          if (!enabled) {
+            $select.val(null).trigger("change");
+          }
+          $select.trigger("change.select2");
+          return;
+        }
+        sectionSelect.disabled = !enabled;
+        sectionSelect.classList.toggle("opacity-50", !enabled);
+        sectionSelect.classList.toggle("cursor-not-allowed", !enabled);
+        if (!enabled) {
+          Array.from(sectionSelect.options).forEach((option) => {
+            option.selected = false;
+          });
+        }
       }
 
       async function ensureSectionsLoaded() {
@@ -1606,7 +1695,7 @@
               </div>
               <div>
                 <h5 class="font-medium text-gray-900 mb-1">Select Faculty Members</h5>
-                <p class="text-sm text-gray-500 mb-3">Only one faculty member can be marked as coordinator for this course. Hold Ctrl/Cmd to select multiple sections.</p>
+                <p class="text-sm text-gray-500 mb-3">Only one faculty member can be marked as coordinator for this course. Search and select one or more sections from the dropdown.</p>
                 <div class="space-y-3 max-h-96 overflow-y-auto">
                   ${facultyList
                     .map((fac) => {
@@ -1649,6 +1738,10 @@
           `;
 
           elements.facultyAssignmentModal.classList.remove("hidden");
+          initSectionSelect2(
+            elements.facultyAssignmentBody,
+            elements.facultyAssignmentModal,
+          );
 
           const assignForm = document.getElementById("assign-faculty-form");
           assignForm.addEventListener("change", (e) => {
@@ -1664,19 +1757,7 @@
                 coordinatorRadio.disabled = !e.target.checked;
                 if (!e.target.checked) coordinatorRadio.checked = false;
               }
-              if (sectionSelect) {
-                sectionSelect.disabled = !e.target.checked;
-                sectionSelect.classList.toggle("opacity-50", !e.target.checked);
-                sectionSelect.classList.toggle(
-                  "cursor-not-allowed",
-                  !e.target.checked,
-                );
-                if (!e.target.checked) {
-                  Array.from(sectionSelect.options).forEach((option) => {
-                    option.selected = false;
-                  });
-                }
-              }
+              setSectionSelectEnabled(sectionSelect, e.target.checked);
             }
           });
 
@@ -2293,8 +2374,200 @@
         }
       }
 
+      async function renderCourseCatalogsPage() {
+        elements.pageTitle.textContent = "Course Catalogs";
+        elements.pageSubtitle.textContent =
+          "Create and manage course catalogue documents";
+        elements.headerActions.innerHTML = `
+          <button type="button" onclick="openCourseCatalogCreateModal()" class="px-4 py-2 bg-purple-600 text-white rounded-lg shadow-sm hover:bg-purple-700 transition-colors">
+            Create Catalog
+          </button>
+        `;
+
+        try {
+          const catalogs = await fetchAPI(API.course_catalogs);
+
+          elements.pageRoot.innerHTML = `
+            <div class="bg-white rounded-lg shadow">
+              <div class="px-6 py-4 border-b flex justify-between items-center">
+                <h3 class="text-lg font-medium">All Course Catalogs</h3>
+                <span class="text-sm text-gray-500">${catalogs.length} catalogs</span>
+              </div>
+              <div class="p-6">
+                ${
+                  catalogs.length > 0
+                    ? `
+                  <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-left">
+                      <thead class="bg-gray-50">
+                        <tr>
+                          <th class="px-4 py-3 font-medium text-gray-700">Name</th>
+                          <th class="px-4 py-3 font-medium text-gray-700">File</th>
+                          <th class="px-4 py-3 font-medium text-gray-700">Created By</th>
+                          <th class="px-4 py-3 font-medium text-gray-700">Updated</th>
+                          <th class="px-4 py-3 font-medium text-gray-700">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody class="divide-y divide-gray-200">
+                        ${catalogs
+                          .map(
+                            (catalog) => `
+                          <tr class="hover:bg-gray-50">
+                            <td class="px-4 py-3 font-medium">${catalog.name || ""}</td>
+                            <td class="px-4 py-3">
+                              ${
+                                catalog.download_url
+                                  ? `<a href="${catalog.download_url}" class="text-purple-600 hover:underline inline-flex items-center gap-1" target="_blank" rel="noopener">
+                                      <i class="fas fa-download"></i> ${catalog.file_name || "Download"}
+                                    </a>`
+                                  : '<span class="text-gray-400">No file</span>'
+                              }
+                            </td>
+                            <td class="px-4 py-3">${catalog.created_by || "—"}</td>
+                            <td class="px-4 py-3 text-gray-500">${
+                              catalog.updated_at
+                                ? new Date(catalog.updated_at).toLocaleString()
+                                : "—"
+                            }</td>
+                            <td class="px-4 py-3">
+                              <button type="button" onclick="openCourseCatalogEditModal(${catalog.id})" class="text-purple-600 hover:text-purple-800 text-sm font-medium mr-3">Edit</button>
+                              <button type="button" onclick="deleteCourseCatalog(${catalog.id})" class="text-red-600 hover:text-red-800 text-sm font-medium">Delete</button>
+                            </td>
+                          </tr>
+                        `,
+                          )
+                          .join("")}
+                      </tbody>
+                    </table>
+                  </div>
+                `
+                    : `
+                  <div class="text-center py-12">
+                    <i class="fas fa-folder-open text-gray-400 text-5xl mb-4"></i>
+                    <p class="text-gray-500">No course catalogs yet. Create one to get started.</p>
+                  </div>
+                `
+                }
+              </div>
+            </div>
+          `;
+        } catch (error) {
+          showError("Error loading course catalogs.");
+        }
+      }
+
+      function openCourseCatalogCreateModal() {
+        elements.modalTitle.textContent = "Create Course Catalog";
+        elements.modalBody.innerHTML = `
+          <form id="create-course-catalog-form" class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Course Catalogue Name *</label>
+              <input type="text" name="name" required class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500" placeholder="e.g. Fall 2026 Course Catalogue" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">File *</label>
+              <input type="file" name="file" required accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt" class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm" />
+            </div>
+            <div class="flex gap-3 justify-end pt-4 border-t">
+              <button type="button" onclick="document.getElementById('modal').classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
+              <button type="submit" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">Create</button>
+            </div>
+          </form>
+        `;
+        elements.modal.classList.remove("hidden");
+
+        document.getElementById("create-course-catalog-form").onsubmit = async (e) => {
+          e.preventDefault();
+          const formData = new FormData(e.target);
+          try {
+            await fetchAPI(API.course_catalogs_create, {
+              method: "POST",
+              body: formData,
+            });
+            elements.modal.classList.add("hidden");
+            await renderCourseCatalogsPage();
+            showNotification("Course catalog created successfully", "success");
+          } catch (error) {
+            showNotification("Error creating catalog: " + error.message, "error");
+          }
+        };
+      }
+
+      async function openCourseCatalogEditModal(catalogId) {
+        try {
+          const catalogs = await fetchAPI(API.course_catalogs);
+          const catalog = catalogs.find((item) => item.id == catalogId);
+          if (!catalog) throw new Error("Catalog not found");
+
+          elements.modalTitle.textContent = "Edit Course Catalog";
+          elements.modalBody.innerHTML = `
+            <form id="edit-course-catalog-form" class="space-y-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Course Catalogue Name *</label>
+                <input type="text" name="name" value="${String(catalog.name || "").replace(/"/g, "&quot;")}" required class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500" />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">File</label>
+                ${
+                  catalog.download_url
+                    ? `<p class="text-sm text-gray-600 mb-2">Current file:
+                        <a href="${catalog.download_url}" class="text-purple-600 hover:underline" target="_blank" rel="noopener">
+                          ${catalog.file_name || "Download"}
+                        </a>
+                      </p>`
+                    : `<p class="text-sm text-gray-500 mb-2">No file uploaded yet.</p>`
+                }
+                <input type="file" name="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt" class="w-full border border-gray-300 px-3 py-2 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm" />
+                <p class="text-xs text-gray-500 mt-1">Leave empty to keep the current file.</p>
+              </div>
+              <div class="flex gap-3 justify-end pt-4 border-t">
+                <button type="button" onclick="document.getElementById('modal').classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
+                <button type="submit" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">Save Changes</button>
+              </div>
+            </form>
+          `;
+          elements.modal.classList.remove("hidden");
+
+          document.getElementById("edit-course-catalog-form").onsubmit = async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            if (!formData.get("file") || !formData.get("file").name) {
+              formData.delete("file");
+            }
+            try {
+              await fetchAPI(API.course_catalog_update(catalogId), {
+                method: "POST",
+                body: formData,
+              });
+              elements.modal.classList.add("hidden");
+              await renderCourseCatalogsPage();
+              showNotification("Course catalog updated successfully", "success");
+            } catch (error) {
+              showNotification("Error updating catalog: " + error.message, "error");
+            }
+          };
+        } catch (error) {
+          showNotification("Error loading catalog", "error");
+        }
+      }
+
+      async function deleteCourseCatalog(catalogId) {
+        if (!confirm("Are you sure you want to delete this course catalog?")) {
+          return;
+        }
+        try {
+          await fetchAPI(API.course_catalog_delete(catalogId), {
+            method: "POST",
+          });
+          await renderCourseCatalogsPage();
+          showNotification("Course catalog deleted", "success");
+        } catch (error) {
+          showNotification("Error deleting catalog: " + error.message, "error");
+        }
+      }
+
       async function renderCourseCataloguePage() {
-        elements.pageTitle.textContent = "Course Catalogue";
+        elements.pageTitle.textContent = "Course Outlines";
         elements.pageSubtitle.textContent =
           "View all course outlines and their status";
 
@@ -2304,7 +2577,7 @@
           elements.pageRoot.innerHTML = `
                           <div class="bg-white rounded-lg shadow">
                               <div class="px-6 py-4 border-b flex justify-between items-center">
-                                  <h3 class="text-lg font-medium">Course Catalogue</h3>
+                                  <h3 class="text-lg font-medium">Course Outlines</h3>
                                   <span class="text-sm text-gray-500">${
                                     catalogue.length
                                   } courses</span>
@@ -2350,19 +2623,6 @@
                                                             course.total_outlines
                                                           })
                                                       </button>
-                                                      ${
-                                                        course.has_catalogue_file
-                                                          ? `
-                                                          <a href="${course.catalogue_download_url}" class="text-purple-600 hover:text-purple-800 text-sm inline-flex items-center">
-                                                              <i class="fas fa-download mr-1"></i> Download Catalogue
-                                                          </a>
-                                                          `
-                                                          : `
-                                                          <span class="text-gray-400 text-sm inline-flex items-center">
-                                                              <i class="fas fa-ban mr-1"></i> No catalogue file
-                                                          </span>
-                                                          `
-                                                      }
                                                       ${
                                                         course.outlines &&
                                                         course.outlines.length >
@@ -8079,6 +8339,9 @@
       window.openCourseFacultyAssignmentModal =
         openCourseFacultyAssignmentModal;
       window.deleteCourse = deleteCourse;
+      window.openCourseCatalogCreateModal = openCourseCatalogCreateModal;
+      window.openCourseCatalogEditModal = openCourseCatalogEditModal;
+      window.deleteCourseCatalog = deleteCourseCatalog;
 
       window.openCrcNewOutlineModal = openCrcNewOutlineModal;
       window.viewCrcMyOutlineDetailModal = viewCrcMyOutlineDetailModal;

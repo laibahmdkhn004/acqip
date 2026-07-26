@@ -141,6 +141,27 @@ class Course(models.Model):
         return f"{self.code} - {self.title}"
 
 
+class CourseCatalog(models.Model):
+    """Standalone course catalogue documents managed by CRC/admin."""
+    name = models.CharField(max_length=200)
+    file = models.FileField(upload_to='course_catalogs/')
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_course_catalogs',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.name
+
+
 class CourseFaculty(models.Model):
     course = models.ForeignKey(Course, on_delete=models.CASCADE)
     faculty = models.ForeignKey(User, on_delete=models.CASCADE)

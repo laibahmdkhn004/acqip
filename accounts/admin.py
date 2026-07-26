@@ -2,7 +2,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from django import forms
-from .models import User, Role, Course, Department, Section, DynamicForm, FormQuestion, DynamicFormSubmission, FormAnswer, CourseFaculty, CourseOutline, AnalyticsCache
+from .models import User, Role, Course, CourseCatalog, Department, Section, DynamicForm, FormQuestion, DynamicFormSubmission, FormAnswer, CourseFaculty, CourseOutline, AnalyticsCache
 from django.utils.html import format_html
 
 # Custom form for FormQuestion
@@ -70,7 +70,7 @@ class SectionAdmin(admin.ModelAdmin):
 
 @admin.register(Course)
 class CourseAdmin(admin.ModelAdmin):
-    list_display = ('title', 'code', 'department', 'credits', 'is_lab', 'catalogue_file', 'created_at', 'faculty_count')
+    list_display = ('title', 'code', 'department', 'credits', 'is_lab', 'created_at', 'faculty_count')
     search_fields = ('title', 'code', 'department__name')
     list_filter = ('is_lab', 'department', 'created_at')
     inlines = [CourseFacultyInline, CourseOutlineInline]
@@ -78,6 +78,15 @@ class CourseAdmin(admin.ModelAdmin):
     def faculty_count(self, obj):
         return obj.faculty.count()
     faculty_count.short_description = 'Faculty'
+
+
+@admin.register(CourseCatalog)
+class CourseCatalogAdmin(admin.ModelAdmin):
+    list_display = ('name', 'file', 'created_by', 'created_at', 'updated_at')
+    search_fields = ('name',)
+    list_filter = ('created_at',)
+    readonly_fields = ('created_at', 'updated_at')
+
 
 @admin.register(CourseFaculty)
 class CourseFacultyAdmin(admin.ModelAdmin):
