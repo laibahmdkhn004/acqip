@@ -284,7 +284,7 @@
           <a
             href="#"
             data-page="course-outlines"
-            class="nav-item flex items-center gap-3 p-2 rounded-md hover:bg-gray-50 text-gray-700"
+            class="nav-item flex items-center gap-3 p-2 rounded-md hover:bg-gray-50 text-gray-700 {% if is_lab_instructor %}hidden{% endif %}"
           >
             <i class="fas fa-file-alt w-5 h-5"></i>
             Course Outlines
@@ -306,7 +306,7 @@
             <a
               href="#"
               id="create-outline-btn"
-              class="nav-item flex items-center gap-3 p-2 rounded-md hover:bg-blue-50 text-blue-700"
+              class="nav-item flex items-center gap-3 p-2 rounded-md hover:bg-blue-50 text-blue-700 {% if is_lab_instructor %}hidden{% endif %}"
             >
               <i class="fas fa-edit w-5 h-5"></i>
               Create Course Outline
@@ -320,6 +320,14 @@
             <span>Forms Status:</span>
           </div>
           <div class="space-y-1">
+            {% if is_lab_instructor %}
+            <div class="flex items-center justify-between">
+              <span class="text-gray-600">LRR Form:</span>
+              <span id="lrr-status" class="font-medium text-gray-400"
+                >Loading...</span
+              >
+            </div>
+            {% else %}
             <div class="flex items-center justify-between">
               <span class="text-gray-600">CCR Form:</span>
               <span id="ccr-status" class="font-medium text-gray-400"
@@ -332,10 +340,16 @@
                 >Loading...</span
               >
             </div>
+            {% endif %}
           </div>
           <div class="mt-2 pt-2 border-t text-gray-600">
+            {% if is_lab_instructor %}
+            <i class="fas fa-flask mr-1"></i>
+            <span id="coordinator-status">Lab Instructor</span>
+            {% else %}
             <i class="fas fa-user-tie mr-1"></i>
             <span id="coordinator-status">Checking...</span>
+            {% endif %}
           </div>
         </div>
       </aside>
@@ -645,13 +659,30 @@
                     Review Forms
                   </h3>
                   <p class="text-gray-600 max-w-2xl mx-auto mb-4">
+                    {% if is_lab_instructor %}
+                    Submit Lab Review Reports (LRR) for your assigned course sections.
+                    {% else %}
                     Submit assessment forms for your courses. The system
                     provides two types of forms: Course Coordinator Reports
                     (CCR) and Course Review Reports (CRR).
+                    {% endif %}
                   </p>
                   <div
-                    class="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl mx-auto mb-6"
+                    class="grid grid-cols-1 {% if is_lab_instructor %}md:grid-cols-1{% else %}md:grid-cols-2{% endif %} gap-4 max-w-2xl mx-auto mb-6"
                   >
+                    {% if is_lab_instructor %}
+                    <div
+                      class="bg-teal-50 border border-teal-200 rounded-lg p-4"
+                    >
+                      <h4 class="font-semibold text-teal-800 mb-2">
+                        <i class="fas fa-flask mr-2"></i>LRR Forms
+                      </h4>
+                      <p class="text-sm text-teal-700">
+                        For lab instructors only. Submit lab review reports for
+                        assigned course sections.
+                      </p>
+                    </div>
+                    {% else %}
                     <div
                       class="bg-purple-50 border border-purple-200 rounded-lg p-4"
                     >
@@ -674,6 +705,7 @@
                         for assigned courses.
                       </p>
                     </div>
+                    {% endif %}
                   </div>
                 </div>
 
@@ -730,6 +762,11 @@
                           class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase"
                         >
                           Form Name
+                        </th>
+                        <th
+                          class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase"
+                        >
+                          Submission
                         </th>
                         <th
                           class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase"
@@ -1270,9 +1307,12 @@
         currentOutlineId: null,
         currentOutline: null,
         currentUserId: {{ user.id }},
+        userRole: "{{ user_role|default:user.role }}",
+        isLabInstructor: {{ is_lab_instructor|yesno:"true,false" }},
         activeForms: {
           ccr: [],
           crr: [],
+          lrr: [],
         },
       };
 
@@ -1405,6 +1445,7 @@
             state.activeForms = {
               ccr: data.active_forms?.ccr || [],
               crr: data.active_forms?.crr || [],
+              lrr: data.active_forms?.lrr || [],
             };
 
             updateSidebarStatus();
@@ -1413,12 +1454,13 @@
             console.error("Failed to load form availability:", response.status);
             // Set default values
             state.formAvailability = {
-              global_availability: { ccr: false, crr: false },
+              global_availability: { ccr: false, crr: false, lrr: false },
               user_can_submit_ccr: false,
               user_can_submit_crr: false,
+              user_can_submit_lrr: false,
               courses: [],
             };
-            state.activeForms = { ccr: [], crr: [] };
+            state.activeForms = { ccr: [], crr: [], lrr: [] };
             renderFormAvailability(state.formAvailability);
           }
         } catch (error) {
@@ -1426,12 +1468,13 @@
           showNotification("Failed to load form availability", "error");
           // Set default values
           state.formAvailability = {
-            global_availability: { ccr: false, crr: false },
+            global_availability: { ccr: false, crr: false, lrr: false },
             user_can_submit_ccr: false,
             user_can_submit_crr: false,
+            user_can_submit_lrr: false,
             courses: [],
           };
-          state.activeForms = { ccr: [], crr: [] };
+          state.activeForms = { ccr: [], crr: [], lrr: [] };
           renderFormAvailability(state.formAvailability);
         }
       }
@@ -1457,9 +1500,19 @@
           }`;
         }
 
-        // Update coordinator status
+        // Update LRR status
+        const lrrStatus = document.getElementById("lrr-status");
+        if (lrrStatus) {
+          const hasActiveLRR = (state.activeForms.lrr || []).length > 0;
+          lrrStatus.textContent = hasActiveLRR ? "Active" : "Inactive";
+          lrrStatus.className = `font-medium ${
+            hasActiveLRR ? "text-green-600" : "text-gray-400"
+          }`;
+        }
+
+        // Update coordinator / role status
         const coordinatorStatus = document.getElementById("coordinator-status");
-        if (coordinatorStatus) {
+        if (coordinatorStatus && !state.isLabInstructor) {
           const isCoordinator = state.courses.some(
             (course) => course.is_coordinator,
           );
@@ -1480,10 +1533,12 @@
 
         const ccrActive = formData.global_availability?.ccr || false;
         const crrActive = formData.global_availability?.crr || false;
+        const lrrActive = formData.global_availability?.lrr || false;
         const userCanSubmitCCR = formData.user_can_submit_ccr || false;
         const userCanSubmitCRR = formData.user_can_submit_crr || false;
+        const userCanSubmitLRR = formData.user_can_submit_lrr || false;
 
-        if (!ccrActive && !crrActive) {
+        if (!ccrActive && !crrActive && !lrrActive) {
           container.innerHTML = `
             <div class="text-center py-8 text-gray-400">
                 <i class="fas fa-clipboard-list text-3xl mb-3"></i>
@@ -1672,9 +1727,103 @@
         `;
         }
 
+
+        // LRR Form Card
+        if (lrrActive) {
+          html += `
+            <div class="form-card lrr bg-white rounded-lg shadow-sm p-5">
+                <div class="flex items-start justify-between">
+                    <div class="flex-1">
+                        <div class="flex items-center gap-3 mb-3">
+                            <div class="w-12 h-12 ${
+                              userCanSubmitLRR ? "bg-teal-100" : "bg-gray-100"
+                            } rounded-lg flex items-center justify-center">
+                                <i class="fas fa-flask ${
+                                  userCanSubmitLRR
+                                    ? "text-teal-600"
+                                    : "text-gray-400"
+                                } text-xl"></i>
+                            </div>
+                            <div>
+                                <h4 class="font-semibold text-lg ${
+                                  userCanSubmitLRR
+                                    ? "text-gray-900"
+                                    : "text-gray-500"
+                                }">LRR Form</h4>
+                                <p class="text-sm ${
+                                  userCanSubmitLRR
+                                    ? "text-gray-600"
+                                    : "text-gray-500"
+                                }">Lab Review Report</p>
+                                <span class="px-2 py-1 ${
+                                  userCanSubmitLRR
+                                    ? "bg-teal-100 text-teal-800"
+                                    : "bg-gray-100 text-gray-500"
+                                } rounded text-xs mt-1">
+                                    Universal Form - For Lab Instructors
+                                </span>
+                            </div>
+                        </div>
+                        <p class="${
+                          userCanSubmitLRR ? "text-gray-700" : "text-gray-500"
+                        } mb-4">
+                            Submit lab review reports for assigned course sections.
+                        </p>
+                        <div class="flex items-center gap-4 text-sm ${
+                          userCanSubmitLRR ? "text-gray-600" : "text-gray-500"
+                        }">
+                            <span class="flex items-center gap-1">
+                                <i class="fas fa-check-circle ${
+                                  userCanSubmitLRR
+                                    ? "text-green-500"
+                                    : "text-gray-400"
+                                }"></i>
+                                <span>Active</span>
+                            </span>
+                            <span class="flex items-center gap-1">
+                                <i class="fas fa-globe"></i>
+                                <span>Universal Form</span>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-4 pt-4 border-t">
+                    ${
+                      userCanSubmitLRR
+                        ? `
+                        <button onclick="showLRRForm()"
+                               class="w-full px-4 py-3 bg-teal-600 text-white rounded-lg hover:bg-teal-700 font-medium">
+                            <i class="fas fa-play-circle mr-2"></i>
+                            Start LRR Form
+                        </button>
+                    `
+                        : `
+                        <div class="w-full px-4 py-3 bg-gray-300 text-gray-500 rounded text-center font-medium cursor-not-allowed">
+                            <i class="fas fa-lock mr-2"></i>
+                            Not Available - Lab Instructor Role Required
+                        </div>
+                    `
+                    }
+                </div>
+            </div>
+        `;
+        }
+
         html += "</div>"; // Close grid
         container.innerHTML = html;
       }
+      function showLRRForm() {
+        showFormsByType("lrr");
+      }
+
+      function showCCRForm() {
+        showFormsByType("ccr");
+      }
+
+      function showCRRForm() {
+        showFormsByType("crr");
+      }
+
       function showFormsByType(formType) {
         showPage("dynamic-forms");
 
@@ -1734,7 +1883,9 @@
                                         <span class="px-2 py-1 ${
                                           formType === "ccr"
                                             ? "bg-purple-100 text-purple-800"
-                                            : "bg-green-100 text-green-800"
+                                            : formType === "lrr"
+                                              ? "bg-teal-100 text-teal-800"
+                                              : "bg-green-100 text-green-800"
                                         } rounded text-xs">
                                             ${formType.toUpperCase()}
                                         </span>
@@ -1901,8 +2052,13 @@
         const formId =
           submission?.dynamic_form?.id ||
           (forms && forms.length > 0 ? forms[0].id : null);
+        const sectionId = submission?.assigned_section_id;
         if (formId) {
-          window.location.href = `/dynamic-form/?course_id=${courseId}&form_type=${formType}&form_id=${formId}&submission_id=${submissionId}`;
+          let editUrl = `/dynamic-form/?course_id=${courseId}&form_type=${formType}&form_id=${formId}&submission_id=${submissionId}`;
+          if (sectionId) {
+            editUrl += `&section_id=${sectionId}`;
+          }
+          window.location.href = editUrl;
         } else {
           showNotification("No active form available for editing", "error");
         }
@@ -2605,7 +2761,7 @@
         if (!submissions || submissions.length === 0) {
           tbody.innerHTML = `
                     <tr>
-                        <td colspan="6" class="px-4 py-8 text-center text-gray-500">
+                        <td colspan="7" class="px-4 py-8 text-center text-gray-500">
                             <i class="fas fa-inbox text-3xl mb-3"></i>
                             <p>No submissions yet</p>
                         </td>
@@ -2622,6 +2778,11 @@
             const formType = submission.dynamic_form?.form_type || "unknown";
             const formName = submission.dynamic_form?.name || "Review Form";
             const status = submission.status || "draft";
+            const isFileSubmission =
+              submission.submission_mode === "file" ||
+              submission.has_uploaded_file;
+            const fileName = submission.uploaded_file_name || "Uploaded file";
+            const fileUrl = submission.uploaded_file_url;
 
             return `
                     <tr>
@@ -2637,7 +2798,9 @@
                             <span class="px-2 py-1 rounded text-xs ${
                               formType === "ccr"
                                 ? "bg-purple-100 text-purple-800"
-                                : "bg-green-100 text-green-800"
+                                : formType === "lrr"
+                                  ? "bg-teal-100 text-teal-800"
+                                  : "bg-green-100 text-green-800"
                             }">
                                 ${formType.toUpperCase()}
                             </span>
@@ -2648,6 +2811,24 @@
                               submission.is_coordinator
                                 ? '<div class="text-xs text-gray-500">Coordinator Submission</div>'
                                 : ""
+                            }
+                        </td>
+                        <td class="px-4 py-3">
+                            ${
+                              isFileSubmission
+                                ? `
+                              <div class="text-sm">
+                                <span class="px-2 py-1 rounded text-xs bg-amber-100 text-amber-800">File Upload</span>
+                                <div class="mt-1">
+                                  ${
+                                    fileUrl
+                                      ? `<a href="${fileUrl}" class="text-blue-600 hover:underline text-sm" target="_blank" rel="noopener"><i class="fas fa-paperclip mr-1"></i>${fileName}</a>`
+                                      : `<span class="text-sm text-gray-600"><i class="fas fa-paperclip mr-1"></i>${fileName}</span>`
+                                  }
+                                </div>
+                              </div>
+                            `
+                                : `<span class="px-2 py-1 rounded text-xs bg-slate-100 text-slate-700">Filled Form</span>`
                             }
                         </td>
                         <td class="px-4 py-3">
@@ -2665,16 +2846,20 @@
                               })" class="text-blue-600 hover:text-blue-800" title="View Details">
                                   <i class="fas fa-eye"></i>
                               </button>
-                              <button onclick="printSubmission(${
-                                submission.id
-                              })" class="text-gray-600 hover:text-gray-900" title="Print">
+                              ${
+                                isFileSubmission && fileUrl
+                                  ? `
+                              <a href="${fileUrl}" class="text-amber-600 hover:text-amber-800" title="Download Uploaded File" target="_blank" rel="noopener">
+                                  <i class="fas fa-paperclip"></i>
+                              </a>`
+                                  : `
+                              <button onclick="printSubmission(${submission.id})" class="text-gray-600 hover:text-gray-900" title="Print">
                                   <i class="fas fa-print"></i>
                               </button>
-                              <button onclick="downloadSubmission(${
-                                submission.id
-                              })" class="text-indigo-600 hover:text-indigo-800" title="Download PDF">
+                              <button onclick="downloadSubmission(${submission.id})" class="text-indigo-600 hover:text-indigo-800" title="Download PDF">
                                   <i class="fas fa-download"></i>
-                              </button>
+                              </button>`
+                              }
                               ${
                                 status === "draft" ||
                                 status === "revision_requested"
@@ -2945,8 +3130,21 @@
             </div>
         </div>
 
-        <h5 class="font-medium text-gray-900 mb-4">Submission Answers</h5>
+        <h5 class="font-medium text-gray-900 mb-4">Submission Content</h5>
     `;
+
+        if (submission.has_uploaded_file || submission.submission_mode === "file") {
+          html += `
+            <div class="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
+              <div class="font-medium text-amber-900 mb-1"><i class="fas fa-paperclip mr-2"></i>Uploaded File</div>
+              ${
+                submission.uploaded_file_url
+                  ? `<a href="${submission.uploaded_file_url}" class="text-blue-600 hover:underline" target="_blank" rel="noopener">${submission.uploaded_file_name || "Download file"}</a>`
+                  : `<span>${submission.uploaded_file_name || "File uploaded"}</span>`
+              }
+            </div>
+          `;
+        }
 
         if (submission.answers && submission.answers.length > 0) {
           html += `<div class="space-y-6">`;
@@ -2984,7 +3182,9 @@
           });
           html += `</div>`;
         } else {
-          html += `<div class="text-center py-8 text-gray-500">No answers submitted for this form</div>`;
+          if (!(submission.has_uploaded_file || submission.submission_mode === "file")) {
+            html += `<div class="text-center py-8 text-gray-500">No answers submitted for this form</div>`;
+          }
         }
 
         content.innerHTML = html;
@@ -3170,8 +3370,21 @@
             </div>
         </div>
 
-        <h5 class="font-medium text-gray-900 mb-4">Submission Answers</h5>
+        <h5 class="font-medium text-gray-900 mb-4">Submission Content</h5>
     `;
+
+        if (submission.has_uploaded_file || submission.submission_mode === "file") {
+          html += `
+            <div class="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
+              <div class="font-medium text-amber-900 mb-1"><i class="fas fa-paperclip mr-2"></i>Uploaded File</div>
+              ${
+                submission.uploaded_file_url
+                  ? `<a href="${submission.uploaded_file_url}" class="text-blue-600 hover:underline" target="_blank" rel="noopener">${submission.uploaded_file_name || "Download file"}</a>`
+                  : `<span>${submission.uploaded_file_name || "File uploaded"}</span>`
+              }
+            </div>
+          `;
+        }
 
         if (submission.answers && submission.answers.length > 0) {
           html += `<div class="space-y-6">`;
@@ -3209,7 +3422,9 @@
           });
           html += `</div>`;
         } else {
-          html += `<div class="text-center py-8 text-gray-500">No answers submitted for this form</div>`;
+          if (!(submission.has_uploaded_file || submission.submission_mode === "file")) {
+            html += `<div class="text-center py-8 text-gray-500">No answers submitted for this form</div>`;
+          }
         }
 
         content.innerHTML = html;
@@ -3364,13 +3579,22 @@
           const formType = submission.dynamic_form?.form_type || "crr";
           const courseId = submission.course?.id;
           const formId = submission.dynamic_form?.id;
+          const sectionId = submission.assigned_section_id;
           if (courseId && formId) {
-            window.location.href = `/dynamic-form/?course_id=${courseId}&form_type=${formType}&form_id=${formId}&submission_id=${submissionId}`;
+            let editUrl = `/dynamic-form/?course_id=${courseId}&form_type=${formType}&form_id=${formId}&submission_id=${submissionId}`;
+            if (sectionId) {
+              editUrl += `&section_id=${sectionId}`;
+            }
+            window.location.href = editUrl;
           } else if (courseId) {
             // Fallback: use first active form of this type
             const forms = state.activeForms[formType] || [];
             if (forms.length > 0) {
-              window.location.href = `/dynamic-form/?course_id=${courseId}&form_type=${formType}&form_id=${forms[0].id}&submission_id=${submissionId}`;
+              let editUrl = `/dynamic-form/?course_id=${courseId}&form_type=${formType}&form_id=${forms[0].id}&submission_id=${submissionId}`;
+              if (sectionId) {
+                editUrl += `&section_id=${sectionId}`;
+              }
+              window.location.href = editUrl;
             } else {
               showNotification("No active form available for editing", "error");
             }

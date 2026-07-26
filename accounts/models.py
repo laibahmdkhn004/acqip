@@ -7,10 +7,12 @@ class User(AbstractUser):
     ROLE_ADMIN = "admin"
     ROLE_FACULTY = "faculty"
     ROLE_CRC_MEMBER = "crc_member"
+    ROLE_LAB_INSTRUCTOR = "lab_instructor"
     ROLE_CHOICES = [
         (ROLE_ADMIN, "Admin"),
         (ROLE_FACULTY, "Faculty"),
         (ROLE_CRC_MEMBER, "CRC Member"),
+        (ROLE_LAB_INSTRUCTOR, "Lab Instructor"),
     ]
     role = models.CharField(max_length=30, choices=ROLE_CHOICES, default=ROLE_FACULTY)
     department = models.CharField(max_length=200, blank=True, null=True)
@@ -18,6 +20,10 @@ class User(AbstractUser):
 
     def __str__(self):
         return f"{self.username} ({self.get_role_display()})"
+
+    def is_course_assignee(self):
+        """Faculty or Lab Instructor can be assigned to courses."""
+        return self.role in (self.ROLE_FACULTY, self.ROLE_LAB_INSTRUCTOR)
 
 
 class Department(models.Model):
@@ -106,7 +112,7 @@ class DynamicForm(models.Model):
     FORM_TYPES = [
         ('ccr', 'CCR Form (Course Coordinators)'),
         ('crr', 'CRR Form (Regular Faculty)'),
-        
+        ('lrr', 'LRR Form (Lab Instructors)'),
     ]
     
     name = models.CharField(max_length=200, default="Dynamic Form")
@@ -176,6 +182,13 @@ class DynamicFormSubmission(models.Model):
         (STATUS_APPROVED, "Approved"),
         (STATUS_REVISION, "Revision Requested"),
     ]
+
+    MODE_FORM = "form"
+    MODE_FILE = "file"
+    MODE_CHOICES = [
+        (MODE_FORM, "Filled Form"),
+        (MODE_FILE, "Uploaded File"),
+    ]
     
     dynamic_form = models.ForeignKey(DynamicForm, on_delete=models.CASCADE)
     faculty = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -192,6 +205,17 @@ class DynamicFormSubmission(models.Model):
     course_coordinator = models.CharField(max_length=200, blank=True)
     is_coordinator = models.BooleanField(default=False)
     section = models.CharField(max_length=20, blank=True, null=True)
+
+    submission_mode = models.CharField(
+        max_length=20,
+        choices=MODE_CHOICES,
+        default=MODE_FORM,
+    )
+    uploaded_file = models.FileField(
+        upload_to='review_form_uploads/',
+        blank=True,
+        null=True,
+    )
     
     submission_date = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

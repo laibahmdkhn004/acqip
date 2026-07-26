@@ -108,7 +108,7 @@ class DynamicFormAdmin(admin.ModelAdmin):
         # REMOVED: Deactivating other forms of same type
         for form in queryset:
             # Allow both CCR and CRR forms to be active simultaneously
-            if form.form_type in ['ccr', 'crr']:
+            if form.form_type in ['ccr', 'crr', 'lrr']:
                 form.status = 'active'
                 form.save()
         self.message_user(request, f"{queryset.count()} form(s) published.")

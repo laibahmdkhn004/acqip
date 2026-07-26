@@ -38,11 +38,11 @@
           <label class="block text-sm font-medium text-gray-700 mb-2"
             >Form Type</label
           >
-          <div class="flex space-x-4">
+          <div class="flex space-x-4" id="form-type-buttons">
             <button
               type="button"
               id="ccr-btn"
-              class="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+              class="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 {% if is_lab_instructor %}hidden{% endif %}"
             >
               CCR Form (Course Coordinators)
             </button>
@@ -50,9 +50,17 @@
             <button
               type="button"
               id="crr-btn"
-              class="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+              class="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 {% if is_lab_instructor %}hidden{% endif %}"
             >
               CRR Form (All Faculty)
+            </button>
+
+            <button
+              type="button"
+              id="lrr-btn"
+              class="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 {% if not is_lab_instructor %}hidden{% endif %}"
+            >
+              LRR Form (Lab Instructors)
             </button>
           </div>
         </div>
@@ -82,6 +90,32 @@
             <div id="course-info" class="mt-2 text-sm text-gray-500"></div>
           </div>
 
+          <div class="px-6 pt-6">
+            <label class="block text-sm font-medium text-gray-700 mb-2"
+              >How do you want to submit?</label
+            >
+            <div class="flex flex-wrap gap-3">
+              <button
+                type="button"
+                id="mode-form-btn"
+                class="px-4 py-2 rounded-lg border bg-gray-800 text-white"
+              >
+                Fill Form
+              </button>
+              <button
+                type="button"
+                id="mode-file-btn"
+                class="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+              >
+                Upload File
+              </button>
+            </div>
+            <p class="text-sm text-gray-500 mt-2">
+              Choose either to answer the form questions or upload a completed
+              document instead.
+            </p>
+          </div>
+
           <form id="dynamic-form" class="p-6">
             <div id="questions-container" class="space-y-6">
               <!-- Questions will be loaded here -->
@@ -89,6 +123,31 @@
                 <p class="text-gray-400">
                   Select a course section and form type to begin
                 </p>
+              </div>
+            </div>
+
+            <div id="file-upload-container" class="hidden space-y-4">
+              <div
+                class="border-2 border-dashed border-gray-300 rounded-lg p-6 bg-gray-50"
+              >
+                <label
+                  class="block text-sm font-medium text-gray-700 mb-2"
+                  for="uploaded-file-input"
+                  >Upload review form file</label
+                >
+                <input
+                  type="file"
+                  id="uploaded-file-input"
+                  accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.zip,.png,.jpg,.jpeg"
+                  class="w-full text-sm text-gray-700"
+                />
+                <p class="text-xs text-gray-500 mt-2">
+                  Accepted: PDF, Word, PowerPoint, Excel, ZIP, or images.
+                </p>
+                <div
+                  id="existing-file-info"
+                  class="mt-3 text-sm text-gray-600 hidden"
+                ></div>
               </div>
             </div>
 
@@ -134,7 +193,8 @@
       const urlParams = new URLSearchParams(window.location.search);
       const urlCourseId = urlParams.get("course_id");
       const urlSectionId = urlParams.get("section_id");
-      const urlFormType = urlParams.get("form_type") || "crr";
+      const isLabInstructor = {{ is_lab_instructor|yesno:"true,false" }};
+      const urlFormType = urlParams.get("form_type") || (isLabInstructor ? "lrr" : "crr");
       const urlFormId = urlParams.get("form_id");
       const urlSubmissionId = urlParams.get("submission_id");
 
@@ -146,6 +206,8 @@
       let currentFormData = null;
       let currentSubmissionId = urlSubmissionId ? parseInt(urlSubmissionId, 10) : null;
       let assignedCourses = [];
+      let currentSubmissionMode = "form";
+      let existingUploadedFile = null;
 
       // Enhanced cache with time-based invalidation
       const formCache = new Map();
@@ -205,6 +267,23 @@
 
         // Set active form type button based on URL
         setFormTypeButton(urlFormType);
+        // Apply form-type side effects (info text / course filtering)
+        const formInfo = document.getElementById("form-info");
+        if (formInfo) {
+          if (urlFormType === "lrr") {
+            formInfo.textContent =
+              "LRR Form: For lab instructors only. Submit once for each assigned course section.";
+            formInfo.classList.remove("hidden");
+          } else if (urlFormType === "ccr") {
+            formInfo.textContent =
+              "CCR Form: For course coordinators only. Submit once per assigned section where you are the coordinator.";
+            formInfo.classList.remove("hidden");
+          } else {
+            formInfo.textContent =
+              "CRR Form: For all faculty members. Submit once for each assigned course section.";
+            formInfo.classList.remove("hidden");
+          }
+        }
 
         // Set up event listeners
         setupEventListeners();
@@ -239,17 +318,40 @@
       // Event Listeners Setup
       function setupEventListeners() {
         // Form type button handlers
-        document
-          .getElementById("ccr-btn")
-          .addEventListener("click", function () {
+        const ccrBtn = document.getElementById("ccr-btn");
+        const crrBtn = document.getElementById("crr-btn");
+        const lrrBtn = document.getElementById("lrr-btn");
+
+        if (ccrBtn) {
+          ccrBtn.addEventListener("click", function () {
             setFormType("ccr");
           });
+        }
 
-        document
-          .getElementById("crr-btn")
-          .addEventListener("click", function () {
+        if (crrBtn) {
+          crrBtn.addEventListener("click", function () {
             setFormType("crr");
           });
+        }
+
+        if (lrrBtn) {
+          lrrBtn.addEventListener("click", function () {
+            setFormType("lrr");
+          });
+        }
+
+        const modeFormBtn = document.getElementById("mode-form-btn");
+        const modeFileBtn = document.getElementById("mode-file-btn");
+        if (modeFormBtn) {
+          modeFormBtn.addEventListener("click", function () {
+            setSubmissionMode("form");
+          });
+        }
+        if (modeFileBtn) {
+          modeFileBtn.addEventListener("click", function () {
+            setSubmissionMode("file");
+          });
+        }
 
         // Course select handler with debounce
         let courseChangeTimeout;
@@ -285,33 +387,32 @@
       function setFormTypeButton(formType) {
         const ccrBtn = document.getElementById("ccr-btn");
         const crrBtn = document.getElementById("crr-btn");
+        const lrrBtn = document.getElementById("lrr-btn");
+        const buttons = [ccrBtn, crrBtn, lrrBtn].filter(Boolean);
 
-        if (formType === "ccr") {
-          ccrBtn.classList.add(
+        buttons.forEach((btn) => {
+          btn.classList.remove(
             "bg-gray-800",
             "text-white",
             "hover:bg-gray-900",
           );
-          ccrBtn.classList.remove("text-gray-700", "border-gray-300");
-          crrBtn.classList.remove(
+          btn.classList.add("text-gray-700", "border-gray-300");
+        });
+
+        const activeBtn =
+          formType === "ccr"
+            ? ccrBtn
+            : formType === "lrr"
+              ? lrrBtn
+              : crrBtn;
+
+        if (activeBtn) {
+          activeBtn.classList.add(
             "bg-gray-800",
             "text-white",
             "hover:bg-gray-900",
           );
-          crrBtn.classList.add("text-gray-700", "border-gray-300");
-        } else if (formType === "crr") {
-          crrBtn.classList.add(
-            "bg-gray-800",
-            "text-white",
-            "hover:bg-gray-900",
-          );
-          crrBtn.classList.remove("text-gray-700", "border-gray-300");
-          ccrBtn.classList.remove(
-            "bg-gray-800",
-            "text-white",
-            "hover:bg-gray-900",
-          );
-          ccrBtn.classList.add("text-gray-700", "border-gray-300");
+          activeBtn.classList.remove("text-gray-700", "border-gray-300");
         }
       }
 
@@ -472,6 +573,82 @@
         }
       }
 
+      function setSubmissionMode(mode) {
+        currentSubmissionMode = mode === "file" ? "file" : "form";
+        const questionsContainer = document.getElementById(
+          "questions-container",
+        );
+        const fileUploadContainer = document.getElementById(
+          "file-upload-container",
+        );
+        const modeFormBtn = document.getElementById("mode-form-btn");
+        const modeFileBtn = document.getElementById("mode-file-btn");
+        const submitBtn = document.getElementById("submit-form-btn");
+
+        const activeClasses = [
+          "bg-gray-800",
+          "text-white",
+          "border-gray-800",
+        ];
+        const inactiveClasses = [
+          "border-gray-300",
+          "text-gray-700",
+          "hover:bg-gray-50",
+        ];
+
+        if (modeFormBtn && modeFileBtn) {
+          [modeFormBtn, modeFileBtn].forEach((btn) => {
+            btn.classList.remove(...activeClasses);
+            btn.classList.add(...inactiveClasses);
+          });
+          const activeBtn =
+            currentSubmissionMode === "file" ? modeFileBtn : modeFormBtn;
+          activeBtn.classList.remove(...inactiveClasses);
+          activeBtn.classList.add(...activeClasses);
+        }
+
+        if (currentSubmissionMode === "file") {
+          if (questionsContainer) questionsContainer.classList.add("hidden");
+          if (fileUploadContainer)
+            fileUploadContainer.classList.remove("hidden");
+          if (submitBtn) submitBtn.textContent = "Submit File";
+        } else {
+          if (questionsContainer)
+            questionsContainer.classList.remove("hidden");
+          if (fileUploadContainer) fileUploadContainer.classList.add("hidden");
+          if (submitBtn) submitBtn.textContent = "Submit Form";
+        }
+      }
+
+      function updateExistingFileInfo(fileMeta) {
+        const info = document.getElementById("existing-file-info");
+        if (!info) return;
+        existingUploadedFile = fileMeta?.has_uploaded_file
+          ? {
+              name: fileMeta.uploaded_file_name,
+              url: fileMeta.uploaded_file_url,
+            }
+          : null;
+        if (!existingUploadedFile) {
+          info.classList.add("hidden");
+          info.innerHTML = "";
+          return;
+        }
+        info.classList.remove("hidden");
+        info.innerHTML = `
+          <div class="flex items-center gap-2">
+            <i class="fas fa-paperclip text-gray-500"></i>
+            <span>Current file: <strong>${existingUploadedFile.name}</strong></span>
+            ${
+              existingUploadedFile.url
+                ? `<a href="${existingUploadedFile.url}" class="text-blue-600 hover:underline" target="_blank" rel="noopener">Download</a>`
+                : ""
+            }
+          </div>
+          <p class="text-xs text-gray-500 mt-1">Upload a new file to replace it.</p>
+        `;
+      }
+
       function setFormType(formType) {
         currentFormType = formType;
         currentFormId = null;
@@ -495,6 +672,16 @@
             const isCoordinator =
               options[i].getAttribute("data-is-coordinator") === "true";
             options[i].style.display = isCoordinator ? "" : "none";
+          }
+        } else if (formType === "lrr") {
+          formInfo.textContent =
+            "LRR Form: For lab instructors only. Submit once for each assigned course section.";
+          formInfo.classList.remove("hidden");
+
+          const courseSelect = document.getElementById("course-select");
+          const options = courseSelect.options;
+          for (let i = 0; i < options.length; i++) {
+            options[i].style.display = "";
           }
         } else {
           formInfo.textContent =
@@ -603,27 +790,34 @@
         // Show immediate loading state
         showFormLoading();
 
-        // Check cache first
-        const cachedForm = getCachedForm(formType, formId, courseId);
-        if (cachedForm) {
-          console.log("Using cached form data");
-          renderFormFromCache(cachedForm, courseId);
-          return;
-        }
+        // When editing a submission, skip cache so we always get the exact form
+        const skipCache = Boolean(currentSubmissionId);
 
-        // Try memory cache
-        const memoryCacheKey = `${formType}-${formId}`;
-        if (formCache.has(memoryCacheKey)) {
-          const cachedData = formCache.get(memoryCacheKey);
-          renderFormFromCache(cachedData, courseId);
-          return;
+        // Check cache first
+        if (!skipCache) {
+          const cachedForm = getCachedForm(formType, formId, courseId);
+          if (cachedForm) {
+            console.log("Using cached form data");
+            renderFormFromCache(cachedForm, courseId);
+            return;
+          }
+
+          // Try memory cache
+          const memoryCacheKey = `${formType}-${formId}`;
+          if (formCache.has(memoryCacheKey)) {
+            const cachedData = formCache.get(memoryCacheKey);
+            renderFormFromCache(cachedData, courseId);
+            return;
+          }
         }
 
         // Fetch from API
         try {
-          const response = await fetch(
-            `${API.faculty_dynamic_forms}?form_type=${formType}&form_id=${formId}&course_id=${courseId}`,
-          );
+          let url = `${API.faculty_dynamic_forms}?form_type=${formType}&form_id=${formId}&course_id=${courseId}`;
+          if (currentSubmissionId) {
+            url += `&submission_id=${currentSubmissionId}`;
+          }
+          const response = await fetch(url);
           const data = await response.json();
 
           if (!data.active) {
@@ -638,9 +832,11 @@
 
           currentFormData = data;
 
-          // Cache the form data
-          cacheForm(formType, formId, data);
-          formCache.set(memoryCacheKey, data);
+          // Cache the form data (not while editing)
+          if (!skipCache) {
+            cacheForm(formType, formId, data);
+            formCache.set(`${formType}-${formId}`, data);
+          }
 
           renderForm(data, courseId);
         } catch (error) {
@@ -713,7 +909,16 @@
       }
 
       function renderForm(data, courseId) {
-        const form = data.forms[0];
+        const form =
+          (data.forms || []).find(
+            (item) => String(item.id) === String(currentFormId),
+          ) || data.forms[0];
+
+        if (!form) {
+          showFormError("No form data found.");
+          return;
+        }
+        currentFormId = form.id;
 
         // Update form header
         document.getElementById("form-title").textContent = form.name;
@@ -732,6 +937,7 @@
 
         // Render questions with optimized DOM manipulation
         renderQuestionsOptimized(form.questions);
+        setSubmissionMode(currentSubmissionMode);
 
         // Prefill saved answers when editing a draft / revision
         if (currentSubmissionId) {
@@ -754,6 +960,33 @@
           }
 
           const data = await response.json();
+
+          // Restore section selection when editing
+          if (data.assigned_section_id && !currentSectionId) {
+            currentSectionId = data.assigned_section_id;
+            const preferredValue = encodeCourseSectionValue(
+              data.course_id || currentCourseId,
+              currentSectionId,
+            );
+            const courseSelect = document.getElementById("course-select");
+            if (
+              courseSelect &&
+              Array.from(courseSelect.options).some(
+                (option) => option.value === preferredValue,
+              )
+            ) {
+              courseSelect.value = preferredValue;
+            }
+          }
+
+          if (data.submission_mode === "file" || data.has_uploaded_file) {
+            setSubmissionMode("file");
+            updateExistingFileInfo(data);
+          } else {
+            setSubmissionMode("form");
+            updateExistingFileInfo(null);
+          }
+
           if (!Array.isArray(data.answers) || data.answers.length === 0) {
             return;
           }
@@ -1062,6 +1295,64 @@
           return;
         }
 
+        if (currentSubmissionMode === "file") {
+          const fileInput = document.getElementById("uploaded-file-input");
+          const selectedFile = fileInput?.files?.[0];
+          if (!selectedFile && !existingUploadedFile) {
+            alert("Please choose a file to upload.");
+            return;
+          }
+
+          const formData = new FormData();
+          formData.append("course_id", currentCourseId);
+          formData.append("section_id", currentSectionId);
+          formData.append("form_id", currentFormId);
+          formData.append("status", status);
+          formData.append("submission_mode", "file");
+          if (currentSubmissionId) {
+            formData.append("submission_id", currentSubmissionId);
+          }
+          if (selectedFile) {
+            formData.append("uploaded_file", selectedFile);
+          }
+
+          try {
+            const response = await fetch(API.submit_dynamic_form, {
+              method: "POST",
+              headers: {
+                "X-CSRFToken": getCookie("csrftoken"),
+              },
+              body: formData,
+            });
+            const result = await response.json();
+            if (response.ok) {
+              showNotification(
+                result.message ||
+                  `File ${status === "draft" ? "saved as draft" : "submitted"} successfully!`,
+                "success",
+              );
+              if (result.submission_id) {
+                currentSubmissionId = result.submission_id;
+              }
+              updateExistingFileInfo(result);
+              if (status === "submitted") {
+                setTimeout(() => {
+                  window.location.href = "/dashboard/";
+                }, 1200);
+              }
+            } else {
+              showNotification(
+                result.error || "Failed to upload file.",
+                "error",
+              );
+            }
+          } catch (error) {
+            console.error("File upload failed:", error);
+            showNotification("Failed to upload file. Please try again.", "error");
+          }
+          return;
+        }
+
         // Collect form answers
         const answers = {};
         let hasErrors = false;
@@ -1181,8 +1472,9 @@
 
         console.log("Submitting form:", {
           course_id: parseInt(currentCourseId),
-          section_id: parseInt(currentSectionId),
+          section_id: currentSectionId ? parseInt(currentSectionId, 10) : null,
           form_id: parseInt(currentFormId),
+          submission_id: currentSubmissionId || null,
           answers: answers,
           status: status,
         });
@@ -1196,8 +1488,10 @@
             },
             body: JSON.stringify({
               course_id: parseInt(currentCourseId),
-              section_id: parseInt(currentSectionId),
+              section_id: currentSectionId ? parseInt(currentSectionId, 10) : null,
               form_id: parseInt(currentFormId),
+              submission_id: currentSubmissionId || null,
+              submission_mode: "form",
               answers: answers,
               status: status,
             }),
