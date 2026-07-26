@@ -50,12 +50,12 @@
       </div>
 
       <!-- Role Cards -->
-      <div class="mt-14 max-w-6xl mx-auto px-4">
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+      <div class="mt-14 max-w-5xl mx-auto px-4">
+        <div class="grid grid-cols-3 gap-8">
           <!-- Faculty -->
           <a
             href="{% url 'login' %}?role=Faculty"
-            class="bg-white/95 backdrop-blur-sm rounded-2xl shadow-md hover:shadow-xl transition p-8 text-center"
+            class="w-full bg-white/95 backdrop-blur-sm rounded-2xl shadow-md hover:shadow-xl transition p-8 text-center"
           >
             <div
               class="w-14 h-14 mx-auto mb-5 rounded-xl bg-purple-600 flex items-center justify-center"
@@ -73,30 +73,10 @@
             </p>
           </a>
 
-          {% comment %}Lab Instructor login card hidden from home page.
-          <a
-            href="{% url 'login' %}?role=Lab Instructor"
-            class="bg-white/95 backdrop-blur-sm rounded-2xl shadow-md hover:shadow-xl transition p-8 text-center"
-          >
-            <div
-              class="w-14 h-14 mx-auto mb-5 rounded-xl bg-teal-600 flex items-center justify-center"
-            >
-              <svg viewBox="0 0 24 24" class="w-7 h-7 text-white" fill="currentColor">
-                <path d="M9 3v2h2v2.1A7.002 7.002 0 0 0 5 14c0 3.87 3.13 7 7 7s7-3.13 7-7a7.002 7.002 0 0 0-6-6.9V5h2V3H9zm3 6a5 5 0 1 1 0 10 5 5 0 0 1 0-10z"/>
-              </svg>
-            </div>
-
-            <h3 class="text-lg font-semibold text-gray-800 mb-2">Lab Instructor</h3>
-            <p class="text-sm text-gray-500">
-              Access assigned labs and submit LRR forms
-            </p>
-          </a>
-          {% endcomment %}
-
           <!-- CRC Team -->
           <a
             href="{% url 'login' %}?role=CRC"
-            class="bg-white/95 backdrop-blur-sm rounded-2xl shadow-md hover:shadow-xl transition p-8 text-center"
+            class="w-full bg-white/95 backdrop-blur-sm rounded-2xl shadow-md hover:shadow-xl transition p-8 text-center"
           >
             <div
               class="w-14 h-14 mx-auto mb-5 rounded-xl bg-blue-600 flex items-center justify-center"
@@ -117,7 +97,7 @@
           <!-- Admin -->
           <a
             href="{% url 'login' %}?role=Admin"
-            class="bg-white/95 backdrop-blur-sm rounded-2xl shadow-md hover:shadow-xl transition p-8 text-center"
+            class="w-full bg-white/95 backdrop-blur-sm rounded-2xl shadow-md hover:shadow-xl transition p-8 text-center"
           >
             <div
               class="w-14 h-14 mx-auto mb-5 rounded-xl bg-indigo-600 flex items-center justify-center"
