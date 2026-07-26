@@ -42,7 +42,7 @@
             <button
               type="button"
               id="ccr-btn"
-              class="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 {% if is_lab_instructor %}hidden{% endif %}"
+              class="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 {% if not ccr_active %}hidden{% endif %}"
             >
               CCR Form (Course Coordinators)
             </button>
@@ -50,7 +50,7 @@
             <button
               type="button"
               id="crr-btn"
-              class="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 {% if is_lab_instructor %}hidden{% endif %}"
+              class="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 {% if not crr_active %}hidden{% endif %}"
             >
               CRR Form (All Faculty)
             </button>
@@ -58,7 +58,7 @@
             <button
               type="button"
               id="lrr-btn"
-              class="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 {% if not is_lab_instructor %}hidden{% endif %}"
+              class="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 {% if not lrr_active %}hidden{% endif %}"
             >
               LRR Form (Lab Instructors)
             </button>

@@ -192,14 +192,15 @@
                 <div class="font-medium">
                   {{ user.username|default:'CRC Member' }}
                 </div>
-                <div class="text-xs text-white/70">CRC Member</div>
+                <div class="text-xs text-white/70">{{ active_role_label|default:"CRC Member" }}</div>
               </div>
               <i class="fas fa-chevron-down text-white/70 text-sm"></i>
             </div>
             <div
               id="avatar-dropdown"
-              class="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 hidden z-50"
+              class="absolute right-0 mt-2 w-56 bg-white rounded-md shadow-lg py-1 hidden z-50"
             >
+              {% include "accounts/partials/role_switcher.html" %}
               <a
                 href="{% url 'dashboard' %}"
                 class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"

@@ -34,31 +34,57 @@ load_dotenv()
 
 
 def is_admin(user):
-    return user.is_authenticated and user.role == User.ROLE_ADMIN
+    return user.is_authenticated and user.has_role(User.ROLE_ADMIN)
 
 def is_admin_or_crc(user):
-    return user.is_authenticated and user.role in [User.ROLE_ADMIN, User.ROLE_CRC_MEMBER]
+    return user.is_authenticated and user.has_role(User.ROLE_ADMIN, User.ROLE_CRC_MEMBER)
 
 
 UNIVERSAL_FORM_TYPES = ['ccr', 'crr', 'lrr']
 COURSE_ASSIGNEE_ROLES = [User.ROLE_FACULTY, User.ROLE_LAB_INSTRUCTOR]
+ACTIVE_ROLE_SESSION_KEY = 'active_role'
 
 
 def is_faculty_or_lab_instructor(user):
-    return user.is_authenticated and user.role in COURSE_ASSIGNEE_ROLES
+    return user.is_authenticated and user.has_role(User.ROLE_FACULTY, User.ROLE_LAB_INSTRUCTOR)
 
 
 def user_can_access_form_type(user, form_type):
     """Role rules for filling/submitting each form type."""
     if form_type == 'lrr':
-        return user.role == User.ROLE_LAB_INSTRUCTOR
+        return user.has_role(User.ROLE_LAB_INSTRUCTOR)
     if form_type in ('ccr', 'crr'):
-        return user.role == User.ROLE_FACULTY
+        return user.has_role(User.ROLE_FACULTY)
     return False
 
 
 def course_assignee_users_qs():
-    return User.objects.filter(role__in=COURSE_ASSIGNEE_ROLES)
+    return User.objects.filter(
+        Q(role__in=COURSE_ASSIGNEE_ROLES) | Q(roles__code__in=COURSE_ASSIGNEE_ROLES)
+    ).distinct()
+
+
+def get_active_role(request):
+    """Active dashboard role for the current session."""
+    if not request.user.is_authenticated:
+        return None
+    active_role = request.session.get(ACTIVE_ROLE_SESSION_KEY)
+    user_roles = request.user.get_roles()
+    if active_role in user_roles:
+        return active_role
+    if request.user.role in user_roles:
+        return request.user.role
+    return next(iter(user_roles), None)
+
+
+def set_active_role(request, role_code):
+    """Persist the active dashboard role in session if the user has it."""
+    if not request.user.is_authenticated:
+        return False
+    if role_code not in request.user.get_roles():
+        return False
+    request.session[ACTIVE_ROLE_SESSION_KEY] = role_code
+    return True
 
 
 def course_catalogue_file_payload(course):
@@ -454,7 +480,7 @@ def api_courses_create(request):
             section_ids = assignment.get('section_ids', assignment.get('section', []))
 
             if faculty_id:
-                faculty = User.objects.get(id=faculty_id, role__in=COURSE_ASSIGNEE_ROLES)
+                faculty = course_assignee_users_qs().get(id=faculty_id)
                 course_faculty = CourseFaculty.objects.create(
                     course=course,
                     faculty=faculty,
@@ -587,7 +613,7 @@ def api_assign_course_faculty(request, course_id):
             
             if faculty_id:
                 try:
-                    faculty = User.objects.get(id=faculty_id, role__in=COURSE_ASSIGNEE_ROLES)
+                    faculty = course_assignee_users_qs().get(id=faculty_id)
                     course_faculty = CourseFaculty.objects.create(
                         course=course,
                         faculty=faculty,
@@ -628,7 +654,7 @@ def api_course_delete(request, course_id):
 def api_assign_courses_to_faculty(request, user_id):
     try:
         data = json.loads(request.body)
-        faculty_member = User.objects.get(id=user_id, role__in=COURSE_ASSIGNEE_ROLES)
+        faculty_member = course_assignee_users_qs().get(id=user_id)
         course_ids = data.get('course_ids', [])
         coordinator_info = data.get('coordinator_info', {}) or {}
         section_info = data.get('section_info', {}) or {}
@@ -1072,7 +1098,7 @@ def api_faculty_dynamic_forms(request):
                     faculty=request.user,
                     course_id=course_id
                 )
-                if request.user.role == User.ROLE_LAB_INSTRUCTOR:
+                if request.user.has_role(User.ROLE_LAB_INSTRUCTOR):
                     form_type = 'lrr'
                 else:
                     # If user is coordinator, default to CCR, otherwise CRR
@@ -1210,8 +1236,8 @@ def api_form_availability(request):
             faculty=request.user,
             is_coordinator=True
         ).exists()
-        is_lab_instructor = request.user.role == User.ROLE_LAB_INSTRUCTOR
-        is_faculty = request.user.role == User.ROLE_FACULTY
+        is_lab_instructor = request.user.has_role(User.ROLE_LAB_INSTRUCTOR)
+        is_faculty = request.user.has_role(User.ROLE_FACULTY)
         
         # Get assigned courses
         course_assignments = CourseFaculty.objects.filter(
@@ -1494,7 +1520,7 @@ def api_submission_file_download(request, submission_id):
 
     if is_faculty_or_lab_instructor(request.user) and submission.faculty_id != request.user.id:
         return JsonResponse({'error': 'Access denied'}, status=403)
-    if request.user.role not in (
+    if not request.user.has_role(
         User.ROLE_FACULTY,
         User.ROLE_LAB_INSTRUCTOR,
         User.ROLE_ADMIN,
@@ -1518,7 +1544,7 @@ def api_submission_file_download(request, submission_id):
 @require_http_methods(["GET"])
 def api_faculty_users(request):
     try:
-        faculty_users = list(User.objects.filter(role__in=COURSE_ASSIGNEE_ROLES).values(
+        faculty_users = list(course_assignee_users_qs().values(
             'id', 'username', 'email', 'department', 'designation', 'role'
         ))
         return JsonResponse({'results': faculty_users})
@@ -1551,7 +1577,7 @@ def api_course_faculty_assignments(request, course_id):
 def api_faculty_course_assignments(request, user_id):
     """Return courses currently assigned to a faculty member (for Assign Courses UI)."""
     try:
-        faculty_member = User.objects.get(id=user_id, role__in=COURSE_ASSIGNEE_ROLES)
+        faculty_member = course_assignee_users_qs().get(id=user_id)
         assignments = CourseFaculty.objects.filter(faculty=faculty_member).select_related(
             'course', 'course__department'
         ).prefetch_related('sections')
@@ -1582,7 +1608,17 @@ def api_faculty_course_assignments(request, user_id):
 @user_passes_test(is_admin)
 @require_http_methods(["GET"])
 def api_users(request):
-    users = list(User.objects.values('id', 'username', 'email', 'role', 'department', 'designation'))
+    users = []
+    for user in User.objects.all().prefetch_related('roles'):
+        row = {
+            'id': user.id,
+            'username': user.username,
+            'email': user.email,
+            'department': user.department,
+            'designation': user.designation,
+        }
+        row.update(user.roles_payload())
+        users.append(row)
     return JsonResponse({'results': users})
 
 @login_required
@@ -1592,22 +1628,31 @@ def api_users(request):
 def api_users_create(request):
     try:
         data = json.loads(request.body)
+        roles = data.get('roles') or []
+        if isinstance(roles, str):
+            roles = [roles]
+        primary_role = data.get('role') or (roles[0] if roles else User.ROLE_FACULTY)
+        if primary_role not in roles:
+            roles = [primary_role] + list(roles)
+
         user = User.objects.create_user(
             username=data.get('username'),
             email=data.get('email'),
             password=data.get('password'),
-            role=data.get('role', User.ROLE_FACULTY),
+            role=primary_role,
             department=data.get('department', ''),
             designation=data.get('designation', '')
         )
-        return JsonResponse({
+        user.set_roles(roles, primary_role=primary_role)
+        payload = {
             'id': user.id,
             'username': user.username,
             'email': user.email,
-            'role': user.role,
             'department': user.department,
-            'designation': user.designation
-        }, status=201)
+            'designation': user.designation,
+        }
+        payload.update(user.roles_payload())
+        return JsonResponse(payload, status=201)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
 
@@ -1623,18 +1668,31 @@ def api_user_update(request, user_id):
         user.email = data.get('email', user.email)
         if 'password' in data and data['password']:
             user.set_password(data['password'])
-        user.role = data.get('role', user.role)
         user.department = data.get('department', user.department)
         user.designation = data.get('designation', user.designation)
-        user.save()
-        return JsonResponse({
+
+        roles = data.get('roles')
+        primary_role = data.get('role', user.role)
+        if roles is not None:
+            if isinstance(roles, str):
+                roles = [roles]
+            if primary_role and primary_role not in roles:
+                roles = [primary_role] + list(roles)
+            user.set_roles(roles, primary_role=primary_role)
+        elif 'role' in data:
+            user.set_roles([data['role']], primary_role=data['role'])
+        else:
+            user.save()
+
+        payload = {
             'id': user.id,
             'username': user.username,
             'email': user.email,
-            'role': user.role,
             'department': user.department,
-            'designation': user.designation
-        })
+            'designation': user.designation,
+        }
+        payload.update(user.roles_payload())
+        return JsonResponse(payload)
     except User.DoesNotExist:
         return JsonResponse({'error': 'User not found'}, status=404)
     except Exception as e:
@@ -1664,7 +1722,7 @@ def api_crc_faculty_list(request):
         faculty_list = []
         
         # Get all faculty users
-        faculty_users = User.objects.filter(role__in=COURSE_ASSIGNEE_ROLES).prefetch_related('coursefaculty_set__course')
+        faculty_users = course_assignee_users_qs().prefetch_related('coursefaculty_set__course')
         
         for faculty in faculty_users:
             # Get course assignments
@@ -1936,7 +1994,7 @@ def api_crc_form_submissions(request):
 @require_http_methods(["POST"])
 def api_save_course_outline(request):
     """Save or update course outline (faculty coordinators or CRC members)."""
-    if request.user.role not in (User.ROLE_FACULTY, User.ROLE_CRC_MEMBER):
+    if not request.user.has_role(User.ROLE_FACULTY, User.ROLE_CRC_MEMBER):
         return JsonResponse({'error': 'Access denied'}, status=403)
     
     try:
@@ -1954,7 +2012,7 @@ def api_save_course_outline(request):
         if not content:
             return JsonResponse({'error': 'content is required'}, status=400)
         
-        if request.user.role == User.ROLE_FACULTY:
+        if request.user.has_role(User.ROLE_FACULTY):
             try:
                 CourseFaculty.objects.get(
                     faculty=request.user,
@@ -2099,14 +2157,14 @@ def api_crc_view_outline_content(request, outline_id):
 @require_http_methods(["GET"])
 def api_get_course_outline(request):
     """Get course outline: faculty (assigned/coordinator rules); CRC (any outline by id, own drafts by course)."""
-    if request.user.role not in (User.ROLE_FACULTY, User.ROLE_CRC_MEMBER):
+    if not request.user.has_role(User.ROLE_FACULTY, User.ROLE_CRC_MEMBER):
         return JsonResponse({'error': 'Access denied'}, status=403)
 
     outline_id = request.GET.get('outline_id')
     course_id = request.GET.get('course_id')
 
     try:
-        if request.user.role == User.ROLE_CRC_MEMBER:
+        if request.user.has_role(User.ROLE_CRC_MEMBER):
             if outline_id:
                 outline = CourseOutline.objects.select_related('course', 'faculty').get(
                     id=outline_id
@@ -2379,7 +2437,7 @@ def api_submission_pdf(request, submission_id):
 
     if is_faculty_or_lab_instructor(request.user) and submission.faculty_id != request.user.id:
         return JsonResponse({"error": "Access denied"}, status=403)
-    if request.user.role not in (
+    if not request.user.has_role(
         User.ROLE_FACULTY,
         User.ROLE_LAB_INSTRUCTOR,
         User.ROLE_ADMIN,
@@ -2488,7 +2546,7 @@ def api_outline_pdf(request, outline_id):
     except CourseOutline.DoesNotExist:
         return JsonResponse({"error": "Course outline not found"}, status=404)
 
-    if request.user.role == User.ROLE_FACULTY and outline.faculty_id != request.user.id:
+    if request.user.has_role(User.ROLE_FACULTY) and outline.faculty_id != request.user.id:
         return JsonResponse({"error": "Access denied"}, status=403)
     if request.user.role not in (
         User.ROLE_FACULTY,
@@ -2726,7 +2784,7 @@ def api_admin_reset_faculty_password(request, user_id):
         if not new_password:
             return JsonResponse({'error': 'New password is required'}, status=400)
         
-        user = User.objects.get(id=user_id, role__in=COURSE_ASSIGNEE_ROLES)
+        user = course_assignee_users_qs().get(id=user_id)
         user.set_password(new_password)
         user.save()
         
@@ -2789,11 +2847,11 @@ def api_faculty_submissions(request):
 @require_http_methods(["GET"])
 def api_faculty_course_outlines(request):
     """Faculty: outlines for assigned courses. CRC: all outlines that have entered review (not drafts)."""
-    if request.user.role not in (User.ROLE_FACULTY, User.ROLE_CRC_MEMBER):
+    if not request.user.has_role(User.ROLE_FACULTY, User.ROLE_CRC_MEMBER):
         return JsonResponse({'error': 'Access denied'}, status=403)
     
     try:
-        if request.user.role == User.ROLE_CRC_MEMBER:
+        if request.user.has_role(User.ROLE_CRC_MEMBER):
             outlines = CourseOutline.objects.filter(
                 status__in=[
                     CourseOutline.STATUS_SUBMITTED,
@@ -2927,7 +2985,7 @@ def api_faculty_submissions_list(request):
 @require_http_methods(["GET"])
 def api_faculty_course_outline_structure(request):
     """Outline starter structure: faculty coordinators or CRC (any course)."""
-    if request.user.role not in (User.ROLE_FACULTY, User.ROLE_CRC_MEMBER):
+    if not request.user.has_role(User.ROLE_FACULTY, User.ROLE_CRC_MEMBER):
         return JsonResponse({'error': 'Access denied'}, status=403)
     
     try:
@@ -2936,7 +2994,7 @@ def api_faculty_course_outline_structure(request):
         if not course_id:
             return JsonResponse({'error': 'course_id is required'}, status=400)
         
-        if request.user.role == User.ROLE_FACULTY:
+        if request.user.has_role(User.ROLE_FACULTY):
             try:
                 CourseFaculty.objects.get(
                     faculty=request.user,
@@ -3090,8 +3148,8 @@ def api_faculty_form_availability(request):
     
     try:
         course_id = request.GET.get('course_id')
-        is_lab_instructor = request.user.role == User.ROLE_LAB_INSTRUCTOR
-        is_faculty = request.user.role == User.ROLE_FACULTY
+        is_lab_instructor = request.user.has_role(User.ROLE_LAB_INSTRUCTOR)
+        is_faculty = request.user.has_role(User.ROLE_FACULTY)
         
         # Check GLOBAL form availability
         ccr_active = DynamicForm.objects.filter(

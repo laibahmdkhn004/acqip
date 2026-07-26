@@ -2,7 +2,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from django import forms
-from .models import User, Course, Department, Section, DynamicForm, FormQuestion, DynamicFormSubmission, FormAnswer, CourseFaculty, CourseOutline, AnalyticsCache
+from .models import User, Role, Course, Department, Section, DynamicForm, FormQuestion, DynamicFormSubmission, FormAnswer, CourseFaculty, CourseOutline, AnalyticsCache
 from django.utils.html import format_html
 
 # Custom form for FormQuestion
@@ -29,16 +29,26 @@ class CourseOutlineInline(admin.TabularInline):
     readonly_fields = ('version', 'status', 'created_at')
     can_delete = False
 
+@admin.register(Role)
+class RoleAdmin(admin.ModelAdmin):
+    list_display = ('code', 'name')
+    search_fields = ('code', 'name')
+
 @admin.register(User)
 class CustomUserAdmin(UserAdmin):
-    list_display = ('username', 'email', 'role', 'department', 'designation', 'is_staff', 'is_active')
-    list_filter = ('role', 'is_staff', 'is_superuser', 'department', 'is_active')
+    list_display = ('username', 'email', 'role', 'roles_list_display', 'department', 'designation', 'is_staff', 'is_active')
+    list_filter = ('role', 'roles', 'is_staff', 'is_superuser', 'department', 'is_active')
+    filter_horizontal = ('roles', 'groups', 'user_permissions')
     fieldsets = UserAdmin.fieldsets + (
-        ('Role and Department', {'fields': ('role', 'department', 'designation')}),
+        ('Role and Department', {'fields': ('role', 'roles', 'department', 'designation')}),
     )
     add_fieldsets = UserAdmin.add_fieldsets + (
-        ('Role and Department', {'fields': ('role', 'department', 'designation')}),
+        ('Role and Department', {'fields': ('role', 'roles', 'department', 'designation')}),
     )
+
+    def roles_list_display(self, obj):
+        return ', '.join(sorted(obj.get_roles()))
+    roles_list_display.short_description = 'Roles'
     list_editable = ('is_active',)
 
 @admin.register(Department)

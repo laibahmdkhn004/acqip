@@ -1,7 +1,20 @@
 from django.db import models
 from django.contrib.auth.models import AbstractUser
-from django.db.models import JSONField
+from django.db.models import JSONField, Q
 import json  # Add this import
+
+
+class Role(models.Model):
+    """Assignable system role (users can hold multiple)."""
+    code = models.CharField(max_length=30, unique=True)
+    name = models.CharField(max_length=50)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
 
 class User(AbstractUser):
     ROLE_ADMIN = "admin"
@@ -14,16 +27,76 @@ class User(AbstractUser):
         (ROLE_CRC_MEMBER, "CRC Member"),
         (ROLE_LAB_INSTRUCTOR, "Lab Instructor"),
     ]
+    # Primary / default role (also used as fallback active dashboard role)
     role = models.CharField(max_length=30, choices=ROLE_CHOICES, default=ROLE_FACULTY)
+    roles = models.ManyToManyField(Role, blank=True, related_name='users')
     department = models.CharField(max_length=200, blank=True, null=True)
     designation = models.CharField(max_length=200, blank=True, null=True)
 
     def __str__(self):
         return f"{self.username} ({self.get_role_display()})"
 
+    def get_roles(self):
+        """All role codes assigned to this user (includes primary role)."""
+        role_codes = set()
+        if self.pk:
+            role_codes.update(self.roles.values_list('code', flat=True))
+        if self.role:
+            role_codes.add(self.role)
+        return role_codes
+
+    def has_role(self, *role_codes):
+        """True if the user has any of the given role codes."""
+        if not role_codes:
+            return False
+        return bool(self.get_roles().intersection(role_codes))
+
+    def set_roles(self, role_codes, primary_role=None):
+        """
+        Replace assigned roles. Ensures Role rows exist.
+        primary_role becomes User.role; defaults to first code or faculty.
+        """
+        normalized = []
+        for code in role_codes or []:
+            code = (code or '').strip()
+            if code and code in dict(self.ROLE_CHOICES) and code not in normalized:
+                normalized.append(code)
+
+        if not normalized:
+            normalized = [primary_role or self.ROLE_FACULTY]
+            if normalized[0] not in dict(self.ROLE_CHOICES):
+                normalized = [self.ROLE_FACULTY]
+
+        if primary_role and primary_role in normalized:
+            self.role = primary_role
+        elif self.role not in normalized:
+            self.role = normalized[0]
+        self.save(update_fields=['role'])
+
+        role_labels = dict(self.ROLE_CHOICES)
+        role_objects = []
+        for code in normalized:
+            role_obj, _ = Role.objects.get_or_create(
+                code=code,
+                defaults={'name': role_labels.get(code, code)},
+            )
+            role_objects.append(role_obj)
+        self.roles.set(role_objects)
+        return normalized
+
     def is_course_assignee(self):
         """Faculty or Lab Instructor can be assigned to courses."""
-        return self.role in (self.ROLE_FACULTY, self.ROLE_LAB_INSTRUCTOR)
+        return self.has_role(self.ROLE_FACULTY, self.ROLE_LAB_INSTRUCTOR)
+
+    def roles_payload(self):
+        """Serialize roles for APIs."""
+        codes = sorted(self.get_roles())
+        labels = dict(self.ROLE_CHOICES)
+        return {
+            'role': self.role,
+            'roles': codes,
+            'roles_display': [labels.get(code, code) for code in codes],
+        }
 
 
 class Department(models.Model):

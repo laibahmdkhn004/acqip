@@ -1,0 +1,43 @@
+{% if has_multiple_roles %}
+<div class="px-4 py-2 border-b border-gray-100">
+  <div class="text-xs font-semibold text-gray-500 uppercase mb-2">Switch Role</div>
+  <div class="space-y-1">
+    {% for role_item in user_roles_display %}
+    <button
+      type="button"
+      onclick="switchActiveRole('{{ role_item.code }}')"
+      class="w-full text-left px-2 py-1.5 text-sm rounded {% if role_item.code == active_role %}bg-purple-50 text-purple-700 font-medium{% else %}text-gray-700 hover:bg-gray-100{% endif %}"
+    >
+      {{ role_item.label }}{% if role_item.code == active_role %} ✓{% endif %}
+    </button>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+<script>
+  async function switchActiveRole(roleCode) {
+    try {
+      const response = await fetch("{% url 'switch_active_role' %}", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken":
+            document.cookie
+              .split("; ")
+              .find((row) => row.startsWith("csrftoken="))
+              ?.split("=")[1] || "",
+        },
+        body: JSON.stringify({ role: roleCode }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        alert(data.error || "Unable to switch role");
+        return;
+      }
+      window.location.href = data.redirect_url || "/dashboard/";
+    } catch (error) {
+      console.error(error);
+      alert("Unable to switch role");
+    }
+  }
+</script>

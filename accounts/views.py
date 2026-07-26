@@ -3,6 +3,7 @@ from django.contrib import messages
 from django.contrib.auth import logout
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_http_methods
+from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
 from django.urls import reverse, reverse_lazy
 from django import forms
@@ -17,6 +18,35 @@ from django.contrib.auth.views import (
 from .models import Course, DynamicForm, FormQuestion, DynamicFormSubmission, CourseFaculty, FormAnswer, CourseOutline, User, Department
 from django.db.models import Q, Count
 import json
+from .api_views import get_active_role, set_active_role, ACTIVE_ROLE_SESSION_KEY
+
+
+ROLE_DISPLAY_MAP = {
+    'Faculty': User.ROLE_FACULTY,
+    'Lab Instructor': User.ROLE_LAB_INSTRUCTOR,
+    'CRC': User.ROLE_CRC_MEMBER,
+    'Admin': User.ROLE_ADMIN,
+}
+
+ROLE_LABELS = dict(User.ROLE_CHOICES)
+
+
+def role_switcher_context(request):
+    """Context for multi-role switcher UI."""
+    if not request.user.is_authenticated:
+        return {}
+    roles = sorted(request.user.get_roles())
+    active_role = get_active_role(request)
+    return {
+        'user_roles': roles,
+        'user_roles_display': [
+            {'code': code, 'label': ROLE_LABELS.get(code, code)}
+            for code in roles
+        ],
+        'active_role': active_role,
+        'active_role_label': ROLE_LABELS.get(active_role, active_role),
+        'has_multiple_roles': len(roles) > 1,
+    }
 
 def landing_page(request):
     """Landing page for role selection"""
@@ -49,31 +79,29 @@ class CustomLoginView(LoginView):
         return context
 
     def form_valid(self, form):
-        """Check that the user's role matches the role from the URL parameter."""
-        # First authenticate the user normally
+        """Check that the user has the role from the URL/login card."""
         response = super().form_valid(form)
 
-        # Get the role from POST (submitted form) or fallback to GET
         requested_role = self.request.POST.get('role') or self.request.GET.get('role')
         if requested_role:
-            # Map display role to internal role code
-            role_map = {
-                'Faculty': User.ROLE_FACULTY,
-                'Lab Instructor': User.ROLE_LAB_INSTRUCTOR,
-                'CRC': User.ROLE_CRC_MEMBER,
-                'Admin': User.ROLE_ADMIN,
-            }
-            internal_role = role_map.get(requested_role)
+            internal_role = ROLE_DISPLAY_MAP.get(requested_role)
 
-            # Check if the user's role matches
-            if internal_role and self.request.user.role != internal_role:
-                # Log the user out (they were authenticated but wrong role)
+            if internal_role and not self.request.user.has_role(internal_role):
                 from django.contrib.auth import logout
                 logout(self.request)
-
-                # Add error message and re-render form
-                form.add_error(None, f"This login page is for {requested_role} only. You are registered as a different role.")
+                form.add_error(
+                    None,
+                    f"This login page is for {requested_role} only. "
+                    f"You are not assigned that role.",
+                )
                 return self.form_invalid(form)
+
+            if internal_role:
+                set_active_role(self.request, internal_role)
+
+        elif self.request.user.is_authenticated:
+            # No login card role: use primary role
+            set_active_role(self.request, self.request.user.role)
 
         return response
 
@@ -126,13 +154,15 @@ class CustomPasswordResetCompleteView(PasswordResetCompleteView):
 
 @require_http_methods(["GET"])
 def logout_view(request):
+    if ACTIVE_ROLE_SESSION_KEY in request.session:
+        del request.session[ACTIVE_ROLE_SESSION_KEY]
     logout(request)
     return redirect("login")
 
 
 @login_required
 def dynamic_form(request):
-    if request.user.role not in [User.ROLE_FACULTY, User.ROLE_LAB_INSTRUCTOR]:
+    if not request.user.has_role(User.ROLE_FACULTY, User.ROLE_LAB_INSTRUCTOR):
         messages.error(request, "Only faculty members and lab instructors can submit forms.")
         return redirect('dashboard')
     
@@ -182,7 +212,8 @@ def dynamic_form(request):
         })
     
     # Check form type from URL
-    default_form_type = 'lrr' if request.user.role == User.ROLE_LAB_INSTRUCTOR else 'crr'
+    active_role = get_active_role(request) or request.user.role
+    default_form_type = 'lrr' if active_role == User.ROLE_LAB_INSTRUCTOR else 'crr'
     form_type = request.GET.get('form_type', default_form_type)
     course_id = request.GET.get('course_id')
     
@@ -199,8 +230,11 @@ def dynamic_form(request):
             form_type = selected_form.form_type
         except DynamicForm.DoesNotExist:
             pass
+
+    can_faculty = request.user.has_role(User.ROLE_FACULTY)
+    can_lrr = request.user.has_role(User.ROLE_LAB_INSTRUCTOR)
     
-    return render(request, 'accounts/dynamic_form.html', {
+    context = {
         'assigned_courses': courses_data,
         'selected_course': selected_course,
         'selected_form': selected_form,
@@ -209,30 +243,46 @@ def dynamic_form(request):
         'ccr_forms': list(ccr_forms.values('id', 'name', 'description')),
         'crr_forms': list(crr_forms.values('id', 'name', 'description')),
         'lrr_forms': list(lrr_forms.values('id', 'name', 'description')),
-        'ccr_active': ccr_forms.exists() and request.user.role == User.ROLE_FACULTY,
-        'crr_active': crr_forms.exists() and request.user.role == User.ROLE_FACULTY,
-        'lrr_active': lrr_forms.exists() and request.user.role == User.ROLE_LAB_INSTRUCTOR,
+        'ccr_active': ccr_forms.exists() and can_faculty,
+        'crr_active': crr_forms.exists() and can_faculty,
+        'lrr_active': lrr_forms.exists() and can_lrr,
         'is_coordinator_for_any': is_coordinator_for_any,
-        'is_lab_instructor': request.user.role == User.ROLE_LAB_INSTRUCTOR,
-        'user_role': request.user.role,
+        'is_lab_instructor': (
+            active_role == User.ROLE_LAB_INSTRUCTOR and not can_faculty
+        ) or (active_role == User.ROLE_LAB_INSTRUCTOR),
+        'user_role': active_role,
         'user_department': request.user.department
-    })
+    }
+    context.update(role_switcher_context(request))
+    # Show LRR button whenever user has lab instructor role
+    if can_lrr and can_faculty:
+        context['is_lab_instructor'] = False
+    return render(request, 'accounts/dynamic_form.html', context)
 
 
 @login_required
 def dashboard(request):
-    role = getattr(request.user, "role", None)
+    role = get_active_role(request)
+    if not role:
+        messages.error(request, "Access denied.")
+        return redirect('landing')
+
+    # Ensure session has an active role
+    set_active_role(request, role)
     
-    if role == "admin":
+    if role == User.ROLE_ADMIN:
         context = {
-            'total_faculty': User.objects.filter(role=User.ROLE_FACULTY).count(),
+            'total_faculty': User.objects.filter(
+                Q(role=User.ROLE_FACULTY) | Q(roles__code=User.ROLE_FACULTY)
+            ).distinct().count(),
             'total_courses': Course.objects.count(),
             'total_departments': Department.objects.count(),
             'total_submissions': DynamicFormSubmission.objects.filter(status='submitted').count(),
         }
+        context.update(role_switcher_context(request))
         return render(request, "accounts/dashboard_admin.html", context)
         
-    elif role == "crc_member":
+    elif role == User.ROLE_CRC_MEMBER:
         return crc_dashboard(request)
 
     elif role in (User.ROLE_FACULTY, User.ROLE_LAB_INSTRUCTOR):
@@ -244,13 +294,42 @@ def dashboard(request):
 
 
 @login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def switch_active_role(request):
+    """Switch the active dashboard role for multi-role users."""
+    role_code = request.POST.get('role') or ''
+    try:
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+        role_code = payload.get('role') or role_code
+    except (TypeError, ValueError, json.JSONDecodeError):
+        pass
+
+    if not set_active_role(request, role_code):
+        return JsonResponse({'error': 'You do not have that role'}, status=403)
+
+    return JsonResponse({
+        'success': True,
+        'active_role': role_code,
+        'redirect_url': reverse('dashboard'),
+    })
+
+
+@login_required
 def ccr_submissions(request):
-    if request.user.role not in [User.ROLE_FACULTY, User.ROLE_LAB_INSTRUCTOR, User.ROLE_ADMIN, User.ROLE_CRC_MEMBER]:
+    if not request.user.has_role(
+        User.ROLE_FACULTY,
+        User.ROLE_LAB_INSTRUCTOR,
+        User.ROLE_ADMIN,
+        User.ROLE_CRC_MEMBER,
+    ):
         messages.error(request, "Access denied.")
         return redirect('dashboard')
     
     # For faculty/lab instructors, only show their own submissions
-    if request.user.role in (User.ROLE_FACULTY, User.ROLE_LAB_INSTRUCTOR):
+    if request.user.has_role(User.ROLE_FACULTY, User.ROLE_LAB_INSTRUCTOR) and not request.user.has_role(
+        User.ROLE_ADMIN, User.ROLE_CRC_MEMBER
+    ):
         submissions = DynamicFormSubmission.objects.filter(
             faculty=request.user,
             dynamic_form__form_type__in=['ccr', 'crr', 'lrr']  # Only universal forms
@@ -302,12 +381,14 @@ def ccr_submissions(request):
 @login_required
 def crc_dashboard(request):
     """CRC Member Dashboard"""
-    if request.user.role not in [User.ROLE_CRC_MEMBER, User.ROLE_ADMIN]:
+    if not request.user.has_role(User.ROLE_CRC_MEMBER, User.ROLE_ADMIN):
         messages.error(request, "Access denied.")
         return redirect('dashboard')
     
     # Get statistics for CRC dashboard
-    total_faculty = User.objects.filter(role=User.ROLE_FACULTY).count()
+    total_faculty = User.objects.filter(
+        Q(role=User.ROLE_FACULTY) | Q(roles__code=User.ROLE_FACULTY)
+    ).distinct().count()
     total_courses = Course.objects.count()
     
     # Count pending outlines (submitted but not approved)
@@ -395,36 +476,44 @@ def crc_dashboard(request):
         'active_forms': active_forms,
         'recent_submissions': formatted_submissions,
         'pending_course_outlines': formatted_outlines,
-        'user_role': request.user.role,
+        'user_role': get_active_role(request) or request.user.role,
         'faculty_list': list(faculty_list),
         'course_list': list(course_list),
     }
+    context.update(role_switcher_context(request))
     
     return render(request, 'accounts/dashboard_crc.html', context)
 
 @login_required
 def faculty_dashboard(request):
-    if request.user.role not in (User.ROLE_FACULTY, User.ROLE_LAB_INSTRUCTOR):
+    if not request.user.has_role(User.ROLE_FACULTY, User.ROLE_LAB_INSTRUCTOR):
         messages.error(request, "Access denied.")
         return redirect('dashboard')
     
-    is_lab_instructor = request.user.role == User.ROLE_LAB_INSTRUCTOR
+    active_role = get_active_role(request) or request.user.role
+    can_faculty_forms = request.user.has_role(User.ROLE_FACULTY)
+    can_lrr = request.user.has_role(User.ROLE_LAB_INSTRUCTOR)
 
-    # Check UNIVERSAL form availability (CCR/CRR/LRR)
-    ccr_active = DynamicForm.objects.filter(
-        status=DynamicForm.STATUS_ACTIVE,
-        form_type='ccr'
-    ).exists() and not is_lab_instructor
-    
-    crr_active = DynamicForm.objects.filter(
-        status=DynamicForm.STATUS_ACTIVE,
-        form_type='crr'
-    ).exists() and not is_lab_instructor
-
-    lrr_active = DynamicForm.objects.filter(
-        status=DynamicForm.STATUS_ACTIVE,
-        form_type='lrr'
-    ).exists() and is_lab_instructor
+    # Active role drives which form set is emphasized in the UI
+    if active_role == User.ROLE_LAB_INSTRUCTOR:
+        is_lab_instructor = True
+        ccr_active = False
+        crr_active = False
+        lrr_active = can_lrr and DynamicForm.objects.filter(
+            status=DynamicForm.STATUS_ACTIVE, form_type='lrr'
+        ).exists()
+    else:
+        is_lab_instructor = False
+        ccr_active = can_faculty_forms and DynamicForm.objects.filter(
+            status=DynamicForm.STATUS_ACTIVE, form_type='ccr'
+        ).exists()
+        crr_active = can_faculty_forms and DynamicForm.objects.filter(
+            status=DynamicForm.STATUS_ACTIVE, form_type='crr'
+        ).exists()
+        # Dual-role users also see LRR when on faculty dashboard
+        lrr_active = can_lrr and DynamicForm.objects.filter(
+            status=DynamicForm.STATUS_ACTIVE, form_type='lrr'
+        ).exists()
     
     # Check if user is coordinator for ANY course (for CCR access)
     is_coordinator_for_any = CourseFaculty.objects.filter(
@@ -486,20 +575,21 @@ def faculty_dashboard(request):
         'lrr_active': lrr_active,
         'is_coordinator_for_any': is_coordinator_for_any,
         'is_lab_instructor': is_lab_instructor,
-        'user_role': request.user.role,
+        'user_role': active_role,
         'user_department': request.user.department,
         'user_designation': request.user.designation,
     }
+    context.update(role_switcher_context(request))
     
     return render(request, 'accounts/dashboard_faculty.html', context)
 
 @login_required
 def course_outline_view(request):
-    if request.user.role not in [User.ROLE_FACULTY, User.ROLE_ADMIN, User.ROLE_CRC_MEMBER]:
+    if not request.user.has_role(User.ROLE_FACULTY, User.ROLE_ADMIN, User.ROLE_CRC_MEMBER):
         messages.error(request, "Access denied.")
         return redirect('dashboard')
     
-    if request.user.role == User.ROLE_FACULTY:
+    if request.user.has_role(User.ROLE_FACULTY) and not request.user.has_role(User.ROLE_ADMIN, User.ROLE_CRC_MEMBER):
         # Get courses where user is coordinator
         coordinator_courses = CourseFaculty.objects.filter(
             faculty=request.user,
@@ -521,7 +611,7 @@ def course_outline_view(request):
 @login_required
 def course_outline_editor(request):
     """Standalone course outline editor (faculty coordinators only). CRC uses the in-dashboard editor."""
-    if request.user.role != User.ROLE_FACULTY:
+    if not request.user.has_role(User.ROLE_FACULTY):
         messages.error(request, "Access denied.")
         return redirect("dashboard")
 

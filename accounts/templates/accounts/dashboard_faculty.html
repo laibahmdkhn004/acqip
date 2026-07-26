@@ -189,7 +189,7 @@
                   {{ user.username|default:'Administrator' }}
                 </div>
                 <div class="text-xs text-white/70">
-                  {{ user.get_role_display }}
+                  {{ active_role_label|default:user.get_role_display }}
                 </div>
               </div>
               <svg
@@ -209,8 +209,9 @@
             <!-- Dropdown Menu -->
             <div
               id="avatar-dropdown"
-              class="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 hidden z-50"
+              class="absolute right-0 mt-2 w-56 bg-white rounded-md shadow-lg py-1 hidden z-50"
             >
+              {% include "accounts/partials/role_switcher.html" %}
               <a
                 href="{% url 'dashboard' %}"
                 class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
