@@ -1056,7 +1056,19 @@
           }
 
           if (questionType === "radio") {
-            const value = answerText || (typeof answerData === "string" ? answerData : "");
+            let value = answerText || "";
+            let reason = "";
+            if (answerData && typeof answerData === "object" && !Array.isArray(answerData)) {
+              if (answerData.value !== undefined && answerData.value !== null) {
+                value = String(answerData.value);
+              }
+              if (answerData.reason) {
+                reason = String(answerData.reason);
+              }
+            }
+            if (!value && typeof answerData === "string") {
+              value = answerData;
+            }
             if (!value) return;
             const radios = document.querySelectorAll(
               `input[type="radio"][name="question_${questionId}"]`,
@@ -1064,6 +1076,13 @@
             radios.forEach((radio) => {
               radio.checked = radio.value === value;
             });
+            toggleRadioReasonField(questionId, value);
+            const reasonInput = document.getElementById(
+              `radio-reason-input-${questionId}`,
+            );
+            if (reasonInput && reason) {
+              reasonInput.value = reason;
+            }
             return;
           }
 
@@ -1143,6 +1162,41 @@
         // Single DOM update
         container.innerHTML = "";
         container.appendChild(fragment);
+        bindRadioReasonHandlers(container);
+      }
+
+      function isNoRadioValue(value) {
+        return String(value || "")
+          .trim()
+          .toLowerCase() === "no";
+      }
+
+      function toggleRadioReasonField(questionId, selectedValue) {
+        const reasonWrap = document.getElementById(`radio-reason-${questionId}`);
+        const reasonInput = document.getElementById(
+          `radio-reason-input-${questionId}`,
+        );
+        if (!reasonWrap || !reasonInput) return;
+
+        if (isNoRadioValue(selectedValue)) {
+          reasonWrap.classList.remove("hidden");
+          reasonInput.required = true;
+        } else {
+          reasonWrap.classList.add("hidden");
+          reasonInput.required = false;
+          reasonInput.value = "";
+          reasonInput.classList.remove("border-red-500");
+        }
+      }
+
+      function bindRadioReasonHandlers(container) {
+        const root = container || document;
+        root.querySelectorAll(".radio-answer-input").forEach((radio) => {
+          radio.addEventListener("change", () => {
+            if (!radio.checked) return;
+            toggleRadioReasonField(radio.dataset.questionId, radio.value);
+          });
+        });
       }
 
       // Pre-compiled HTML templates for different question types
@@ -1181,12 +1235,24 @@
               const trimmedOption = option.trim();
               html += `
                 <div class="flex items-center">
-                  <input type="radio" id="${baseName}_${i}" name="${baseName}" value="${trimmedOption}" ${required} class="mr-2">
+                  <input type="radio" id="${baseName}_${i}" name="${baseName}" value="${trimmedOption}" ${required} class="mr-2 radio-answer-input" data-question-id="${question.id}">
                   <label for="${baseName}_${i}" class="text-gray-700">${trimmedOption}</label>
                 </div>
               `;
             });
             html += "</div>";
+            html += `
+              <div id="radio-reason-${question.id}" class="hidden mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <label class="block text-sm font-medium text-amber-900 mb-1" for="radio-reason-input-${question.id}">
+                  Please provide a reason <span class="text-red-500">*</span>
+                </label>
+                <textarea id="radio-reason-input-${question.id}"
+                          name="${baseName}_reason"
+                          rows="3"
+                          class="w-full border border-amber-300 rounded-lg p-2 text-sm"
+                          placeholder="Explain why you selected No..."></textarea>
+              </div>
+            `;
             break;
 
           case "checkbox":
@@ -1446,7 +1512,35 @@
               );
               hasErrors = true;
             } else if (selected) {
-              answers[questionId] = selected.value;
+              if (isNoRadioValue(selected.value)) {
+                const reasonInput = document.getElementById(
+                  `radio-reason-input-${questionId}`,
+                );
+                const reason = (reasonInput?.value || "").trim();
+                if (!reason) {
+                  questionDiv.classList.add(
+                    "border",
+                    "border-red-500",
+                    "p-2",
+                    "rounded",
+                  );
+                  if (reasonInput) {
+                    reasonInput.classList.add("border-red-500");
+                    toggleRadioReasonField(questionId, selected.value);
+                  }
+                  hasErrors = true;
+                } else {
+                  if (reasonInput) {
+                    reasonInput.classList.remove("border-red-500");
+                  }
+                  answers[questionId] = {
+                    value: selected.value,
+                    reason: reason,
+                  };
+                }
+              } else {
+                answers[questionId] = selected.value;
+              }
             }
           } else {
             // Handle text, textarea, select
@@ -1471,7 +1565,9 @@
         }
 
         if (hasErrors) {
-          alert("Please fill in all required fields correctly.");
+          alert(
+            "Please fill in all required fields correctly. If you selected No, a reason is required.",
+          );
           return;
         }
 

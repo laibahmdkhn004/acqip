@@ -348,6 +348,9 @@ class FormAnswer(models.Model):
         """Get answer in displayable format"""
         if self.answer_data:
             if isinstance(self.answer_data, dict):
+                reason = str(self.answer_data.get('reason') or '').strip()
+                if self.answer_text and reason:
+                    return f"{self.answer_text} (Reason: {reason})"
                 # For CLO percentage
                 if 'clo1' in self.answer_data or 'clo2' in self.answer_data:
                     clo_text = []
@@ -357,6 +360,11 @@ class FormAnswer(models.Model):
                             value = self.answer_data[clo_key]
                             clo_text.append(f"CLO{i}: {value}%")
                     return ', '.join(clo_text)
+                if 'value' in self.answer_data:
+                    value = self.answer_data.get('value')
+                    if reason:
+                        return f"{value} (Reason: {reason})"
+                    return str(value)
                 return str(self.answer_data)
             elif isinstance(self.answer_data, list):
                 return ', '.join(map(str, self.answer_data))
