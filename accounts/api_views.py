@@ -5470,49 +5470,76 @@ def _classify_hec_accordance(answer_text):
     """Map CCR Q1 free text to Matched / Not Matched / Not Available."""
     text = (answer_text or "").strip()
     lowered = text.lower()
-    if not text or lowered in {"n/a", "na", "none", "-", "nil"}:
+    if not text or lowered in {"n/a", "na", "none", "-", "nil", "not available"}:
         return "not_available"
-    if re.match(r"^(no|n)\b", lowered) or any(
-        phrase in lowered[:160]
+    # Explicit negatives / gaps vs HEC outline
+    if any(
+        phrase in lowered
         for phrase in (
+            "not matched",
+            "does not match",
+            "do not match",
             "not covered",
             "not included",
             "does not include",
+            "do not include",
             "missing",
             "not match",
+            "not in accordance",
         )
+    ) or re.match(r"^(no|n)\b", lowered):
+        return "not_matched"
+    if "partial" in lowered and not re.match(r"^(yes|y)\b", lowered):
+        return "not_matched"
+    if (
+        re.match(r"^(yes|y)\b", lowered)
+        or "covers" in lowered[:160]
+        or "matched" in lowered[:160]
+        or "in accordance" in lowered
+        or "include all" in lowered
+        or "all topics" in lowered
     ):
-        return "not_matched"
-    if re.match(r"^(yes|y)\b", lowered) or "covers" in lowered[:120] or "matched" in lowered[:120]:
         return "matched"
-    if "partial" in lowered:
-        return "not_matched"
     return "matched" if len(text) > 20 else "not_available"
 
 
 def _recommendation_update_from_content_tools(answer_text):
-    """CCR Q2: Yes = recommendation to update content/tools."""
+    """CCR Q2: Yes = recommendation to update content/tools & tech."""
     text = (answer_text or "").strip()
     lowered = text.lower()
-    if not text or lowered in {"n/a", "na", "none", "-", "nil", "no"}:
+    if not text or lowered in {"n/a", "na", "none", "-", "nil", "no", "n"}:
         return "No"
+    # Bare yes / affirmative without listing topics still means update needed
+    if re.match(r"^(yes|y)\b", lowered):
+        return "Yes"
     if re.match(r"^(no|none|n/?a)\b", lowered) and not any(
         word in lowered for word in ("add", "remove", "update", "replace", "include")
     ):
         return "No"
     if any(
         word in lowered
-        for word in ("add", "remove", "update", "replace", "reduce", "include", "should", "need")
+        for word in (
+            "add",
+            "remove",
+            "update",
+            "replace",
+            "reduce",
+            "include",
+            "should",
+            "need",
+            "recommend",
+        )
     ):
         return "Yes"
-    return "Yes" if len(text) > 35 else "No"
+    # Any substantive free-text answer is treated as a recommendation
+    return "Yes" if len(text) > 12 else "No"
 
 
 def _recommendation_update_from_week_or_books(answer_text):
-    """CCR Q3/Q4: leading Yes usually means current state is OK (no update)."""
+    """CCR Q3/Q4: Yes (appropriate/relevant) => No update; No/Partial => Yes update."""
     text = (answer_text or "").strip()
     lowered = text.lower()
-    if not text or lowered in {"n/a", "na", "none", "-", "nil"}:
+    if not text or lowered in {"n/a", "na", "none", "-", "nil", "not available"}:
         return "N/A"
     if re.match(r"^(no|n)\b", lowered) or lowered.startswith("partial"):
         return "Yes"
@@ -5526,12 +5553,17 @@ def _recommendation_update_from_week_or_books(answer_text):
             "need to",
             "needs to",
             "better balance is required",
+            "corrections",
+            "should be updated",
+            "needs update",
         )
     ):
         return "Yes"
     if re.match(r"^(yes|y)\b", lowered):
         return "No"
-    return "Yes" if "update" in lowered or "change" in lowered else "No"
+    return "Yes" if any(
+        word in lowered for word in ("update", "change", "replace", "revise", "correct")
+    ) else "No"
 
 
 def _crr_indicates_clo_not_attained(answer_text):
@@ -5573,6 +5605,41 @@ def _get_submission_answers_by_order(submission):
     return by_order
 
 
+def _find_ccr_question_answer_text(submission, answers_by_order, preferred_orders, *keywords):
+    """
+    Resolve CCR Q1–Q4 answer text.
+
+    Prefer known question.order values, then fall back to matching question text
+    keywords so tables still fill if form order changes.
+    """
+    for order in preferred_orders:
+        text = _answer_text_value(answers_by_order.get(order))
+        if text:
+            return text
+
+    keyword_list = [str(keyword).lower() for keyword in keywords if keyword]
+    if keyword_list:
+        for answer in submission.answers.all():
+            question_text = (answer.question.question_text or "").lower()
+            if all(keyword in question_text for keyword in keyword_list):
+                text = _answer_text_value(answer)
+                if text:
+                    return text
+
+    for order in preferred_orders:
+        if order in answers_by_order:
+            return _answer_text_value(answers_by_order.get(order))
+    return ""
+
+
+def _ccr_submission_has_evidence_answers(submission):
+    """True when a CCR submission has usable Q1–Q4 text (skips empty file uploads)."""
+    answers_by_order = _get_submission_answers_by_order(submission)
+    return any(
+        bool(_answer_text_value(answers_by_order.get(order))) for order in (0, 1, 2, 3)
+    )
+
+
 def _course_clo_not_attained_flags(ccr_submission):
     """
     From CCR clo_percentage answers (Q6-Q9), mark CLOs with average score < 70
@@ -5612,29 +5679,51 @@ def build_cqi_evidence_tables(filtered_submissions_queryset):
         .order_by("course__code", "-submission_date")
     )
 
-    # Latest CCR per course for Tables 01/02 and CLO flags
+    # Prefer latest CCR that actually has Q1–Q4 answers (skip empty file uploads).
     latest_ccr_by_course = {}
+    latest_ccr_with_answers_by_course = {}
     for submission in submissions:
         if submission.dynamic_form.form_type != "ccr":
             continue
         course_id_value = submission.course_id
         if course_id_value not in latest_ccr_by_course:
             latest_ccr_by_course[course_id_value] = submission
+        if (
+            course_id_value not in latest_ccr_with_answers_by_course
+            and _ccr_submission_has_evidence_answers(submission)
+        ):
+            latest_ccr_with_answers_by_course[course_id_value] = submission
 
     table_01_rows = []
     table_02_rows = []
-    for index, (course_id_value, submission) in enumerate(
+    for index, (course_id_value, _) in enumerate(
         sorted(
             latest_ccr_by_course.items(),
             key=lambda item: (item[1].course.code or "").lower(),
         ),
         start=1,
     ):
+        submission = (
+            latest_ccr_with_answers_by_course.get(course_id_value)
+            or latest_ccr_by_course[course_id_value]
+        )
         answers_by_order = _get_submission_answers_by_order(submission)
-        q1_text = _answer_text_value(answers_by_order.get(0))
-        q2_text = _answer_text_value(answers_by_order.get(1))
-        q3_text = _answer_text_value(answers_by_order.get(2))
-        q4_text = _answer_text_value(answers_by_order.get(3))
+        q1_text = _find_ccr_question_answer_text(
+            submission, answers_by_order, (0,), "hec"
+        )
+        q2_text = _find_ccr_question_answer_text(
+            submission, answers_by_order, (1,), "tools", "technologies"
+        )
+        if not q2_text:
+            q2_text = _find_ccr_question_answer_text(
+                submission, answers_by_order, (1,), "added or removed"
+            )
+        q3_text = _find_ccr_question_answer_text(
+            submission, answers_by_order, (2,), "week-wise"
+        )
+        q4_text = _find_ccr_question_answer_text(
+            submission, answers_by_order, (3,), "textbook"
+        )
 
         coordinator_name = (submission.course_coordinator or "").strip()
         if not coordinator_name:
@@ -5685,10 +5774,16 @@ def build_cqi_evidence_tables(filtered_submissions_queryset):
             }
         )
 
-    # Precompute CLO not-attained flags per course from CCR
+    # Precompute CLO not-attained flags per course from CCR (prefer answered form)
     clo_flags_by_course = {}
-    for course_id_value, submission in latest_ccr_by_course.items():
-        clo_flags_by_course[course_id_value] = _course_clo_not_attained_flags(submission)
+    for course_id_value in latest_ccr_by_course:
+        evidence_submission = (
+            latest_ccr_with_answers_by_course.get(course_id_value)
+            or latest_ccr_by_course[course_id_value]
+        )
+        clo_flags_by_course[course_id_value] = _course_clo_not_attained_flags(
+            evidence_submission
+        )
 
     table_03_rows = []
     table_03_index = 0

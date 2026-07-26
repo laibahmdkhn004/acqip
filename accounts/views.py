@@ -85,8 +85,16 @@ class CustomLoginView(LoginView):
         requested_role = self.request.POST.get('role') or self.request.GET.get('role')
         if requested_role:
             internal_role = ROLE_DISPLAY_MAP.get(requested_role)
+            user = self.request.user
 
-            if internal_role and not self.request.user.has_role(internal_role):
+            # Faculty login also accepts Lab Instructors (same portal).
+            allowed = False
+            if internal_role == User.ROLE_FACULTY:
+                allowed = user.has_role(User.ROLE_FACULTY, User.ROLE_LAB_INSTRUCTOR)
+            elif internal_role:
+                allowed = user.has_role(internal_role)
+
+            if internal_role and not allowed:
                 from django.contrib.auth import logout
                 logout(self.request)
                 form.add_error(
@@ -96,7 +104,13 @@ class CustomLoginView(LoginView):
                 )
                 return self.form_invalid(form)
 
-            if internal_role:
+            if internal_role == User.ROLE_FACULTY:
+                # Prefer Faculty dashboard when they have it; otherwise Lab Instructor.
+                if user.has_role(User.ROLE_FACULTY):
+                    set_active_role(self.request, User.ROLE_FACULTY)
+                else:
+                    set_active_role(self.request, User.ROLE_LAB_INSTRUCTOR)
+            elif internal_role:
                 set_active_role(self.request, internal_role)
 
         elif self.request.user.is_authenticated:

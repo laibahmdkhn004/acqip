@@ -73,7 +73,7 @@
             </p>
           </a>
 
-          <!-- Lab Instructor -->
+          {% comment %}Lab Instructor login card hidden from home page.
           <a
             href="{% url 'login' %}?role=Lab Instructor"
             class="bg-white/95 backdrop-blur-sm rounded-2xl shadow-md hover:shadow-xl transition p-8 text-center"
@@ -91,6 +91,7 @@
               Access assigned labs and submit LRR forms
             </p>
           </a>
+          {% endcomment %}
 
           <!-- CRC Team -->
           <a
