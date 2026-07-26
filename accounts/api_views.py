@@ -1380,41 +1380,53 @@ def api_submit_dynamic_form(request):
         
         course = Course.objects.get(id=course_id)
 
+        # CCR is course-level (coordinator status), not section-based.
         assigned_section = None
-        assigned_sections = list(course_assignment.sections.all())
-        if assigned_sections:
-            if not section_id:
-                return JsonResponse({
-                    'error': 'section_id is required. Submit this form for one assigned section.',
-                }, status=400)
-            try:
-                section_id = int(section_id)
-            except (TypeError, ValueError):
-                return JsonResponse({'error': 'Invalid section_id'}, status=400)
-            assigned_section = next(
-                (section for section in assigned_sections if section.id == section_id),
-                None,
-            )
-            if not assigned_section:
-                return JsonResponse({
-                    'error': 'Selected section is not assigned to you for this course.',
-                }, status=400)
-        elif section_id:
-            section_id = None
+        if form.form_type != 'ccr':
+            assigned_sections = list(course_assignment.sections.all())
+            if assigned_sections:
+                if not section_id:
+                    return JsonResponse({
+                        'error': 'section_id is required. Submit this form for one assigned section.',
+                    }, status=400)
+                try:
+                    section_id = int(section_id)
+                except (TypeError, ValueError):
+                    return JsonResponse({'error': 'Invalid section_id'}, status=400)
+                assigned_section = next(
+                    (section for section in assigned_sections if section.id == section_id),
+                    None,
+                )
+                if not assigned_section:
+                    return JsonResponse({
+                        'error': 'Selected section is not assigned to you for this course.',
+                    }, status=400)
+            elif section_id:
+                section_id = None
         
         existing_submission = editing_submission
         if not existing_submission:
-            existing_submission = DynamicFormSubmission.objects.filter(
+            existing_lookup = DynamicFormSubmission.objects.filter(
                 faculty=request.user,
                 course_id=course_id,
                 dynamic_form=form,
-                assigned_section=assigned_section,
-            ).first()
+            )
+            if form.form_type == 'ccr':
+                # One CCR per coordinated course (ignore section)
+                existing_submission = existing_lookup.order_by('-id').first()
+            else:
+                existing_submission = existing_lookup.filter(
+                    assigned_section=assigned_section,
+                ).first()
         
         if existing_submission and existing_submission.status == 'submitted' and status == 'submitted':
-            section_label = assigned_section.code if assigned_section else 'this course'
+            if form.form_type == 'ccr':
+                error_message = 'You have already submitted this CCR form for this course.'
+            else:
+                section_label = assigned_section.code if assigned_section else 'this course'
+                error_message = f'You have already submitted this form for section {section_label}.'
             return JsonResponse({
-                'error': f'You have already submitted this form for section {section_label}.',
+                'error': error_message,
                 'submission_id': existing_submission.id,
                 'status': existing_submission.status
             }, status=400)
@@ -5640,10 +5652,15 @@ def _ccr_submission_has_evidence_answers(submission):
     )
 
 
-def _course_clo_not_attained_flags(ccr_submission):
+CLO_ATTAINMENT_THRESHOLD = 70.0
+
+
+def _course_clo_attainment(ccr_submission):
     """
-    From CCR clo_percentage answers (Q6-Q9), mark CLOs with average score < 70
-    as not attained for Table 03.
+    From CCR SMART-criteria answers (Q6-Q9, clo_percentage), compute the average
+    quality score per CLO and whether each CLO is 'not attained' (average < 70).
+
+    Returns a dict: {clo_num: {'average': float|None, 'not_attained': bool}} for CLO 1-4.
     """
     per_clo_scores = {1: [], 2: [], 3: [], 4: []}
     for answer in ccr_submission.answers.all():
@@ -5653,15 +5670,24 @@ def _course_clo_not_attained_flags(ccr_submission):
         for clo_num, score in parsed.items():
             per_clo_scores[clo_num].append(score)
 
-    flags = {}
+    attainment = {}
     for clo_num in [1, 2, 3, 4]:
         scores = per_clo_scores[clo_num]
         if not scores:
-            flags[clo_num] = False
+            attainment[clo_num] = {"average": None, "not_attained": False}
             continue
         average_score = sum(scores) / len(scores)
-        flags[clo_num] = average_score < 70.0
-    return flags
+        attainment[clo_num] = {
+            "average": average_score,
+            "not_attained": average_score < CLO_ATTAINMENT_THRESHOLD,
+        }
+    return attainment
+
+
+def _course_clo_not_attained_flags(ccr_submission):
+    """Backward-compatible boolean flags per CLO derived from CCR Q6-Q9."""
+    attainment = _course_clo_attainment(ccr_submission)
+    return {clo_num: attainment[clo_num]["not_attained"] for clo_num in [1, 2, 3, 4]}
 
 
 def build_cqi_evidence_tables(filtered_submissions_queryset):
@@ -5774,65 +5800,66 @@ def build_cqi_evidence_tables(filtered_submissions_queryset):
             }
         )
 
-    # Precompute CLO not-attained flags per course from CCR (prefer answered form)
-    clo_flags_by_course = {}
-    for course_id_value in latest_ccr_by_course:
+    # Table 03: CLO attainment gaps computed from CCR SMART criteria (Q6-Q9),
+    # per coordinated course. A CLO is "Not Attained" when its average quality
+    # score across the SMART criteria is below the attainment threshold.
+    table_03_rows = []
+    table_03_index = 0
+    for index, (course_id_value, _) in enumerate(
+        sorted(
+            latest_ccr_by_course.items(),
+            key=lambda item: (item[1].course.code or "").lower(),
+        ),
+        start=1,
+    ):
         evidence_submission = (
             latest_ccr_with_answers_by_course.get(course_id_value)
             or latest_ccr_by_course[course_id_value]
         )
-        clo_flags_by_course[course_id_value] = _course_clo_not_attained_flags(
-            evidence_submission
-        )
+        attainment = _course_clo_attainment(evidence_submission)
 
-    table_03_rows = []
-    table_03_index = 0
-    for submission in submissions:
-        if submission.dynamic_form.form_type != "crr":
-            continue
-        answers_by_order = _get_submission_answers_by_order(submission)
-        # CRR Q2 = order 1 (course outcomes / CLO attainment)
-        outcomes_text = _answer_text_value(answers_by_order.get(1))
-        if not _crr_indicates_clo_not_attained(outcomes_text):
+        # Only include courses where at least one CLO was not attained.
+        if not any(attainment[clo_num]["not_attained"] for clo_num in [1, 2, 3, 4]):
             continue
 
-        clo_flags = clo_flags_by_course.get(submission.course_id) or {
-            1: False,
-            2: False,
-            3: False,
-            4: False,
-        }
-        # If CCR has no CLO scores, still include the row and mark unknown as blank,
-        # but keep at least one mark if text clearly indicates gap.
-        if not any(clo_flags.values()):
-            # Fall back: mark all as needing review with "•"
-            clo_display = {1: "•", 2: "•", 3: "•", 4: "•"}
-        else:
-            clo_display = {
-                clo_num: ("✓" if clo_flags[clo_num] else "") for clo_num in [1, 2, 3, 4]
-            }
+        def _clo_cell(clo_num):
+            return "✓" if attainment[clo_num]["not_attained"] else ""
 
-        if not any(clo_display.values()):
-            continue
+        def _clo_avg(clo_num):
+            average_score = attainment[clo_num]["average"]
+            return round(average_score, 1) if average_score is not None else None
+
+        coordinator_name = (evidence_submission.course_coordinator or "").strip()
+        if not coordinator_name:
+            coordinator_assignment = (
+                CourseFaculty.objects.filter(
+                    course_id=course_id_value, is_coordinator=True
+                )
+                .select_related("faculty")
+                .first()
+            )
+            if coordinator_assignment:
+                coordinator_name = (
+                    coordinator_assignment.faculty.get_full_name() or ""
+                ).strip() or coordinator_assignment.faculty.username
 
         table_03_index += 1
         table_03_rows.append(
             {
                 "sr": table_03_index,
-                "course_code": submission.course.code,
-                "course_title": submission.course.title,
-                "course_label": f"{submission.course.code} — {submission.course.title}",
-                "section": submission.section or "N/A",
-                "faculty": submission.faculty.username,
-                "clo1": clo_display[1],
-                "clo2": clo_display[2],
-                "clo3": clo_display[3],
-                "clo4": clo_display[4],
-                "outcomes_excerpt": (
-                    (outcomes_text[:200] + "…")
-                    if len(outcomes_text) > 200
-                    else outcomes_text
-                ),
+                "course_code": evidence_submission.course.code,
+                "course_title": evidence_submission.course.title,
+                "course_label": f"{evidence_submission.course.code} — {evidence_submission.course.title}",
+                "section": "N/A",
+                "faculty": coordinator_name or evidence_submission.faculty.username,
+                "clo1": _clo_cell(1),
+                "clo2": _clo_cell(2),
+                "clo3": _clo_cell(3),
+                "clo4": _clo_cell(4),
+                "clo1_avg": _clo_avg(1),
+                "clo2_avg": _clo_avg(2),
+                "clo3_avg": _clo_avg(3),
+                "clo4_avg": _clo_avg(4),
             }
         )
 
@@ -5884,8 +5911,8 @@ def build_cqi_evidence_tables(filtered_submissions_queryset):
             "chart": table_02_chart,
         },
         "table_03": {
-            "title": "Table 03: Courses / Sections where CLOs were Not Attained (CRR Q2)",
-            "source": "CRR Form Q2 (shown only when CLOs were not fully attained)",
+            "title": "Table 03: Courses where CLOs were Not Attained (CCR Q6–Q13)",
+            "source": "CCR Form Q6–Q9 (SMART CLO criteria); a CLO is flagged when its average score < 70%",
             "rows": table_03_rows,
             "chart": table_03_chart,
             "included": bool(table_03_rows),
@@ -5934,20 +5961,20 @@ def build_cqi_tables_markdown(cqi_tables):
         lines.append(f"### {table_03.get('title', 'Table 03')}")
         lines.append("")
         lines.append(
-            "| Sr | Course | Section | CLO1 | CLO2 | CLO3 | CLO4 |"
+            "| Sr | Course | Course Coordinator | CLO1 | CLO2 | CLO3 | CLO4 |"
         )
         lines.append("| ---: | --- | --- | :---: | :---: | :---: | :---: |")
         for row in table_03.get("rows") or []:
             lines.append(
-                f"| {row['sr']} | {row['course_label']} | {row['section']} | "
+                f"| {row['sr']} | {row['course_label']} | {row.get('faculty', 'N/A')} | "
                 f"{row['clo1'] or '—'} | {row['clo2'] or '—'} | {row['clo3'] or '—'} | {row['clo4'] or '—'} |"
             )
         lines.append("")
     else:
-        lines.append("### Table 03: Courses / Sections where CLOs were Not Attained (CRR Q2)")
+        lines.append("### Table 03: Courses where CLOs were Not Attained (CCR Q6–Q13)")
         lines.append("")
         lines.append(
-            "_No CRR submissions in this window indicated that CLOs were not attained; Table 03 is omitted._"
+            "_No CCR submissions in this window indicated that CLOs were not attained; Table 03 is omitted._"
         )
         lines.append("")
 
@@ -6071,31 +6098,42 @@ def build_cqi_tables_html(cqi_tables):
             '<tr style="background:#f8fafc;">'
             '<th rowspan="2" style="text-align:left;">Sr.</th>'
             '<th rowspan="2" style="text-align:left;">Course</th>'
-            '<th rowspan="2" style="text-align:left;">Section</th>'
+            '<th rowspan="2" style="text-align:left;">Course Coordinator</th>'
             '<th colspan="4" style="text-align:center;background:#fef2f2;">CLO Not Attained</th>'
             "</tr>"
             '<tr style="background:#fef2f2;">'
             "<th>CLO1</th><th>CLO2</th><th>CLO3</th><th>CLO4</th>"
             "</tr></thead><tbody>"
         )
+
+        def clo_attainment_cell(mark, average_score):
+            if mark == "✓":
+                score_text = (
+                    f"<br/><span style='color:#94a3b8;font-size:11px;'>{average_score:.0f}%</span>"
+                    if isinstance(average_score, (int, float))
+                    else ""
+                )
+                return f"<span style='color:#dc2626;font-weight:700;'>✓</span>{score_text}"
+            return '<span style="color:#cbd5e1;">—</span>'
+
         for row in table_03.get("rows") or []:
             parts.append(
                 "<tr>"
                 f"<td>{row['sr']}</td>"
                 f"<td><strong>{html_module.escape(row['course_code'])}</strong><br/>"
                 f"{html_module.escape(row['course_title'])}</td>"
-                f"<td>{html_module.escape(row['section'])}</td>"
-                f"<td style='text-align:center;'>{check_cell(row['clo1'])}</td>"
-                f"<td style='text-align:center;'>{check_cell(row['clo2'])}</td>"
-                f"<td style='text-align:center;'>{check_cell(row['clo3'])}</td>"
-                f"<td style='text-align:center;'>{check_cell(row['clo4'])}</td>"
+                f"<td>{html_module.escape(str(row.get('faculty', 'N/A')))}</td>"
+                f"<td style='text-align:center;'>{clo_attainment_cell(row['clo1'], row.get('clo1_avg'))}</td>"
+                f"<td style='text-align:center;'>{clo_attainment_cell(row['clo2'], row.get('clo2_avg'))}</td>"
+                f"<td style='text-align:center;'>{clo_attainment_cell(row['clo3'], row.get('clo3_avg'))}</td>"
+                f"<td style='text-align:center;'>{clo_attainment_cell(row['clo4'], row.get('clo4_avg'))}</td>"
                 "</tr>"
             )
         parts.append("</tbody></table>")
     else:
         parts.append(
-            "<h3>Table 03: Courses / Sections where CLOs were Not Attained (CRR Q2)</h3>"
-            '<p style="color:#64748b;"><em>No CRR submissions indicated unattained CLOs in this period — table omitted.</em></p>'
+            "<h3>Table 03: Courses where CLOs were Not Attained (CCR Q6–Q13)</h3>"
+            '<p style="color:#64748b;"><em>No CCR submissions indicated unattained CLOs in this period — table omitted.</em></p>'
         )
 
     parts.append("</div>")
@@ -6346,7 +6384,7 @@ REQUIRED MARKDOWN STRUCTURE (headings must match):
 - Discuss findings from:
   - `cqi_tables.table_01` (CCR Q2–Q4 recommendation to update content/tools, week-wise, textbook)
   - `cqi_tables.table_02` (CCR Q1 HEC matched / not matched / not available)
-  - `cqi_tables.table_03` (CRR Q2 CLO not attained; omit discussion if `included` is false)
+  - `cqi_tables.table_03` (CCR Q6–Q13 SMART CLO criteria; CLOs with average score < 70% flagged as not attained; omit discussion if `included` is false)
 - If `new_courses_detected` is non-empty, add a short markdown table: Sr | Courses.
   Otherwise state that no new courses were flagged.
 
@@ -6751,7 +6789,7 @@ def _add_cqi_evidence_tables_to_docx(document, cqi_tables):
     document.add_heading(table_03.get("title", "Table 03"), level=3)
     if table_03.get("included"):
         source_paragraph = document.add_paragraph(
-            f"Source: {table_03.get('source', 'CRR Form Q2')}. ✓ = CLO not attained."
+            f"Source: {table_03.get('source', 'CCR Form Q6–Q13')}. ✓ = CLO not attained."
         )
         source_paragraph.runs[0].italic = True
         source_paragraph.runs[0].font.size = Pt(9)
@@ -6759,7 +6797,7 @@ def _add_cqi_evidence_tables_to_docx(document, cqi_tables):
         word_table = document.add_table(rows=2 + len(rows), cols=7)
         word_table.style = "Table Grid"
         for index, label in enumerate(
-            ["Sr.", "Course", "Section", "CLO Not Attained", "", "", ""]
+            ["Sr.", "Course", "Course Coordinator", "CLO Not Attained", "", "", ""]
         ):
             word_table.rows[0].cells[index].text = label
         word_table.rows[0].cells[3].merge(word_table.rows[0].cells[6])
@@ -6772,14 +6810,14 @@ def _add_cqi_evidence_tables_to_docx(document, cqi_tables):
             cells = word_table.rows[row_offset + 2].cells
             cells[0].text = str(row.get("sr", ""))
             cells[1].text = row.get("course_label") or ""
-            cells[2].text = row.get("section") or "N/A"
+            cells[2].text = str(row.get("faculty") or "N/A")
             cells[3].text = row.get("clo1") or "—"
             cells[4].text = row.get("clo2") or "—"
             cells[5].text = row.get("clo3") or "—"
             cells[6].text = row.get("clo4") or "—"
     else:
         note = document.add_paragraph(
-            "No CRR submissions indicated unattained CLOs in this period — table omitted."
+            "No CCR submissions indicated unattained CLOs in this period — table omitted."
         )
         note.runs[0].italic = True
     document.add_paragraph("")

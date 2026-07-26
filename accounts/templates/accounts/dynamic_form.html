@@ -249,10 +249,10 @@
           populateCourseDropdown();
           showCourseSelection();
 
-          if (urlCourseId && urlFormId && currentSectionId) {
+          if (urlCourseId && urlFormId && (currentSectionId || urlFormType === "ccr")) {
             const preferredValue = encodeCourseSectionValue(
               urlCourseId,
-              currentSectionId,
+              urlFormType === "ccr" ? "" : currentSectionId,
             );
             const courseSelect = document.getElementById("course-select");
             if (
@@ -276,7 +276,7 @@
             formInfo.classList.remove("hidden");
           } else if (urlFormType === "ccr") {
             formInfo.textContent =
-              "CCR Form: For course coordinators only. Submit once per assigned section where you are the coordinator.";
+              "CCR Form: For course coordinators only. Submit once per course you coordinate.";
             formInfo.classList.remove("hidden");
           } else {
             formInfo.textContent =
@@ -511,10 +511,26 @@
           courseSelect.remove(1);
         }
 
-        // Expand each course into one option per assigned section
+        const isCcr = currentFormType === "ccr" || urlFormType === "ccr";
+
         assignedCourses.forEach((course) => {
           const sections = Array.isArray(course.sections) ? course.sections : [];
           const coordinatorLabel = course.is_coordinator ? " (Coordinator)" : "";
+
+          // CCR is course-level based on coordinator status (no section required)
+          if (isCcr) {
+            if (!course.is_coordinator) {
+              return;
+            }
+            const option = document.createElement("option");
+            option.value = encodeCourseSectionValue(course.id, "");
+            option.setAttribute("data-is-coordinator", "true");
+            option.setAttribute("data-course-id", course.id);
+            option.setAttribute("data-section-id", "");
+            option.textContent = `${course.code} - ${course.title}${coordinatorLabel}`;
+            courseSelect.appendChild(option);
+            return;
+          }
 
           if (sections.length === 0) {
             const option = document.createElement("option");
@@ -545,8 +561,9 @@
 
         // Restore course/section from URL / current selection after options are loaded
         const preferredCourseId = currentCourseId || urlCourseId;
-        const preferredSectionId =
-          currentSectionId || (urlSectionId ? parseInt(urlSectionId, 10) : null);
+        const preferredSectionId = isCcr
+          ? null
+          : currentSectionId || (urlSectionId ? parseInt(urlSectionId, 10) : null);
         if (preferredCourseId) {
           const preferredValue = encodeCourseSectionValue(
             preferredCourseId,
@@ -658,60 +675,39 @@
         // Update button styles
         setFormTypeButton(formType);
 
+        // Rebuild course list: CCR = course-level; CRR/LRR = section-level
+        populateCourseDropdown();
+
         // Update form info
         const formInfo = document.getElementById("form-info");
         if (formType === "ccr") {
           formInfo.textContent =
-            "CCR Form: For course coordinators only. Submit once per assigned section where you are the coordinator.";
+            "CCR Form: For course coordinators only. Submit once per course you coordinate.";
           formInfo.classList.remove("hidden");
-
-          // Filter courses to show only coordinator courses
-          const courseSelect = document.getElementById("course-select");
-          const options = courseSelect.options;
-          for (let i = 0; i < options.length; i++) {
-            const isCoordinator =
-              options[i].getAttribute("data-is-coordinator") === "true";
-            options[i].style.display = isCoordinator ? "" : "none";
-          }
         } else if (formType === "lrr") {
           formInfo.textContent =
             "LRR Form: For lab instructors only. Submit once for each assigned course section.";
           formInfo.classList.remove("hidden");
-
-          const courseSelect = document.getElementById("course-select");
-          const options = courseSelect.options;
-          for (let i = 0; i < options.length; i++) {
-            options[i].style.display = "";
-          }
         } else {
           formInfo.textContent =
             "CRR Form: For all faculty members. Submit once for each assigned course section.";
           formInfo.classList.remove("hidden");
-
-          // Show all courses
-          const courseSelect = document.getElementById("course-select");
-          const options = courseSelect.options;
-          for (let i = 0; i < options.length; i++) {
-            options[i].style.display = "";
-          }
         }
 
-        // If a course/section is selected, load forms for this type
-        const selectedValue = document.getElementById("course-select").value;
-        if (selectedValue) {
-          handleCourseChange(selectedValue);
-        } else {
-          hideForm();
-        }
+        // Reset course selection after rebuilding options
+        document.getElementById("course-select").value = "";
+        hideForm();
       }
 
       function handleCourseChange(selectedValue) {
         const { courseId, sectionId } = parseCourseSectionValue(selectedValue);
-        if (!courseId || !sectionId) {
+        const isCcr = currentFormType === "ccr";
+
+        if (!courseId || (!isCcr && !sectionId)) {
           currentCourseId = null;
           currentSectionId = null;
           hideForm();
-          if (selectedValue && !sectionId) {
+          if (selectedValue && !isCcr && !sectionId) {
             showNotification(
               "This course has no section assigned. Ask admin/CRC to assign a section first.",
               "warning",
@@ -721,7 +717,7 @@
         }
 
         currentCourseId = courseId;
-        currentSectionId = sectionId;
+        currentSectionId = isCcr ? null : sectionId;
         currentSubmissionId = null;
 
         // Check if we have a cached form for this form type
@@ -1290,8 +1286,9 @@
       }
 
       async function saveForm(status) {
-        if (!currentCourseId || !currentFormId || !currentSectionId) {
-          alert("Please select a course section first.");
+        const isCcr = currentFormType === "ccr";
+        if (!currentCourseId || !currentFormId || (!isCcr && !currentSectionId)) {
+          alert(isCcr ? "Please select a course first." : "Please select a course section first.");
           return;
         }
 
@@ -1305,7 +1302,9 @@
 
           const formData = new FormData();
           formData.append("course_id", currentCourseId);
-          formData.append("section_id", currentSectionId);
+          if (!isCcr && currentSectionId) {
+            formData.append("section_id", currentSectionId);
+          }
           formData.append("form_id", currentFormId);
           formData.append("status", status);
           formData.append("submission_mode", "file");
