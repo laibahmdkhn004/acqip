@@ -3114,11 +3114,16 @@
                                                                   ).toLocaleDateString()}
                                                               </td>
                                                               <td class="px-4 py-3">
-                                                                  <div class="flex gap-2">
+                                                                  <div class="flex gap-2 items-center">
+                                                                      <button onclick="previewDynamicForm(${
+                                                                        form.id
+                                                                      })" class="text-purple-600 hover:text-purple-800" title="Preview as end user">
+                                                                          <i class="fas fa-eye"></i>
+                                                                      </button>
                                                                       <button onclick="manageFormQuestions(${
                                                                         form.id
                                                                       }, '${
-                                                                        form.name
+                                                                        String(form.name || "").replace(/'/g, "\\'")
                                                                       }')" class="text-blue-600 hover:text-blue-800" title="Manage Questions">
                                                                           <i class="fas fa-list-ol"></i>
                                                                       </button>
@@ -3130,7 +3135,7 @@
                                                                       <button onclick="deleteDynamicForm(${
                                                                         form.id
                                                                       }, '${
-                                                                        form.name
+                                                                        String(form.name || "").replace(/'/g, "\\'")
                                                                       }')" class="text-red-600 hover:text-red-800" title="Delete">
                                                                           <i class="fas fa-trash"></i>
                                                                       </button>
@@ -3138,10 +3143,10 @@
                                                                         form.status ===
                                                                         "active"
                                                                           ? `<button onclick="unpublishForm(${form.id}, '${form.form_type}')" class="text-yellow-600 hover:text-yellow-800" title="Unpublish">
-                                                                              <i class="fas fa-eye-slash"></i>
+                                                                              <i class="fas fa-ban"></i>
                                                                           </button>`
                                                                           : `<button onclick="publishForm(${form.id}, '${form.form_type}')" class="text-green-600 hover:text-green-800" title="Publish">
-                                                                              <i class="fas fa-eye"></i>
+                                                                              <i class="fas fa-check-circle"></i>
                                                                           </button>`
                                                                       }
                                                                   </div>
@@ -3174,6 +3179,248 @@
       }
 
       // Form Editor Functions
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function parseQuestionOptions(options) {
+        if (!options) return [];
+        if (Array.isArray(options)) {
+          return options.map((option) => String(option).trim()).filter(Boolean);
+        }
+        return String(options)
+          .split(",")
+          .map((option) => option.trim())
+          .filter(Boolean);
+      }
+
+      function buildEndUserQuestionPreviewHTML(question) {
+        const baseName = `preview_question_${question.id}`;
+        const requiredStar = question.required
+          ? '<span class="text-red-500">*</span>'
+          : "";
+        const questionText = escapeHtml(question.question_text);
+        const helpText = question.help_text
+          ? `<p class="text-sm text-gray-500 mb-2">${escapeHtml(question.help_text)}</p>`
+          : "";
+
+        if (question.question_type === "section_header") {
+          return `
+            <div class="mb-2">
+              <h3 class="text-lg font-bold text-gray-900">${questionText}</h3>
+              ${helpText}
+            </div>
+          `;
+        }
+
+        let fieldHtml = "";
+        switch (question.question_type) {
+          case "text":
+            fieldHtml = `<input type="text" name="${baseName}" disabled class="w-full border border-gray-300 rounded-lg p-2 mt-1 bg-white" placeholder="Text answer">`;
+            break;
+          case "textarea":
+            fieldHtml = `<textarea name="${baseName}" disabled rows="4" class="w-full border border-gray-300 rounded-lg p-2 mt-1 bg-white" placeholder="Long text answer"></textarea>`;
+            break;
+          case "radio": {
+            const radioOptions = parseQuestionOptions(question.options);
+            fieldHtml = `<div class="space-y-2 mt-2">${
+              radioOptions.length
+                ? radioOptions
+                    .map(
+                      (option, i) => `
+                  <div class="flex items-center">
+                    <input type="radio" id="${baseName}_${i}" name="${baseName}" value="${escapeHtml(option)}" disabled class="mr-2">
+                    <label for="${baseName}_${i}" class="text-gray-700">${escapeHtml(option)}</label>
+                  </div>
+                `,
+                    )
+                    .join("")
+                : '<p class="text-sm text-gray-400">No options configured</p>'
+            }</div>`;
+            break;
+          }
+          case "checkbox": {
+            const checkOptions = parseQuestionOptions(question.options);
+            fieldHtml = `<div class="space-y-2 mt-2">${
+              checkOptions.length
+                ? checkOptions
+                    .map(
+                      (option, i) => `
+                  <div class="flex items-center">
+                    <input type="checkbox" id="${baseName}_${i}" name="${baseName}[]" value="${escapeHtml(option)}" disabled class="mr-2">
+                    <label for="${baseName}_${i}" class="text-gray-700">${escapeHtml(option)}</label>
+                  </div>
+                `,
+                    )
+                    .join("")
+                : '<p class="text-sm text-gray-400">No options configured</p>'
+            }</div>`;
+            break;
+          }
+          case "select": {
+            const selectOptions = parseQuestionOptions(question.options);
+            fieldHtml = `
+              <select name="${baseName}" disabled class="w-full border border-gray-300 rounded-lg p-2 mt-1 bg-white">
+                <option value="">Select an option...</option>
+                ${selectOptions
+                  .map(
+                    (option) =>
+                      `<option value="${escapeHtml(option)}">${escapeHtml(option)}</option>`,
+                  )
+                  .join("")}
+              </select>
+            `;
+            break;
+          }
+          case "file":
+            fieldHtml = `
+              <input type="file" name="${baseName}" disabled class="w-full text-sm text-gray-700 mt-1">
+              <p class="text-xs text-gray-500 mt-1">Accepted: PDF, Word, PowerPoint, Excel, ZIP, or images.</p>
+            `;
+            break;
+          case "clo_percentage":
+            fieldHtml = `
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                ${[1, 2, 3, 4]
+                  .map(
+                    (i) => `
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">CLO ${i} Percentage (%)</label>
+                    <input type="number" disabled min="0" max="100" step="0.1"
+                      class="w-full border border-gray-300 rounded-lg p-2 bg-white"
+                      placeholder="Enter percentage for CLO ${i}">
+                  </div>
+                `,
+                  )
+                  .join("")}
+              </div>
+            `;
+            break;
+          default:
+            fieldHtml = `<input type="text" name="${baseName}" disabled class="w-full border border-gray-300 rounded-lg p-2 mt-1 bg-white">`;
+        }
+
+        return `
+          <div class="mb-6">
+            <label class="block text-sm font-medium text-gray-700 mb-2">
+              ${questionText} ${requiredStar}
+            </label>
+            ${helpText}
+            ${fieldHtml}
+          </div>
+        `;
+      }
+
+      async function previewDynamicForm(formId) {
+        try {
+          const [forms, questions] = await Promise.all([
+            fetchAPI(API.dynamic_forms),
+            fetchAPI(API.form_questions(formId)),
+          ]);
+          const form = (forms || []).find((item) => item.id == formId);
+          if (!form) {
+            throw new Error("Form not found");
+          }
+
+          const formTypeLabel =
+            form.form_type === "ccr"
+              ? "CCR (Course Coordinators)"
+              : form.form_type === "lrr"
+                ? "LRR (Lab Instructors)"
+                : "CRR (Regular Faculty)";
+
+          const sortedQuestions = [...(questions || [])].sort(
+            (a, b) => (a.order || 0) - (b.order || 0) || (a.id || 0) - (b.id || 0),
+          );
+
+          elements.outlineModalTitle.textContent = "Form Preview (End User View)";
+          elements.outlineModalBody.innerHTML = `
+            <div class="space-y-4">
+              <div class="bg-purple-50 border border-purple-100 rounded-lg p-4">
+                <p class="text-sm text-purple-800">
+                  <i class="fas fa-info-circle mr-1"></i>
+                  This is how the form appears to faculty / lab instructors when filling it out. Fields are disabled in preview.
+                </p>
+              </div>
+
+              <div class="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+                <div class="px-6 py-4 border-b bg-gray-50">
+                  <h4 class="text-lg font-semibold text-gray-900">${escapeHtml(form.name)}</h4>
+                  ${
+                    form.description
+                      ? `<p class="text-sm text-gray-600 mt-1">${escapeHtml(form.description)}</p>`
+                      : ""
+                  }
+                  <div class="mt-2 flex flex-wrap gap-2 text-xs">
+                    <span class="px-2 py-1 rounded-full bg-blue-100 text-blue-800">${escapeHtml(formTypeLabel)}</span>
+                    <span class="px-2 py-1 rounded-full ${
+                      form.status === "active"
+                        ? "bg-green-100 text-green-800"
+                        : "bg-gray-100 text-gray-700"
+                    }">${escapeHtml(form.status || "inactive")}</span>
+                  </div>
+                </div>
+
+                <div class="p-6 border-b">
+                  <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Submission mode</label>
+                    <div class="flex gap-2">
+                      <button type="button" disabled class="px-4 py-2 rounded-lg border bg-gray-800 text-white">Fill Form</button>
+                      <button type="button" disabled class="px-4 py-2 rounded-lg border border-gray-300 text-gray-700">Upload File</button>
+                    </div>
+                    <p class="text-sm text-gray-500 mt-2">
+                      Choose either to answer the form questions or upload a completed document instead.
+                    </p>
+                  </div>
+                </div>
+
+                <form class="p-6 pointer-events-none select-none" onsubmit="return false;">
+                  <div class="space-y-2">
+                    ${
+                      sortedQuestions.length > 0
+                        ? sortedQuestions
+                            .map((question) => buildEndUserQuestionPreviewHTML(question))
+                            .join("")
+                        : `
+                          <div class="text-center py-10">
+                            <i class="fas fa-question-circle text-gray-300 text-4xl mb-3"></i>
+                            <p class="text-gray-500">No questions added yet. Add questions to preview the end-user form.</p>
+                          </div>
+                        `
+                    }
+                  </div>
+
+                  <div class="mt-8 pt-6 border-t flex justify-between">
+                    <button type="button" disabled class="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg bg-gray-50">Cancel</button>
+                    <div class="space-x-3">
+                      <button type="button" disabled class="px-6 py-2 bg-gray-600 text-white rounded-lg opacity-80">Save as Draft</button>
+                      <button type="button" disabled class="px-6 py-2 bg-gray-800 text-white rounded-lg opacity-80">Submit Form</button>
+                    </div>
+                  </div>
+                </form>
+              </div>
+
+              <div class="flex justify-end">
+                <button type="button" onclick="document.getElementById('outline-modal').classList.add('hidden')" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                  Close
+                </button>
+              </div>
+            </div>
+          `;
+          elements.outlineModal.classList.remove("hidden");
+        } catch (error) {
+          showNotification(
+            "Error loading form preview: " + (error.message || "Unknown error"),
+            "error",
+          );
+        }
+      }
+
       function createNewForm() {
         elements.modalTitle.textContent = "Create New Form";
         elements.modalBody.innerHTML = `
@@ -8316,6 +8563,7 @@
       window.rejectFormSubmission = rejectFormSubmission;
       window.createNewForm = createNewForm;
       window.saveNewForm = saveNewForm;
+      window.previewDynamicForm = previewDynamicForm;
       window.manageFormQuestions = manageFormQuestions;
       window.addNewQuestion = addNewQuestion;
       window.editQuestion = editQuestion;
