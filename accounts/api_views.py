@@ -5192,6 +5192,8 @@ def build_cqi_chart_data(context_data):
     table_01_chart = (cqi_tables.get("table_01") or {}).get("chart") or {}
     table_02_chart = (cqi_tables.get("table_02") or {}).get("chart") or {}
     table_03_chart = (cqi_tables.get("table_03") or {}).get("chart") or {}
+    table_04_chart = (cqi_tables.get("table_04") or {}).get("chart") or {}
+    table_05_chart = (cqi_tables.get("table_05") or {}).get("chart") or {}
 
     # Required corrections = CLOs below 70% achievement (negative/attention signal)
     required_corrections = {
@@ -5220,6 +5222,8 @@ def build_cqi_chart_data(context_data):
         "table_01_recommendations": table_01_chart,
         "table_02_hec": table_02_chart,
         "table_03_clo_gaps": table_03_chart,
+        "table_04_crr_feedback": table_04_chart,
+        "table_05_lab_reviews": table_05_chart,
         "metrics": {
             "total_submissions": total,
             "approved_submissions": approved,
@@ -5235,9 +5239,21 @@ def build_cqi_chart_data(context_data):
                 or context_data.get("outlines")
                 or []
             ),
+            "crr_submissions": crr_total,
             "table_01_rows": len((cqi_tables.get("table_01") or {}).get("rows") or []),
             "table_02_rows": len((cqi_tables.get("table_02") or {}).get("rows") or []),
             "table_03_rows": len((cqi_tables.get("table_03") or {}).get("rows") or []),
+            "table_04_rows": len((cqi_tables.get("table_04") or {}).get("rows") or []),
+            "table_05_rows": len((cqi_tables.get("table_05") or {}).get("rows") or []),
+            "labs_needing_tools_update": (table_05_chart.get("data") or [0, 0, 0])[0]
+            if table_05_chart.get("data")
+            else 0,
+            "labs_needing_week_update": (table_05_chart.get("data") or [0, 0, 0])[1]
+            if table_05_chart.get("data") and len(table_05_chart.get("data") or []) > 1
+            else 0,
+            "labs_needing_manual_update": (table_05_chart.get("data") or [0, 0, 0])[2]
+            if table_05_chart.get("data") and len(table_05_chart.get("data") or []) > 2
+            else 0,
         },
     }
 
@@ -5374,6 +5390,12 @@ def api_generate_cqi_report(request):
                         ),
                         'table_03_rows': len(
                             ((context_data.get('cqi_tables') or {}).get('table_03') or {}).get('rows') or []
+                        ),
+                        'table_04_rows': len(
+                            ((context_data.get('cqi_tables') or {}).get('table_04') or {}).get('rows') or []
+                        ),
+                        'table_05_rows': len(
+                            ((context_data.get('cqi_tables') or {}).get('table_05') or {}).get('rows') or []
                         ),
                     },
                 },
@@ -5695,6 +5717,525 @@ def _crr_indicates_clo_not_attained(answer_text):
     return False
 
 
+def _answer_reason_value(answer):
+    """Return reason text stored with a radio 'No' answer, if any."""
+    if answer is None or not isinstance(answer.answer_data, dict):
+        return ""
+    return str(answer.answer_data.get("reason") or "").strip()
+
+
+def _answer_selected_value(answer):
+    """Prefer answer_text; fall back to answer_data.value for structured radio answers."""
+    text = _answer_text_value(answer)
+    if text:
+        return text
+    if answer is not None and isinstance(answer.answer_data, dict):
+        value = answer.answer_data.get("value")
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return ""
+
+
+def _classify_yes_no_or_partial(answer_text):
+    """Classify free-text / radio responses as Yes, No, Partial, or N/A."""
+    text = (answer_text or "").strip()
+    lowered = text.lower()
+    if not text or lowered in {"n/a", "na", "none", "-", "nil", "not available"}:
+        return "N/A"
+    if "partial" in lowered:
+        return "Partial"
+    if re.match(r"^(no|n)\b", lowered) or _crr_indicates_clo_not_attained(text):
+        return "No"
+    if re.match(r"^(yes|y)\b", lowered):
+        return "Yes"
+    if any(
+        phrase in lowered
+        for phrase in ("not covered", "not fully", "incomplete", "remaining topics")
+    ):
+        return "No"
+    if any(
+        phrase in lowered
+        for phrase in ("fully covered", "all topics", "completely covered", "yes,")
+    ):
+        return "Yes"
+    return "Partial" if len(text) > 20 else "N/A"
+
+
+def _find_crr_question_answer(submission, answers_by_order, preferred_orders, *keywords):
+    """
+    Resolve a CRR answer by preferred order, then by question-text keywords.
+    Returns (answer_obj_or_None, selected_text, reason_text).
+    """
+    for order in preferred_orders:
+        answer = answers_by_order.get(order)
+        selected = _answer_selected_value(answer)
+        if selected:
+            return answer, selected, _answer_reason_value(answer)
+
+    keyword_list = [str(keyword).lower() for keyword in keywords if keyword]
+    if keyword_list:
+        for answer in submission.answers.all():
+            question_text = (answer.question.question_text or "").lower()
+            if all(keyword in question_text for keyword in keyword_list):
+                selected = _answer_selected_value(answer)
+                if selected:
+                    return answer, selected, _answer_reason_value(answer)
+
+    for order in preferred_orders:
+        if order in answers_by_order:
+            answer = answers_by_order.get(order)
+            return answer, _answer_selected_value(answer), _answer_reason_value(answer)
+    return None, "", ""
+
+
+def _truncate_cqi_excerpt(text, limit=180):
+    cleaned = re.sub(r"\s+", " ", (text or "").strip())
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[: limit - 1] + "…"
+
+
+def build_crr_analysis_tables(filtered_submissions_queryset):
+    """
+    Build CRR faculty-feedback analysis (Table 04) from the Course Review Report form:
+
+    1. General comments on student performance
+    2. Satisfied with course outcomes / CLOs met (Yes/No + reason)
+    3. Course contents fully covered
+    4. Strategy for underperforming students
+    5. Recommendations to improve course outcomes
+    """
+    submissions = list(
+        filtered_submissions_queryset.filter(
+            status__in=["submitted", "approved"],
+            dynamic_form__form_type="crr",
+        )
+        .select_related("course", "faculty", "dynamic_form")
+        .prefetch_related("answers__question")
+        .order_by("course__code", "-submission_date")
+    )
+
+    rows = []
+    themes = {
+        "student_performance_comments": [],
+        "clo_not_met_reasons": [],
+        "content_coverage_issues": [],
+        "support_strategies": [],
+        "recommendations": [],
+    }
+    clo_yes = 0
+    clo_no = 0
+    clo_partial = 0
+    content_yes = 0
+    content_no = 0
+    content_partial = 0
+
+    for index, submission in enumerate(submissions, start=1):
+        answers_by_order = _get_submission_answers_by_order(submission)
+
+        _, performance_text, _ = _find_crr_question_answer(
+            submission,
+            answers_by_order,
+            (0,),
+            "performance",
+            "students",
+        )
+        if not performance_text:
+            _, performance_text, _ = _find_crr_question_answer(
+                submission,
+                answers_by_order,
+                (0,),
+                "general comments",
+            )
+
+        _, clo_text, clo_reason = _find_crr_question_answer(
+            submission,
+            answers_by_order,
+            (1,),
+            "course outcomes",
+        )
+        if not clo_text:
+            _, clo_text, clo_reason = _find_crr_question_answer(
+                submission,
+                answers_by_order,
+                (1,),
+                "clos",
+            )
+        if not clo_text:
+            _, clo_text, clo_reason = _find_crr_question_answer(
+                submission,
+                answers_by_order,
+                (1,),
+                "satisfied",
+            )
+
+        _, content_text, content_reason = _find_crr_question_answer(
+            submission,
+            answers_by_order,
+            (2,),
+            "contents",
+            "covered",
+        )
+        if not content_text:
+            _, content_text, content_reason = _find_crr_question_answer(
+                submission,
+                answers_by_order,
+                (2,),
+                "course contents",
+            )
+
+        _, support_text, _ = _find_crr_question_answer(
+            submission,
+            answers_by_order,
+            (3,),
+            "underperforming",
+        )
+        if not support_text:
+            _, support_text, _ = _find_crr_question_answer(
+                submission,
+                answers_by_order,
+                (3,),
+                "strategy",
+                "support",
+            )
+
+        _, recommendations_text, _ = _find_crr_question_answer(
+            submission,
+            answers_by_order,
+            (4,),
+            "recommendations",
+        )
+        if not recommendations_text:
+            _, recommendations_text, _ = _find_crr_question_answer(
+                submission,
+                answers_by_order,
+                (4,),
+                "improve",
+                "course outcomes",
+            )
+
+        clo_status = _classify_yes_no_or_partial(clo_text)
+        content_status = _classify_yes_no_or_partial(content_text)
+        if clo_status == "Yes":
+            clo_yes += 1
+        elif clo_status == "No":
+            clo_no += 1
+        elif clo_status == "Partial":
+            clo_partial += 1
+
+        if content_status == "Yes":
+            content_yes += 1
+        elif content_status == "No":
+            content_no += 1
+        elif content_status == "Partial":
+            content_partial += 1
+
+        clo_reason_display = clo_reason
+        if clo_status == "No" and not clo_reason_display and clo_text and not re.match(
+            r"^(no|n)\b", clo_text.lower()
+        ):
+            # Free-text "No" answers may embed the reason in the answer itself.
+            clo_reason_display = clo_text
+
+        content_issue = content_reason or (
+            content_text if content_status in {"No", "Partial"} else ""
+        )
+
+        course_label = f"{submission.course.code} — {submission.course.title}"
+        faculty_name = (
+            (submission.faculty.get_full_name() or "").strip()
+            or submission.faculty.username
+        )
+        section_label = submission.section or "N/A"
+
+        rows.append(
+            {
+                "sr": index,
+                "course_code": submission.course.code,
+                "course_title": submission.course.title,
+                "course_label": course_label,
+                "faculty": faculty_name,
+                "section": section_label,
+                "clo_outcomes_met": clo_status,
+                "clo_reason": _truncate_cqi_excerpt(clo_reason_display, 160),
+                "content_covered": content_status,
+                "content_issue": _truncate_cqi_excerpt(content_issue, 140),
+                "student_performance": _truncate_cqi_excerpt(performance_text, 140),
+                "support_strategy": _truncate_cqi_excerpt(support_text, 140),
+                "recommendations": _truncate_cqi_excerpt(recommendations_text, 160),
+            }
+        )
+
+        theme_course = f"{submission.course.code} ({faculty_name})"
+        if performance_text and len(themes["student_performance_comments"]) < 12:
+            themes["student_performance_comments"].append(
+                {"course": theme_course, "text": _truncate_cqi_excerpt(performance_text, 220)}
+            )
+        if clo_status == "No" and clo_reason_display and len(themes["clo_not_met_reasons"]) < 12:
+            themes["clo_not_met_reasons"].append(
+                {"course": theme_course, "text": _truncate_cqi_excerpt(clo_reason_display, 220)}
+            )
+        if content_status in {"No", "Partial"} and content_issue and len(themes["content_coverage_issues"]) < 12:
+            themes["content_coverage_issues"].append(
+                {"course": theme_course, "text": _truncate_cqi_excerpt(content_issue, 220)}
+            )
+        if support_text and len(themes["support_strategies"]) < 12:
+            themes["support_strategies"].append(
+                {"course": theme_course, "text": _truncate_cqi_excerpt(support_text, 220)}
+            )
+        if recommendations_text and len(themes["recommendations"]) < 12:
+            themes["recommendations"].append(
+                {"course": theme_course, "text": _truncate_cqi_excerpt(recommendations_text, 220)}
+            )
+
+    summary = {
+        "total_crr_submissions": len(rows),
+        "clo_outcomes_yes": clo_yes,
+        "clo_outcomes_no": clo_no,
+        "clo_outcomes_partial": clo_partial,
+        "content_covered_yes": content_yes,
+        "content_covered_no": content_no,
+        "content_covered_partial": content_partial,
+        "recommendations_count": sum(1 for row in rows if row.get("recommendations")),
+        "support_strategies_count": sum(1 for row in rows if row.get("support_strategy")),
+    }
+
+    chart = {
+        "labels": ["CLO Met (Yes)", "CLO Not Met (No)", "Partial", "Content Gap (No/Partial)"],
+        "data": [
+            clo_yes,
+            clo_no,
+            clo_partial,
+            content_no + content_partial,
+        ],
+        "colors": ["#16a34a", "#dc2626", "#ca8a04", "#7c3aed"],
+    }
+
+    return {
+        "title": "Table 04: Course Review Report (CRR) Faculty Feedback Analysis",
+        "source": (
+            "CRR Form — student performance; CLO/course outcomes satisfaction; "
+            "content coverage; underperforming-student support; recommendations"
+        ),
+        "rows": rows,
+        "summary": summary,
+        "themes": themes,
+        "chart": chart,
+        "included": bool(rows),
+    }
+
+
+def _lrr_answer_needs_update(answer_text):
+    """
+    LRR Yes/No questions ask whether tools/schedule/manual are already updated/aligned.
+    'No' (or negative free text) means a modification/update is recommended.
+    """
+    status = _classify_yes_no_or_partial(answer_text)
+    return status in {"No", "Partial"}
+
+
+def build_lrr_lab_reviews_analysis(filtered_submissions_queryset):
+    """
+    Build Summary of Lab Reviews from LRR Yes/No questions:
+
+    1. Tools and technologies updated according to course/industry needs?
+    2. Week-wise lab schedule aligned with course plan?
+    3. Lab manual updated according to lab contents?
+
+    Chart counts labs where the answer indicates an update/modification is needed (No).
+    """
+    submissions = list(
+        filtered_submissions_queryset.filter(
+            status__in=["submitted", "approved"],
+            dynamic_form__form_type="lrr",
+        )
+        .select_related("course", "faculty", "dynamic_form")
+        .prefetch_related("answers__question")
+        .order_by("course__code", "-submission_date")
+    )
+
+    latest_by_course = {}
+    for submission in submissions:
+        if submission.course_id not in latest_by_course:
+            latest_by_course[submission.course_id] = submission
+
+    rows = []
+    tools_update_count = 0
+    week_update_count = 0
+    manual_update_count = 0
+    reasons = {
+        "tools_and_technologies": [],
+        "week_wise_distribution": [],
+        "lab_manuals": [],
+    }
+
+    for index, (course_id_value, submission) in enumerate(
+        sorted(
+            latest_by_course.items(),
+            key=lambda item: (item[1].course.code or "").lower(),
+        ),
+        start=1,
+    ):
+        answers_by_order = _get_submission_answers_by_order(submission)
+
+        _, tools_text, tools_reason = _find_crr_question_answer(
+            submission,
+            answers_by_order,
+            (0,),
+            "tools",
+            "technologies",
+        )
+        if not tools_text:
+            _, tools_text, tools_reason = _find_crr_question_answer(
+                submission,
+                answers_by_order,
+                (0,),
+                "tools",
+            )
+
+        _, week_text, week_reason = _find_crr_question_answer(
+            submission,
+            answers_by_order,
+            (1,),
+            "week-wise",
+        )
+        if not week_text:
+            _, week_text, week_reason = _find_crr_question_answer(
+                submission,
+                answers_by_order,
+                (1,),
+                "week",
+                "schedule",
+            )
+
+        _, manual_text, manual_reason = _find_crr_question_answer(
+            submission,
+            answers_by_order,
+            (2,),
+            "lab manual",
+        )
+        if not manual_text:
+            _, manual_text, manual_reason = _find_crr_question_answer(
+                submission,
+                answers_by_order,
+                (2,),
+                "manual",
+            )
+
+        _, prerequisite_text, _ = _find_crr_question_answer(
+            submission,
+            answers_by_order,
+            (3,),
+            "pre-requisite",
+        )
+        if not prerequisite_text:
+            _, prerequisite_text, _ = _find_crr_question_answer(
+                submission,
+                answers_by_order,
+                (3,),
+                "prerequisite",
+            )
+
+        tools_needs_update = _lrr_answer_needs_update(tools_text)
+        week_needs_update = _lrr_answer_needs_update(week_text)
+        manual_needs_update = _lrr_answer_needs_update(manual_text)
+
+        if tools_needs_update:
+            tools_update_count += 1
+            reason = tools_reason or tools_text
+            if reason and len(reasons["tools_and_technologies"]) < 10:
+                reasons["tools_and_technologies"].append(
+                    {
+                        "course": submission.course.code,
+                        "text": _truncate_cqi_excerpt(reason, 200),
+                    }
+                )
+        if week_needs_update:
+            week_update_count += 1
+            reason = week_reason or week_text
+            if reason and len(reasons["week_wise_distribution"]) < 10:
+                reasons["week_wise_distribution"].append(
+                    {
+                        "course": submission.course.code,
+                        "text": _truncate_cqi_excerpt(reason, 200),
+                    }
+                )
+        if manual_needs_update:
+            manual_update_count += 1
+            reason = manual_reason or manual_text
+            if reason and len(reasons["lab_manuals"]) < 10:
+                reasons["lab_manuals"].append(
+                    {
+                        "course": submission.course.code,
+                        "text": _truncate_cqi_excerpt(reason, 200),
+                    }
+                )
+
+        faculty_name = (
+            (submission.faculty.get_full_name() or "").strip()
+            or submission.faculty.username
+        )
+        rows.append(
+            {
+                "sr": index,
+                "course_code": submission.course.code,
+                "course_title": submission.course.title,
+                "course_label": f"{submission.course.code} — {submission.course.title}",
+                "faculty": faculty_name,
+                "section": submission.section or "N/A",
+                "tools_update": "Yes" if tools_needs_update else "No",
+                "week_wise_update": "Yes" if week_needs_update else "No",
+                "lab_manual_update": "Yes" if manual_needs_update else "No",
+                "tools_reason": _truncate_cqi_excerpt(tools_reason or "", 140),
+                "week_reason": _truncate_cqi_excerpt(week_reason or "", 140),
+                "manual_reason": _truncate_cqi_excerpt(manual_reason or "", 140),
+                "prerequisite": _truncate_cqi_excerpt(prerequisite_text, 160),
+            }
+        )
+
+    chart = {
+        "title": "Summary of Lab Reviews",
+        "y_label": "Number of labs",
+        "x_label": "Recommendation Type",
+        "labels": (
+            [
+                "Tools and Technologies",
+                "Week-wise Distribution",
+                "Lab Manuals",
+            ]
+            if rows
+            else []
+        ),
+        "data": (
+            [tools_update_count, week_update_count, manual_update_count]
+            if rows
+            else []
+        ),
+        "colors": ["#2563eb", "#16a34a", "#f59e0b"],
+        "series_label": "Series1",
+    }
+
+    summary = {
+        "labs_reviewed": len(rows),
+        "tools_and_technologies": tools_update_count,
+        "week_wise_distribution": week_update_count,
+        "lab_manuals": manual_update_count,
+    }
+
+    return {
+        "title": "Table 05: Summary of Lab Reviews (LRR)",
+        "source": (
+            "LRR Form — tools & technologies; week-wise lab schedule; lab manual; "
+            "counts labs where answer indicates modification/update is required (No)"
+        ),
+        "rows": rows,
+        "summary": summary,
+        "reasons": reasons,
+        "chart": chart,
+        "included": bool(rows),
+    }
+
+
 def _get_submission_answers_by_order(submission):
     """Map question.order -> FormAnswer for a submission."""
     by_order = {}
@@ -5778,11 +6319,13 @@ def _course_clo_not_attained_flags(ccr_submission):
 
 def build_cqi_evidence_tables(filtered_submissions_queryset):
     """
-    Build Table 01–03 from real CCR/CRR answers:
+    Build Table 01–05 from real CCR/CRR/LRR answers:
 
     - Table 01: CCR Q2/Q3/Q4 recommendation-to-update flags
     - Table 02: CCR Q1 HEC accordance
-    - Table 03: CRR outcomes where CLOs not attained (+ CCR CLO flags)
+    - Table 03: CCR SMART CLO criteria where CLOs not attained
+    - Table 04: CRR faculty feedback (outcomes, coverage, recommendations)
+    - Table 05: LRR Summary of Lab Reviews (tools, week-wise, lab manuals)
     """
     submissions = list(
         filtered_submissions_queryset.filter(status__in=["submitted", "approved"])
@@ -5983,6 +6526,9 @@ def build_cqi_evidence_tables(filtered_submissions_queryset):
         "colors": ["#ef4444", "#f97316", "#eab308", "#dc2626"],
     }
 
+    table_04 = build_crr_analysis_tables(filtered_submissions_queryset)
+    table_05 = build_lrr_lab_reviews_analysis(filtered_submissions_queryset)
+
     return {
         "table_01": {
             "title": "Table 01: Recommendation to Update Course Materials (CCR Q2–Q4)",
@@ -6003,6 +6549,8 @@ def build_cqi_evidence_tables(filtered_submissions_queryset):
             "chart": table_03_chart,
             "included": bool(table_03_rows),
         },
+        "table_04": table_04,
+        "table_05": table_05,
     }
 
 
@@ -6011,6 +6559,7 @@ def build_cqi_tables_markdown(cqi_tables):
     table_01 = cqi_tables.get("table_01") or {}
     table_02 = cqi_tables.get("table_02") or {}
     table_03 = cqi_tables.get("table_03") or {}
+    table_04 = cqi_tables.get("table_04") or {}
 
     lines = []
     lines.append(f"### {table_01.get('title', 'Table 01')}")
@@ -6063,6 +6612,69 @@ def build_cqi_tables_markdown(cqi_tables):
             "_No CCR submissions in this window indicated that CLOs were not attained; Table 03 is omitted._"
         )
         lines.append("")
+
+    lines.append(f"### {table_04.get('title', 'Table 04: Course Review Report (CRR) Faculty Feedback Analysis')}")
+    lines.append("")
+    summary = table_04.get("summary") or {}
+    if summary:
+        lines.append(
+            f"_CRR submissions: **{summary.get('total_crr_submissions', 0)}** · "
+            f"CLO met Yes/No/Partial: **{summary.get('clo_outcomes_yes', 0)}** / "
+            f"**{summary.get('clo_outcomes_no', 0)}** / **{summary.get('clo_outcomes_partial', 0)}** · "
+            f"Content covered Yes/No/Partial: **{summary.get('content_covered_yes', 0)}** / "
+            f"**{summary.get('content_covered_no', 0)}** / **{summary.get('content_covered_partial', 0)}**._"
+        )
+        lines.append("")
+    lines.append(
+        "| Sr | Course | Faculty | Section | CLO Outcomes Met | Reason (if No) | Content Covered | Recommendations |"
+    )
+    lines.append("| ---: | --- | --- | --- | :---: | --- | :---: | --- |")
+    for row in table_04.get("rows") or []:
+        lines.append(
+            f"| {row['sr']} | {row['course_label']} | {row.get('faculty', 'N/A')} | "
+            f"{row.get('section', 'N/A')} | {row.get('clo_outcomes_met', 'N/A')} | "
+            f"{(row.get('clo_reason') or '—').replace('|', '/')} | "
+            f"{row.get('content_covered', 'N/A')} | "
+            f"{(row.get('recommendations') or '—').replace('|', '/')} |"
+        )
+    if not table_04.get("rows"):
+        lines.append(
+            "| — | _No CRR faculty feedback submissions in this window._ | | | | | | |"
+        )
+    lines.append("")
+
+    table_05 = cqi_tables.get("table_05") or {}
+    lines.append(f"### {table_05.get('title', 'Table 05: Summary of Lab Reviews (LRR)')}")
+    lines.append("")
+    summary = table_05.get("summary") or {}
+    chart = table_05.get("chart") or {}
+    if summary or chart:
+        lines.append(
+            f"_Labs reviewed: **{summary.get('labs_reviewed', 0)}**. "
+            f"Labs needing update — Tools and Technologies: **{summary.get('tools_and_technologies', 0)}**, "
+            f"Week-wise Distribution: **{summary.get('week_wise_distribution', 0)}**, "
+            f"Lab Manuals: **{summary.get('lab_manuals', 0)}**._"
+        )
+        lines.append("")
+    lines.append(
+        "| Sr | Lab Course | Faculty | Tools & Technologies | Week-wise Distribution | Lab Manual | Pre-requisite notes |"
+    )
+    lines.append("| ---: | --- | --- | :---: | :---: | :---: | --- |")
+    for row in table_05.get("rows") or []:
+        lines.append(
+            f"| {row['sr']} | {row['course_label']} | {row.get('faculty', 'N/A')} | "
+            f"{row.get('tools_update', 'N/A')} | {row.get('week_wise_update', 'N/A')} | "
+            f"{row.get('lab_manual_update', 'N/A')} | "
+            f"{(row.get('prerequisite') or '—').replace('|', '/')} |"
+        )
+    if not table_05.get("rows"):
+        lines.append("| — | _No LRR lab review submissions in this window._ | | | | | |")
+    lines.append("")
+    lines.append(
+        "_Yes in Table 05 means an update/modification is recommended for that area "
+        "(faculty answered No to the corresponding LRR question)._"
+    )
+    lines.append("")
 
     return "\n".join(lines)
 
@@ -6222,6 +6834,147 @@ def build_cqi_tables_html(cqi_tables):
             '<p style="color:#64748b;"><em>No CCR submissions indicated unattained CLOs in this period — table omitted.</em></p>'
         )
 
+    table_04 = cqi_tables.get("table_04") or {}
+    parts.append(f"<h3>{html_module.escape(table_04.get('title', 'Table 04: Course Review Report (CRR) Faculty Feedback Analysis'))}</h3>")
+    parts.append(
+        f'<p style="color:#64748b;font-size:0.85rem;"><em>Source: {html_module.escape(table_04.get("source", "CRR Form"))}</em></p>'
+    )
+    summary = table_04.get("summary") or {}
+    if summary:
+        parts.append(
+            '<div style="display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 12px;">'
+            f'<span style="background:#ede9fe;color:#5b21b6;padding:4px 10px;border-radius:999px;font-size:12px;">'
+            f'CRR submissions: {summary.get("total_crr_submissions", 0)}</span>'
+            f'<span style="background:#dcfce7;color:#166534;padding:4px 10px;border-radius:999px;font-size:12px;">'
+            f'CLO met (Yes): {summary.get("clo_outcomes_yes", 0)}</span>'
+            f'<span style="background:#fee2e2;color:#991b1b;padding:4px 10px;border-radius:999px;font-size:12px;">'
+            f'CLO not met (No): {summary.get("clo_outcomes_no", 0)}</span>'
+            f'<span style="background:#ffedd5;color:#9a3412;padding:4px 10px;border-radius:999px;font-size:12px;">'
+            f'Content gaps: {summary.get("content_covered_no", 0) + summary.get("content_covered_partial", 0)}</span>'
+            "</div>"
+        )
+
+    def status_badge(value):
+        text = html_module.escape(str(value or "N/A"))
+        if value == "Yes":
+            return f'<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:#dcfce7;color:#166534;font-weight:600;">{text}</span>'
+        if value == "No":
+            return f'<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:#fee2e2;color:#991b1b;font-weight:600;">{text}</span>'
+        if value == "Partial":
+            return f'<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:#ffedd5;color:#9a3412;font-weight:600;">{text}</span>'
+        return f'<span style="color:#64748b;">{text}</span>'
+
+    parts.append(
+        '<table border="1" cellpadding="8" cellspacing="0" width="100%" '
+        'style="border-collapse:collapse;width:100%;font-size:12px;margin:12px 0 24px;">'
+        '<thead><tr style="background:#f8fafc;">'
+        '<th style="text-align:left;">Sr.</th>'
+        '<th style="text-align:left;">Course</th>'
+        '<th style="text-align:left;">Faculty</th>'
+        '<th style="text-align:left;">Section</th>'
+        '<th style="text-align:center;">CLO Outcomes Met</th>'
+        '<th style="text-align:left;">Reason (if No)</th>'
+        '<th style="text-align:center;">Content Covered</th>'
+        '<th style="text-align:left;">Recommendations</th>'
+        "</tr></thead><tbody>"
+    )
+    for row in table_04.get("rows") or []:
+        parts.append(
+            "<tr>"
+            f"<td>{row.get('sr', '')}</td>"
+            f"<td><strong>{html_module.escape(row.get('course_code') or '')}</strong><br/>"
+            f"{html_module.escape(row.get('course_title') or '')}</td>"
+            f"<td>{html_module.escape(str(row.get('faculty') or 'N/A'))}</td>"
+            f"<td>{html_module.escape(str(row.get('section') or 'N/A'))}</td>"
+            f"<td style='text-align:center;'>{status_badge(row.get('clo_outcomes_met'))}</td>"
+            f"<td>{html_module.escape(row.get('clo_reason') or '—')}</td>"
+            f"<td style='text-align:center;'>{status_badge(row.get('content_covered'))}</td>"
+            f"<td>{html_module.escape(row.get('recommendations') or '—')}</td>"
+            "</tr>"
+        )
+    if not table_04.get("rows"):
+        parts.append(
+            '<tr><td colspan="8" style="text-align:center;color:#64748b;">'
+            "No CRR faculty feedback submissions in this period."
+            "</td></tr>"
+        )
+    parts.append("</tbody></table>")
+
+    table_05 = cqi_tables.get("table_05") or {}
+    chart = table_05.get("chart") or {}
+    summary = table_05.get("summary") or {}
+    parts.append(
+        f"<h3>{html_module.escape(table_05.get('title', 'Table 05: Summary of Lab Reviews (LRR)'))}</h3>"
+    )
+    parts.append(
+        f'<p style="color:#64748b;font-size:0.85rem;"><em>Source: {html_module.escape(table_05.get("source", "LRR Form"))}. '
+        "Yes = update/modification recommended (faculty answered No).</em></p>"
+    )
+    if chart.get("labels"):
+        labels = chart.get("labels") or []
+        values = chart.get("data") or []
+        colors = chart.get("colors") or ["#2563eb", "#16a34a", "#f59e0b"]
+        parts.append(
+            '<div style="margin:16px 0 20px;padding:16px;border:1px solid #e2e8f0;border-radius:12px;background:#fff;">'
+            f'<div style="text-align:center;font-weight:700;font-size:16px;margin-bottom:12px;">'
+            f'{html_module.escape(chart.get("title") or "Summary of Lab Reviews")}</div>'
+            '<table border="1" cellpadding="8" cellspacing="0" width="100%" '
+            'style="border-collapse:collapse;width:100%;font-size:13px;text-align:center;">'
+            "<thead><tr style=\"background:#f8fafc;\">"
+            + "".join(
+                f"<th style='background:{colors[i % len(colors)]};color:#fff;'>"
+                f"{html_module.escape(str(labels[i]))}</th>"
+                for i in range(len(labels))
+            )
+            + "</tr></thead><tbody><tr>"
+            + "".join(
+                f"<td style='font-size:22px;font-weight:700;color:{colors[i % len(colors)]};'>"
+                f"{values[i] if i < len(values) else 0}</td>"
+                for i in range(len(labels))
+            )
+            + "</tr><tr style='background:#f8fafc;color:#64748b;font-size:12px;'>"
+            + "".join("<td>Number of labs</td>" for _ in labels)
+            + "</tr></tbody></table>"
+            f'<p style="text-align:center;color:#64748b;font-size:12px;margin-top:8px;">'
+            f'Figure: {html_module.escape(chart.get("title") or "Summary of Lab Reviews")} '
+            f'(labs reviewed: {summary.get("labs_reviewed", 0)})</p>'
+            "</div>"
+        )
+
+    parts.append(
+        '<table border="1" cellpadding="8" cellspacing="0" width="100%" '
+        'style="border-collapse:collapse;width:100%;font-size:12px;margin:12px 0 24px;">'
+        '<thead><tr style="background:#f8fafc;">'
+        '<th style="text-align:left;">Sr.</th>'
+        '<th style="text-align:left;">Lab Course</th>'
+        '<th style="text-align:left;">Faculty</th>'
+        '<th style="text-align:center;">Tools &amp; Technologies</th>'
+        '<th style="text-align:center;">Week-wise Distribution</th>'
+        '<th style="text-align:center;">Lab Manual</th>'
+        '<th style="text-align:left;">Pre-requisite notes</th>'
+        "</tr></thead><tbody>"
+    )
+    for row in table_05.get("rows") or []:
+        parts.append(
+            "<tr>"
+            f"<td>{row.get('sr', '')}</td>"
+            f"<td><strong>{html_module.escape(row.get('course_code') or '')}</strong><br/>"
+            f"{html_module.escape(row.get('course_title') or '')}</td>"
+            f"<td>{html_module.escape(str(row.get('faculty') or 'N/A'))}</td>"
+            f"<td style='text-align:center;'>{badge(row.get('tools_update'))}</td>"
+            f"<td style='text-align:center;'>{badge(row.get('week_wise_update'))}</td>"
+            f"<td style='text-align:center;'>{badge(row.get('lab_manual_update'))}</td>"
+            f"<td>{html_module.escape(row.get('prerequisite') or '—')}</td>"
+            "</tr>"
+        )
+    if not table_05.get("rows"):
+        parts.append(
+            '<tr><td colspan="7" style="text-align:center;color:#64748b;">'
+            "No LRR lab review submissions in this period."
+            "</td></tr>"
+        )
+    parts.append("</tbody></table>")
+
     parts.append("</div>")
     return "\n".join(parts)
 
@@ -6366,8 +7119,17 @@ def collect_data_for_ai(course_id, time_period):
     data["course_review_summary"] = course_review_summary
     data["clo_analysis"] = build_clo_analysis_for_cqi_submissions(filtered_submissions)
     data["cqi_tables"] = build_cqi_evidence_tables(filtered_submissions)
+    data["crr_analysis"] = data["cqi_tables"].get("table_04") or {}
+    data["lab_reviews_analysis"] = data["cqi_tables"].get("table_05") or {}
     data["cqi_tables_markdown"] = build_cqi_tables_markdown(data["cqi_tables"])
     data["cqi_tables_html"] = build_cqi_tables_html(data["cqi_tables"])
+
+    crr_count = filtered_submissions.filter(dynamic_form__form_type="crr").count()
+    ccr_count = filtered_submissions.filter(dynamic_form__form_type="ccr").count()
+    lrr_count = filtered_submissions.filter(dynamic_form__form_type="lrr").count()
+    data["statistics"]["crr_submissions"] = crr_count
+    data["statistics"]["ccr_submissions"] = ccr_count
+    data["statistics"]["lrr_submissions"] = lrr_count
 
     data["submissions"] = []
     submissions_list = list(
@@ -6465,17 +7227,21 @@ REQUIRED MARKDOWN STRUCTURE (headings must match):
 - State how many courses appear in `course_review_summary` (and labs if distinguishable).
 
 ### Evidence tables (already computed — do not invent rows)
-- Professional Tables 01–03 are pre-built from real CCR/CRR answers in `cqi_tables` and
+- Professional Tables 01–05 are pre-built from real CCR/CRR/LRR answers in `cqi_tables` and
   `cqi_tables_markdown`. The system injects them into the report HTML automatically.
 - Discuss findings from:
   - `cqi_tables.table_01` (CCR Q2–Q4 recommendation to update content/tools, week-wise, textbook)
   - `cqi_tables.table_02` (CCR Q1 HEC matched / not matched / not available)
   - `cqi_tables.table_03` (CCR Q6–Q13 SMART CLO criteria; CLOs with average score < 70% flagged as not attained; omit discussion if `included` is false)
+  - `cqi_tables.table_04` / `crr_analysis` (CRR faculty feedback: CLO outcomes met Yes/No + reasons, content coverage, recommendations, support strategies)
+  - `cqi_tables.table_05` / `lab_reviews_analysis` (LRR: Summary of Lab Reviews — tools & technologies, week-wise distribution, lab manuals; chart counts labs needing update when faculty answered No)
 - If `new_courses_detected` is non-empty, add a short markdown table: Sr | Courses.
   Otherwise state that no new courses were flagged.
 
 ## Summary of course and lab reviews
-- Narrative comparing CCR vs CRR coverage using `statistics` and `course_review_summary`.
+- Narrative comparing CCR vs CRR vs LRR coverage using `statistics` and `course_review_summary`.
+- Discuss Table 05 / `lab_reviews_analysis.summary` and the "Summary of Lab Reviews" chart
+  (number of labs needing updates for tools, week-wise schedule, and lab manuals).
 
 ## Accordance with HEC curriculum / course materials
 - Narrative on HEC alignment using `cqi_tables.table_02` and outline notes; do not claim
@@ -6483,13 +7249,20 @@ REQUIRED MARKDOWN STRUCTURE (headings must match):
 
 ## Status of CLOs
 - Interpret `clo_analysis`; highlight CLOs below 70% as requiring correction.
+- Cross-reference faculty "CLO not met" reasons from `crr_analysis.themes.clo_not_met_reasons`.
 
 ## Course Review Report (CRR)
 - Introduce the CRR form with bullets: Overall performance of students; Course Outcomes; Coverage
   of course contents; Strategy to support underperforming students; Suggested improvements for
   effective course conduct.
-- Use `statistics` and submission list for response counts where possible.
-- Reference Table 03 when `cqi_tables.table_03.included` is true.
+- Use `crr_analysis.summary` counts and Table 04 rows.
+- Summarize themes from `crr_analysis.themes`:
+  - student performance comments
+  - CLO-not-met reasons (especially when faculty selected No)
+  - content coverage issues
+  - support strategies for underperforming students
+  - recommendations to improve course outcomes
+- Reference Table 03 when `cqi_tables.table_03.included` is true for quantitative CLO gaps.
 
 ## Closing and next steps
 - Short conclusion and 3–5 concrete next steps for the CRC.
@@ -6521,11 +7294,74 @@ def generate_fallback_report(context_data, report_type):
     outline_count = len(context_data.get("course_outlines") or context_data.get("outlines") or [])
     # Professional HTML tables are prepended separately in the API response.
     evidence_pointer = (
-        "Professional **Tables 01–03** are generated from live CCR/CRR answers and are shown "
+        "Professional **Tables 01–05** are generated from live CCR/CRR/LRR answers and are shown "
         "in the Evidence Tables section at the top of this report "
         "(Table 01: recommendation to update; Table 02: HEC accordance; "
-        "Table 03: CLO not attained when applicable)."
+        "Table 03: CLO not attained when applicable; "
+        "Table 04: CRR faculty feedback on outcomes, coverage, and recommendations; "
+        "Table 05: Summary of Lab Reviews from LRR)."
     )
+
+    crr = context_data.get("crr_analysis") or (context_data.get("cqi_tables") or {}).get("table_04") or {}
+    crr_summary = crr.get("summary") or {}
+    crr_themes = crr.get("themes") or {}
+
+    lab = (
+        context_data.get("lab_reviews_analysis")
+        or (context_data.get("cqi_tables") or {}).get("table_05")
+        or {}
+    )
+    lab_summary = lab.get("summary") or {}
+    lab_reasons = lab.get("reasons") or {}
+
+    def _theme_bullets(items, empty_note):
+        if not items:
+            return empty_note
+        return "\n".join(
+            f"- **{item.get('course', 'Course')}**: {item.get('text', '')}"
+            for item in items[:8]
+        )
+
+    crr_section = f"""## Course Review Report (CRR)
+
+CRR faculty feedback analyzed from **{crr_summary.get('total_crr_submissions', 0)}** submission(s).
+
+- CLO outcomes met — Yes/No/Partial: **{crr_summary.get('clo_outcomes_yes', 0)}** / **{crr_summary.get('clo_outcomes_no', 0)}** / **{crr_summary.get('clo_outcomes_partial', 0)}**
+- Content covered — Yes/No/Partial: **{crr_summary.get('content_covered_yes', 0)}** / **{crr_summary.get('content_covered_no', 0)}** / **{crr_summary.get('content_covered_partial', 0)}**
+- Recommendations captured: **{crr_summary.get('recommendations_count', 0)}**
+- Support strategies captured: **{crr_summary.get('support_strategies_count', 0)}**
+
+### CLO not-met reasons
+{_theme_bullets(crr_themes.get('clo_not_met_reasons') or [], '_No CLO-not-met reasons were recorded._')}
+
+### Content coverage issues
+{_theme_bullets(crr_themes.get('content_coverage_issues') or [], '_No content-coverage issues were flagged._')}
+
+### Recommendations
+{_theme_bullets(crr_themes.get('recommendations') or [], '_No CRR recommendations were submitted in this window._')}
+"""
+
+    lab_section = f"""## Summary of Lab Reviews (LRR)
+
+Lab reviews analyzed from **{lab_summary.get('labs_reviewed', 0)}** lab course(s) (latest LRR per course).
+
+**Figure — Summary of Lab Reviews** (number of labs needing update):
+
+| Recommendation Type | Number of labs |
+| --- | ---: |
+| Tools and Technologies | {lab_summary.get('tools_and_technologies', 0)} |
+| Week-wise Distribution | {lab_summary.get('week_wise_distribution', 0)} |
+| Lab Manuals | {lab_summary.get('lab_manuals', 0)} |
+
+### Tools & technologies — modification notes
+{_theme_bullets(lab_reasons.get('tools_and_technologies') or [], '_No tools/technologies updates were flagged._')}
+
+### Week-wise distribution — modification notes
+{_theme_bullets(lab_reasons.get('week_wise_distribution') or [], '_No week-wise schedule updates were flagged._')}
+
+### Lab manuals — modification notes
+{_theme_bullets(lab_reasons.get('lab_manuals') or [], '_No lab manual updates were flagged._')}
+"""
 
     new_courses_list = context_data.get("new_courses_detected", [])
     if new_courses_list:
@@ -6558,7 +7394,7 @@ Automated fallback CQI narrative ({depth}) generated **{datetime.now().strftime(
 
 {scope_note}
 
-The Curriculum Review Committee (CRC) monitors continuous quality improvement using ACQIP CCR and CRR workflows. In the selected period the system recorded **{total}** CCR/CRR submissions (**{approved}** approved, **{approval_pct:.1f}%** approval rate), **{stats.get("pending_submissions", 0)}** pending CRC review, and **{stats.get("revision_requests", 0)}** revision requests.
+The Curriculum Review Committee (CRC) monitors continuous quality improvement using ACQIP CCR, CRR, and LRR workflows. In the selected period the system recorded **{total}** form submissions (**{approved}** approved, **{approval_pct:.1f}%** approval rate), **{stats.get("pending_submissions", 0)}** pending CRC review, and **{stats.get("revision_requests", 0)}** revision requests (LRR: **{stats.get("lrr_submissions", 0)}**).
 
 1. Exit survey — *Not available unless referenced in form text.*
 2. Alumni survey — *Not available unless referenced in form text.*
@@ -6581,18 +7417,24 @@ The Course Contents Review (CCR) form supports structured review of materials ac
 
 ## Summary of course and lab reviews
 
-CCR and CRR coverage for this window is summarized in the evidence tables and statistics above. **Outline records available:** {outline_count}.
+CCR, CRR, and LRR coverage for this window is summarized in the evidence tables and statistics above. **Outline records available:** {outline_count}.
+
+{lab_section}
 
 ## Status of CLOs
 
 {clo_section}
+
+{crr_section}
 
 ## Closing and next steps
 
 1. Follow up on courses marked **Yes** for recommendation-to-update in Table 01.
 2. Review HEC gaps marked in Table 02 with course coordinators.
 3. Address unattained CLOs listed in Table 03 (when present) through targeted remediation.
-4. Resolve pending and revision-requested submissions in ACQIP.
+4. Act on CRR Table 04 items where CLO outcomes were **No** or content was not fully covered.
+5. Act on LRR Table 05 labs flagged for tools, week-wise schedule, or lab-manual updates.
+6. Resolve pending and revision-requested submissions in ACQIP.
 
 ---
 _Cover metadata: **{institution}**, **{department}**, **{year}**._
@@ -6788,7 +7630,7 @@ def _add_cqi_evidence_tables_to_docx(document, cqi_tables):
     if not cqi_tables:
         return
 
-    document.add_heading("Evidence Tables (CCR / CRR Form Answers)", level=2)
+    document.add_heading("Evidence Tables (CCR / CRR / LRR Form Answers)", level=2)
 
     table_01 = cqi_tables.get("table_01") or {}
     document.add_heading(table_01.get("title", "Table 01"), level=3)
@@ -6908,6 +7750,130 @@ def _add_cqi_evidence_tables_to_docx(document, cqi_tables):
         note.runs[0].italic = True
     document.add_paragraph("")
 
+    table_04 = cqi_tables.get("table_04") or {}
+    document.add_heading(
+        table_04.get(
+            "title",
+            "Table 04: Course Review Report (CRR) Faculty Feedback Analysis",
+        ),
+        level=3,
+    )
+    source_paragraph = document.add_paragraph(
+        f"Source: {table_04.get('source', 'CRR Form')}"
+    )
+    source_paragraph.runs[0].italic = True
+    source_paragraph.runs[0].font.size = Pt(9)
+    summary = table_04.get("summary") or {}
+    if summary:
+        summary_paragraph = document.add_paragraph(
+            f"CRR submissions: {summary.get('total_crr_submissions', 0)} | "
+            f"CLO met Yes/No/Partial: {summary.get('clo_outcomes_yes', 0)}/"
+            f"{summary.get('clo_outcomes_no', 0)}/{summary.get('clo_outcomes_partial', 0)} | "
+            f"Content covered Yes/No/Partial: {summary.get('content_covered_yes', 0)}/"
+            f"{summary.get('content_covered_no', 0)}/{summary.get('content_covered_partial', 0)}"
+        )
+        summary_paragraph.runs[0].font.size = Pt(9)
+
+    rows = table_04.get("rows") or []
+    word_table = document.add_table(rows=1 + max(len(rows), 1), cols=8)
+    word_table.style = "Table Grid"
+    for index, label in enumerate(
+        [
+            "Sr.",
+            "Course",
+            "Faculty",
+            "Section",
+            "CLO Outcomes Met",
+            "Reason (if No)",
+            "Content Covered",
+            "Recommendations",
+        ]
+    ):
+        word_table.rows[0].cells[index].text = label
+    if rows:
+        for row_offset, row in enumerate(rows):
+            cells = word_table.rows[row_offset + 1].cells
+            cells[0].text = str(row.get("sr", ""))
+            cells[1].text = row.get("course_label") or ""
+            cells[2].text = str(row.get("faculty") or "N/A")
+            cells[3].text = str(row.get("section") or "N/A")
+            cells[4].text = str(row.get("clo_outcomes_met") or "N/A")
+            cells[5].text = row.get("clo_reason") or "—"
+            cells[6].text = str(row.get("content_covered") or "N/A")
+            cells[7].text = row.get("recommendations") or "—"
+    else:
+        word_table.rows[1].cells[0].text = "No CRR faculty feedback submissions in this period."
+        word_table.rows[1].cells[0].merge(word_table.rows[1].cells[7])
+    document.add_paragraph("")
+
+    table_05 = cqi_tables.get("table_05") or {}
+    document.add_heading(
+        table_05.get("title", "Table 05: Summary of Lab Reviews (LRR)"),
+        level=3,
+    )
+    source_paragraph = document.add_paragraph(
+        f"Source: {table_05.get('source', 'LRR Form')}"
+    )
+    source_paragraph.runs[0].italic = True
+    source_paragraph.runs[0].font.size = Pt(9)
+    summary = table_05.get("summary") or {}
+    if summary:
+        summary_paragraph = document.add_paragraph(
+            f"Labs reviewed: {summary.get('labs_reviewed', 0)} | "
+            f"Tools & Technologies needing update: {summary.get('tools_and_technologies', 0)} | "
+            f"Week-wise Distribution: {summary.get('week_wise_distribution', 0)} | "
+            f"Lab Manuals: {summary.get('lab_manuals', 0)}"
+        )
+        summary_paragraph.runs[0].font.size = Pt(9)
+
+    chart = table_05.get("chart") or {}
+    chart_labels = chart.get("labels") or [
+        "Tools and Technologies",
+        "Week-wise Distribution",
+        "Lab Manuals",
+    ]
+    chart_data = chart.get("data") or [0, 0, 0]
+    summary_table = document.add_table(rows=2, cols=1 + len(chart_labels))
+    summary_table.style = "Table Grid"
+    summary_table.rows[0].cells[0].text = "Series1"
+    summary_table.rows[1].cells[0].text = "Number of labs"
+    for index, label in enumerate(chart_labels):
+        summary_table.rows[0].cells[index + 1].text = label
+        value = chart_data[index] if index < len(chart_data) else 0
+        summary_table.rows[1].cells[index + 1].text = str(value)
+    document.add_paragraph("Figure: Summary of Lab Reviews")
+    document.add_paragraph("")
+
+    rows = table_05.get("rows") or []
+    word_table = document.add_table(rows=1 + max(len(rows), 1), cols=7)
+    word_table.style = "Table Grid"
+    for index, label in enumerate(
+        [
+            "Sr.",
+            "Lab Course",
+            "Faculty",
+            "Tools & Tech Update",
+            "Week-wise Update",
+            "Lab Manual Update",
+            "Pre-requisite Notes",
+        ]
+    ):
+        word_table.rows[0].cells[index].text = label
+    if rows:
+        for row_offset, row in enumerate(rows):
+            cells = word_table.rows[row_offset + 1].cells
+            cells[0].text = str(row.get("sr", ""))
+            cells[1].text = row.get("course_label") or ""
+            cells[2].text = str(row.get("faculty") or "N/A")
+            cells[3].text = str(row.get("tools_update") or "N/A")
+            cells[4].text = str(row.get("week_wise_update") or "N/A")
+            cells[5].text = str(row.get("lab_manual_update") or "N/A")
+            cells[6].text = row.get("prerequisite") or "—"
+    else:
+        word_table.rows[1].cells[0].text = "No LRR lab review submissions in this period."
+        word_table.rows[1].cells[0].merge(word_table.rows[1].cells[6])
+    document.add_paragraph("")
+
 
 @login_required
 @user_passes_test(is_admin_or_crc)
@@ -7023,6 +7989,8 @@ def api_cqi_report_docx(request):
     table_01_image = _decode_chart_image_bytes(chart_images.get("table_01_recommendations"))
     table_02_image = _decode_chart_image_bytes(chart_images.get("table_02_hec"))
     table_03_image = _decode_chart_image_bytes(chart_images.get("table_03_clo_gaps"))
+    table_04_image = _decode_chart_image_bytes(chart_images.get("table_04_crr_feedback"))
+    table_05_image = _decode_chart_image_bytes(chart_images.get("table_05_lab_reviews"))
     corrections_image = _decode_chart_image_bytes(chart_images.get("required_clo_corrections"))
 
     if any(
@@ -7033,6 +8001,8 @@ def api_cqi_report_docx(request):
             table_01_image,
             table_02_image,
             table_03_image,
+            table_04_image,
+            table_05_image,
             corrections_image,
         ]
     ):
@@ -7046,6 +8016,8 @@ def api_cqi_report_docx(request):
         (table_01_image, "Figure 5 — Graph of Table 01 (Recommendation to Update)"),
         (table_02_image, "Figure 6 — Graph of Table 02 (HEC Accordance)"),
         (table_03_image, "Figure 7 — Graph of Table 03 (CLO Not Attained)"),
+        (table_04_image, "Figure 8 — Graph of Table 04 (CRR Faculty Feedback)"),
+        (table_05_image, "Figure 9 — Summary of Lab Reviews (Table 05)"),
     ]
     for image_bytes, caption_text in chart_figure_specs:
         if not image_bytes:

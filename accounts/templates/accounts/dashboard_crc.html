@@ -696,6 +696,8 @@
         table01: null,
         table02: null,
         table03: null,
+        table04: null,
+        table05: null,
       };
       const crcOutlineState = {
         selectedCourse: null,
@@ -8080,7 +8082,7 @@
           <div class="mb-10">
             <div class="flex items-center justify-between mb-4">
               <h3 class="text-lg font-semibold text-gray-900">Analytical Figures</h3>
-              <span class="text-xs text-gray-500">Auto-generated from CCR/CRR form data</span>
+              <span class="text-xs text-gray-500">Auto-generated from CCR/CRR/LRR form data</span>
             </div>
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
               <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
@@ -8114,6 +8116,21 @@
                 <h4 class="text-sm font-medium text-gray-800 mb-3">Figure 6 — Graph of Table 03</h4>
                 <div class="h-56"><canvas id="cqi-table03-chart"></canvas></div>
                 <p id="cqi-table03-chart-empty" class="hidden text-center text-xs text-gray-500 mt-2">No unattained CLO rows (table omitted).</p>
+              </div>
+            </div>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+              <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                <h4 class="text-sm font-medium text-gray-800 mb-3">Figure 7 — Graph of Table 04 (CRR Feedback)</h4>
+                <div class="h-56"><canvas id="cqi-table04-chart"></canvas></div>
+                <p id="cqi-table04-chart-empty" class="hidden text-center text-xs text-gray-500 mt-2">No CRR faculty feedback in this period.</p>
+              </div>
+              <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                <h4 class="text-sm font-medium text-gray-800 mb-3">Figure 8 — Summary of Lab Reviews (Table 05)</h4>
+                <p class="text-xs text-center text-gray-600 font-semibold mb-1">Summary of Lab Reviews</p>
+                <div class="h-64"><canvas id="cqi-table05-chart"></canvas></div>
+                <div id="cqi-table05-data-table" class="mt-3 overflow-x-auto"></div>
+                <p id="cqi-table05-chart-empty" class="hidden text-center text-xs text-gray-500 mt-2">No LRR lab reviews in this period.</p>
+                <p class="text-xs text-center text-gray-500 mt-2 italic">Figure 8: Summary of Lab Reviews</p>
               </div>
             </div>
           </div>`;
@@ -8395,6 +8412,132 @@
           "bar",
           "Sections with CLO not attained",
         );
+        renderSimpleBarOrDoughnut(
+          "cqi-table04-chart",
+          "cqi-table04-chart-empty",
+          "table04",
+          chartData.table_04_crr_feedback || {},
+          "bar",
+          "CRR feedback counts",
+        );
+
+        const labReviews = chartData.table_05_lab_reviews || {};
+        const labCanvas = document.getElementById("cqi-table05-chart");
+        const labEmpty = document.getElementById("cqi-table05-chart-empty");
+        const labTableEl = document.getElementById("cqi-table05-data-table");
+        if (labCanvas) {
+          const labels = labReviews.labels || [
+            "Tools and Technologies",
+            "Week-wise Distribution",
+            "Lab Manuals",
+          ];
+          const values = labReviews.data || [];
+          const colors = labReviews.colors || ["#2563eb", "#16a34a", "#f59e0b"];
+          const hasLabRows = Array.isArray(labels) && labels.length > 0;
+
+          if (!hasLabRows) {
+            labCanvas.style.display = "none";
+            if (labEmpty) labEmpty.classList.remove("hidden");
+            if (labTableEl) labTableEl.innerHTML = "";
+          } else {
+            labCanvas.style.display = "block";
+            if (labEmpty) labEmpty.classList.add("hidden");
+            const yMax = Math.max(3.5, ...values.map((v) => Number(v) || 0));
+            cqiReportChartInstances.table05 = new Chart(labCanvas.getContext("2d"), {
+              type: "bar",
+              data: {
+                labels,
+                datasets: [
+                  {
+                    label: labReviews.series_label || "Series1",
+                    data: values,
+                    backgroundColor: colors,
+                    borderColor: colors,
+                    borderWidth: 1,
+                    maxBarThickness: 72,
+                  },
+                ],
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                  legend: {
+                    display: true,
+                    position: "bottom",
+                    labels: { boxWidth: 12 },
+                  },
+                  title: {
+                    display: false,
+                  },
+                  tooltip: {
+                    callbacks: {
+                      label: (context) =>
+                        `${context.dataset.label}: ${context.parsed.y}`,
+                    },
+                  },
+                },
+                scales: {
+                  x: {
+                    title: {
+                      display: true,
+                      text: labReviews.x_label || "Recommendation Type",
+                      font: { size: 11 },
+                    },
+                    ticks: {
+                      maxRotation: 0,
+                      minRotation: 0,
+                      font: { size: 10 },
+                    },
+                  },
+                  y: {
+                    beginAtZero: true,
+                    max: yMax,
+                    title: {
+                      display: true,
+                      text: labReviews.y_label || "Number of labs",
+                      font: { size: 11 },
+                    },
+                    ticks: { precision: 0, stepSize: 0.5 },
+                  },
+                },
+              },
+            });
+
+            if (labTableEl) {
+              const headerCells = labels
+                .map(
+                  (label, index) =>
+                    `<th class="border border-gray-300 px-2 py-1.5 text-center font-medium text-gray-800" style="border-top:3px solid ${colors[index] || "#64748b"}">${label}</th>`,
+                )
+                .join("");
+              const valueCells = labels
+                .map(
+                  (_, index) =>
+                    `<td class="border border-gray-300 px-2 py-1.5 text-center font-semibold text-gray-900">${values[index] ?? 0}</td>`,
+                )
+                .join("");
+              labTableEl.innerHTML = `
+                <table class="w-full text-xs border-collapse bg-white">
+                  <thead>
+                    <tr>
+                      <th class="border border-gray-300 px-2 py-1.5 text-left bg-slate-50">
+                        <span class="inline-block w-2.5 h-2.5 rounded-sm mr-1 align-middle" style="background:#2563eb"></span>
+                        Series1
+                      </th>
+                      ${headerCells}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td class="border border-gray-300 px-2 py-1.5 text-left text-gray-600">Number of labs</td>
+                      ${valueCells}
+                    </tr>
+                  </tbody>
+                </table>`;
+            }
+          }
+        }
       }
 
       function captureCqiChartImage(chartInstance) {
@@ -8570,6 +8713,12 @@
             table_02_hec: captureCqiChartImage(cqiReportChartInstances.table02),
             table_03_clo_gaps: captureCqiChartImage(
               cqiReportChartInstances.table03,
+            ),
+            table_04_crr_feedback: captureCqiChartImage(
+              cqiReportChartInstances.table04,
+            ),
+            table_05_lab_reviews: captureCqiChartImage(
+              cqiReportChartInstances.table05,
             ),
           };
 
