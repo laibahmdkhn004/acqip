@@ -3241,7 +3241,20 @@
                     )
                     .join("")
                 : '<p class="text-sm text-gray-400">No options configured</p>'
-            }</div>`;
+            }</div>
+            ${
+              radioOptions.some((option) => String(option).trim().toLowerCase() === "no")
+                ? `
+              <div class="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <label class="block text-sm font-medium text-amber-900 mb-1">
+                  Please provide a reason <span class="text-red-500">*</span>
+                </label>
+                <textarea disabled rows="3" class="w-full border border-amber-300 rounded-lg p-2 text-sm bg-white" placeholder="Shown when faculty selects No..."></textarea>
+                <p class="text-xs text-amber-700 mt-1">This reason field appears only when the faculty member selects No.</p>
+              </div>
+            `
+                : ""
+            }`;
             break;
           }
           case "checkbox": {
@@ -4563,12 +4576,27 @@
             .map((key) => `${key}: ${cloData[key]}%`)
             .join(", ");
         }
-        if (answer.answer_text) return answer.answer_text;
+        if (answer.answer_text) {
+          const reason =
+            answer.answer_data &&
+            typeof answer.answer_data === "object" &&
+            !Array.isArray(answer.answer_data)
+              ? answer.answer_data.reason
+              : null;
+          return reason
+            ? `${answer.answer_text}\nReason: ${reason}`
+            : answer.answer_text;
+        }
         if (answer.answer_data) {
           if (Array.isArray(answer.answer_data)) {
             return answer.answer_data.join(", ");
           }
           if (typeof answer.answer_data === "object") {
+            if (answer.answer_data.value !== undefined) {
+              return answer.answer_data.reason
+                ? `${answer.answer_data.value}\nReason: ${answer.answer_data.reason}`
+                : String(answer.answer_data.value);
+            }
             return Object.entries(answer.answer_data)
               .map(([key, value]) => `${key}: ${value}`)
               .join(", ");
@@ -4576,6 +4604,51 @@
           return String(answer.answer_data);
         }
         return "No answer provided";
+      }
+
+      function formatSubmissionAnswerHtml(answer) {
+        if (answer.question_type === "clo_percentage") {
+          return formatCLOPercentageAnswer(answer);
+        }
+
+        const reason =
+          answer.answer_data &&
+          typeof answer.answer_data === "object" &&
+          !Array.isArray(answer.answer_data)
+            ? answer.answer_data.reason
+            : null;
+        let mainAnswer = "";
+        if (answer.answer_text) {
+          mainAnswer = answer.answer_text;
+        } else if (answer.answer_data) {
+          if (Array.isArray(answer.answer_data)) {
+            mainAnswer = answer.answer_data.join(", ");
+          } else if (typeof answer.answer_data === "object") {
+            if (answer.answer_data.value !== undefined) {
+              mainAnswer = String(answer.answer_data.value);
+            } else {
+              mainAnswer = formatObjectAnswer(answer.answer_data);
+            }
+          } else {
+            mainAnswer = String(answer.answer_data);
+          }
+        }
+
+        if (!mainAnswer && !reason) {
+          return '<div class="text-gray-400 italic">No answer provided</div>';
+        }
+
+        let html = `<div class="bg-gray-50 p-3 rounded"><div class="font-medium text-gray-800">${mainAnswer || "—"}</div>`;
+        if (reason) {
+          html += `
+            <div class="mt-2 pt-2 border-t border-gray-200">
+              <div class="text-xs font-medium text-amber-800 uppercase tracking-wide mb-1">Reason</div>
+              <div class="text-gray-700 whitespace-pre-wrap">${reason}</div>
+            </div>
+          `;
+        }
+        html += `</div>`;
+        return html;
       }
 
       function buildFormSubmissionPrintHtml(submission) {
@@ -4730,46 +4803,20 @@
                         <div class="space-y-4 max-h-96 overflow-y-auto">
                             ${submission.answers
                               .map((answer, index) => {
-                                // Check if this is a CLO percentage question
                                 const isCLOPercentage =
                                   answer.question_type === "clo_percentage";
-
-                                let answerDisplay = "";
-                                if (isCLOPercentage) {
-                                  // Handle CLO percentage display
-                                  answerDisplay =
-                                    formatCLOPercentageAnswer(answer);
-                                } else if (answer.answer_text) {
-                                  answerDisplay = answer.answer_text;
-                                } else if (answer.answer_data) {
-                                  if (Array.isArray(answer.answer_data)) {
-                                    answerDisplay =
-                                      answer.answer_data.join(", ");
-                                  } else if (
-                                    typeof answer.answer_data === "object"
-                                  ) {
-                                    answerDisplay = formatObjectAnswer(
-                                      answer.answer_data,
-                                    );
-                                  } else {
-                                    answerDisplay = String(answer.answer_data);
-                                  }
-                                }
+                                const answerDisplay = isCLOPercentage
+                                  ? formatCLOPercentageAnswer(answer)
+                                  : formatSubmissionAnswerHtml(answer);
 
                                 return `
                                 <div class="border border-gray-200 rounded-lg p-4">
                                     <h6 class="font-medium text-gray-900 mb-2">${index + 1}. ${answer.question_text || "Question"}</h6>
                                     <div class="text-sm text-gray-600">
                                         ${
-                                          answerDisplay
-                                            ? `
-                                            <div class="${isCLOPercentage ? "" : "bg-gray-50 p-3 rounded"}">
-                                                ${answerDisplay}
-                                            </div>
-                                        `
-                                            : `
-                                            <div class="text-gray-400 italic">No answer provided</div>
-                                        `
+                                          isCLOPercentage
+                                            ? `<div>${answerDisplay}</div>`
+                                            : answerDisplay
                                         }
                                     </div>
                                 </div>
@@ -6136,11 +6183,43 @@
       }
 
       function formatAnswerForDisplay(answer) {
+        const reason =
+          answer.answer_data &&
+          typeof answer.answer_data === "object" &&
+          !Array.isArray(answer.answer_data)
+            ? answer.answer_data.reason
+            : null;
+
+        if (answer.answer_text) {
+          let html = `<div>${escapeHtml(answer.answer_text).replace(/\n/g, "<br>")}</div>`;
+          if (reason) {
+            html += `
+              <div class="mt-2 pt-2 border-t border-gray-200">
+                <div class="text-xs font-medium text-amber-800 mb-1">Reason</div>
+                <div class="whitespace-pre-wrap">${escapeHtml(String(reason))}</div>
+              </div>
+            `;
+          }
+          return html;
+        }
+
         if (answer.answer_data !== null && answer.answer_data !== undefined) {
           if (
             typeof answer.answer_data === "object" &&
             !Array.isArray(answer.answer_data)
           ) {
+            if (answer.answer_data.value !== undefined) {
+              let html = `<div>${escapeHtml(String(answer.answer_data.value))}</div>`;
+              if (reason) {
+                html += `
+                  <div class="mt-2 pt-2 border-t border-gray-200">
+                    <div class="text-xs font-medium text-amber-800 mb-1">Reason</div>
+                    <div class="whitespace-pre-wrap">${escapeHtml(String(reason))}</div>
+                  </div>
+                `;
+              }
+              return html;
+            }
             const entries = Object.entries(answer.answer_data);
             if (entries.length === 0) {
               return "<span class=\"text-gray-400\">No answer</span>";
@@ -6161,9 +6240,6 @@
               .join("")}</ul>`;
           }
           return escapeHtml(String(answer.answer_data));
-        }
-        if (answer.answer_text) {
-          return escapeHtml(answer.answer_text).replace(/\n/g, "<br>");
         }
         if (answer.has_file && answer.file_url) {
           return `<a href="${answer.file_url}" target="_blank" class="text-blue-600 hover:underline"><i class="fas fa-paperclip mr-1"></i>Download attachment</a>`;

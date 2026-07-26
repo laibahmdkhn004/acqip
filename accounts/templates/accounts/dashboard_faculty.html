@@ -2927,8 +2927,17 @@
             .join(", ");
         }
 
+        const reason =
+          answer.answer_data &&
+          typeof answer.answer_data === "object" &&
+          !Array.isArray(answer.answer_data)
+            ? answer.answer_data.reason
+            : null;
+
         if (answer.answer_text) {
-          return answer.answer_text;
+          return reason
+            ? `${answer.answer_text}\nReason: ${reason}`
+            : answer.answer_text;
         }
 
         if (answer.answer_data) {
@@ -2936,6 +2945,11 @@
             return answer.answer_data.join(", ");
           }
           if (typeof answer.answer_data === "object") {
+            if (answer.answer_data.value !== undefined) {
+              return answer.answer_data.reason
+                ? `${answer.answer_data.value}\nReason: ${answer.answer_data.reason}`
+                : String(answer.answer_data.value);
+            }
             return Object.entries(answer.answer_data)
               .map(([key, value]) => `${key}: ${value}`)
               .join(", ");
@@ -2944,6 +2958,49 @@
         }
 
         return "No answer provided";
+      }
+
+      function formatSubmissionAnswerHtml(answer) {
+        if (answer.question_type === "clo_percentage") {
+          return formatCLOPercentageAnswer(answer);
+        }
+
+        const reason =
+          answer.answer_data &&
+          typeof answer.answer_data === "object" &&
+          !Array.isArray(answer.answer_data)
+            ? answer.answer_data.reason
+            : null;
+        const mainAnswer =
+          answer.answer_text ||
+          (answer.answer_data &&
+          typeof answer.answer_data === "object" &&
+          !Array.isArray(answer.answer_data) &&
+          answer.answer_data.value !== undefined
+            ? String(answer.answer_data.value)
+            : Array.isArray(answer.answer_data)
+              ? answer.answer_data.join(", ")
+              : answer.answer_data
+                ? typeof answer.answer_data === "object"
+                  ? formatObjectAnswer(answer.answer_data)
+                  : String(answer.answer_data)
+                : "");
+
+        if (!mainAnswer && !reason) {
+          return '<div class="text-gray-400 italic">No answer provided</div>';
+        }
+
+        let html = `<div class="bg-gray-50 p-3 rounded"><div class="font-medium text-gray-800">${mainAnswer || "—"}</div>`;
+        if (reason) {
+          html += `
+            <div class="mt-2 pt-2 border-t border-gray-200">
+              <div class="text-xs font-medium text-amber-800 uppercase tracking-wide mb-1">Reason</div>
+              <div class="text-gray-700 whitespace-pre-wrap">${reason}</div>
+            </div>
+          `;
+        }
+        html += `</div>`;
+        return html;
       }
 
       function buildSubmissionPrintHtml(submission) {
@@ -3153,33 +3210,16 @@
         if (submission.answers && submission.answers.length > 0) {
           html += `<div class="space-y-6">`;
           submission.answers.forEach((answer, index) => {
-            // Check if this is a CLO percentage question
             const isCLOPercentage = answer.question_type === "clo_percentage";
-
-            let answerDisplay = "";
-            if (isCLOPercentage) {
-              answerDisplay = formatCLOPercentageAnswer(answer);
-            } else if (answer.answer_text) {
-              answerDisplay = answer.answer_text;
-            } else if (answer.answer_data) {
-              if (Array.isArray(answer.answer_data)) {
-                answerDisplay = answer.answer_data.join(", ");
-              } else if (typeof answer.answer_data === "object") {
-                answerDisplay = formatObjectAnswer(answer.answer_data);
-              } else {
-                answerDisplay = String(answer.answer_data);
-              }
-            }
+            const answerDisplay = isCLOPercentage
+              ? `<div>${formatCLOPercentageAnswer(answer)}</div>`
+              : formatSubmissionAnswerHtml(answer);
 
             html += `
                 <div class="border border-gray-200 rounded-lg p-4">
                     <h6 class="font-medium text-gray-900 mb-2">${index + 1}. ${answer.question_text || "Question"}</h6>
                     <div class="text-sm text-gray-600">
-                        ${
-                          answerDisplay
-                            ? `<div class="${isCLOPercentage ? "" : "bg-gray-50 p-3 rounded"}">${answerDisplay}</div>`
-                            : '<div class="text-gray-400 italic">No answer provided</div>'
-                        }
+                        ${answerDisplay}
                     </div>
                 </div>
             `;
@@ -3393,33 +3433,16 @@
         if (submission.answers && submission.answers.length > 0) {
           html += `<div class="space-y-6">`;
           submission.answers.forEach((answer, index) => {
-            // Check if this is a CLO percentage question
             const isCLOPercentage = answer.question_type === "clo_percentage";
-
-            let answerDisplay = "";
-            if (isCLOPercentage) {
-              answerDisplay = formatCLOPercentageAnswer(answer);
-            } else if (answer.answer_text) {
-              answerDisplay = answer.answer_text;
-            } else if (answer.answer_data) {
-              if (Array.isArray(answer.answer_data)) {
-                answerDisplay = answer.answer_data.join(", ");
-              } else if (typeof answer.answer_data === "object") {
-                answerDisplay = formatObjectAnswer(answer.answer_data);
-              } else {
-                answerDisplay = String(answer.answer_data);
-              }
-            }
+            const answerDisplay = isCLOPercentage
+              ? `<div>${formatCLOPercentageAnswer(answer)}</div>`
+              : formatSubmissionAnswerHtml(answer);
 
             html += `
                 <div class="border border-gray-200 rounded-lg p-4">
                     <h6 class="font-medium text-gray-900 mb-2">${index + 1}. ${answer.question_text || "Question"}</h6>
                     <div class="text-sm text-gray-600">
-                        ${
-                          answerDisplay
-                            ? `<div class="${isCLOPercentage ? "" : "bg-gray-50 p-3 rounded"}">${answerDisplay}</div>`
-                            : '<div class="text-gray-400 italic">No answer provided</div>'
-                        }
+                        ${answerDisplay}
                     </div>
                 </div>
             `;

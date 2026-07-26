@@ -1581,7 +1581,20 @@ def api_submit_dynamic_form(request):
             for question_id, answer_value in answers.items():
                 try:
                     question = FormQuestion.objects.get(id=question_id, form=form)
-                    if isinstance(answer_value, (list, dict)):
+                    if (
+                        isinstance(answer_value, dict)
+                        and 'value' in answer_value
+                    ):
+                        # Radio (or similar) answer with optional reason when "No"
+                        reason = str(answer_value.get('reason') or '').strip()
+                        selected_value = answer_value.get('value')
+                        FormAnswer.objects.create(
+                            submission=submission,
+                            question=question,
+                            answer_text=str(selected_value) if selected_value is not None else "",
+                            answer_data={'reason': reason} if reason else None,
+                        )
+                    elif isinstance(answer_value, (list, dict)):
                         FormAnswer.objects.create(
                             submission=submission,
                             question=question,
@@ -2403,6 +2416,16 @@ def _format_submission_answer_for_pdf(answer):
     if isinstance(answer_data, list):
         return ", ".join(str(item) for item in answer_data) or "No answer provided"
     if isinstance(answer_data, dict):
+        reason = str(answer_data.get('reason') or '').strip()
+        if answer_text and reason:
+            return f"{answer_text}\nReason: {reason}"
+        if 'value' in answer_data:
+            value = answer_data.get('value')
+            if reason:
+                return f"{value}\nReason: {reason}"
+            return str(value) if value is not None else (answer_text or "No answer provided")
+        if reason and answer_text:
+            return f"{answer_text}\nReason: {reason}"
         return ", ".join(f"{key}: {value}" for key, value in answer_data.items()) or (
             answer_text or "No answer provided"
         )
