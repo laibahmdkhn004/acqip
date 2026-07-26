@@ -40,6 +40,27 @@ def is_admin_or_crc(user):
     return user.is_authenticated and user.role in [User.ROLE_ADMIN, User.ROLE_CRC_MEMBER]
 
 
+UNIVERSAL_FORM_TYPES = ['ccr', 'crr', 'lrr']
+COURSE_ASSIGNEE_ROLES = [User.ROLE_FACULTY, User.ROLE_LAB_INSTRUCTOR]
+
+
+def is_faculty_or_lab_instructor(user):
+    return user.is_authenticated and user.role in COURSE_ASSIGNEE_ROLES
+
+
+def user_can_access_form_type(user, form_type):
+    """Role rules for filling/submitting each form type."""
+    if form_type == 'lrr':
+        return user.role == User.ROLE_LAB_INSTRUCTOR
+    if form_type in ('ccr', 'crr'):
+        return user.role == User.ROLE_FACULTY
+    return False
+
+
+def course_assignee_users_qs():
+    return User.objects.filter(role__in=COURSE_ASSIGNEE_ROLES)
+
+
 def course_catalogue_file_payload(course):
     """Return catalogue file metadata for a course."""
     if not course.catalogue_file:
@@ -52,6 +73,23 @@ def course_catalogue_file_payload(course):
         'has_catalogue_file': True,
         'catalogue_file_name': os.path.basename(course.catalogue_file.name),
         'catalogue_download_url': reverse('api_course_catalogue_download', args=[course.id]),
+    }
+
+
+def submission_file_payload(submission):
+    """Return uploaded review-form file metadata for a submission."""
+    if not submission.uploaded_file:
+        return {
+            'submission_mode': getattr(submission, 'submission_mode', 'form') or 'form',
+            'has_uploaded_file': False,
+            'uploaded_file_name': None,
+            'uploaded_file_url': None,
+        }
+    return {
+        'submission_mode': getattr(submission, 'submission_mode', 'file') or 'file',
+        'has_uploaded_file': True,
+        'uploaded_file_name': os.path.basename(submission.uploaded_file.name),
+        'uploaded_file_url': reverse('api_submission_file_download', args=[submission.id]),
     }
 
 
@@ -416,7 +454,7 @@ def api_courses_create(request):
             section_ids = assignment.get('section_ids', assignment.get('section', []))
 
             if faculty_id:
-                faculty = User.objects.get(id=faculty_id, role=User.ROLE_FACULTY)
+                faculty = User.objects.get(id=faculty_id, role__in=COURSE_ASSIGNEE_ROLES)
                 course_faculty = CourseFaculty.objects.create(
                     course=course,
                     faculty=faculty,
@@ -549,7 +587,7 @@ def api_assign_course_faculty(request, course_id):
             
             if faculty_id:
                 try:
-                    faculty = User.objects.get(id=faculty_id, role=User.ROLE_FACULTY)
+                    faculty = User.objects.get(id=faculty_id, role__in=COURSE_ASSIGNEE_ROLES)
                     course_faculty = CourseFaculty.objects.create(
                         course=course,
                         faculty=faculty,
@@ -590,7 +628,7 @@ def api_course_delete(request, course_id):
 def api_assign_courses_to_faculty(request, user_id):
     try:
         data = json.loads(request.body)
-        faculty_member = User.objects.get(id=user_id, role=User.ROLE_FACULTY)
+        faculty_member = User.objects.get(id=user_id, role__in=COURSE_ASSIGNEE_ROLES)
         course_ids = data.get('course_ids', [])
         coordinator_info = data.get('coordinator_info', {}) or {}
         section_info = data.get('section_info', {}) or {}
@@ -665,7 +703,7 @@ def api_assign_courses_to_faculty(request, user_id):
 # Faculty Dashboard API
 @login_required
 def api_faculty_courses(request):
-    if request.user.role != User.ROLE_FACULTY:
+    if not is_faculty_or_lab_instructor(request.user):
         return JsonResponse({'error': 'Access denied'}, status=403)
     
     course_assignments = CourseFaculty.objects.filter(faculty=request.user).select_related(
@@ -710,7 +748,7 @@ def api_publish_form(request, form_id):
         form = DynamicForm.objects.get(id=form_id)
         
         # Check if form type is valid (only CCR or CRR)
-        if form.form_type not in ['ccr', 'crr']:
+        if form.form_type not in UNIVERSAL_FORM_TYPES:
             return JsonResponse({'error': 'Cannot publish non-CCR/CRR forms'}, status=400)
         
         # REMOVED: No longer deactivating other forms of the same type
@@ -742,7 +780,7 @@ def api_unpublish_form(request, form_id):
         form = DynamicForm.objects.get(id=form_id)
         
         # Check if form type is valid (only CCR or CRR)
-        if form.form_type not in ['ccr', 'crr']:
+        if form.form_type not in UNIVERSAL_FORM_TYPES:
             return JsonResponse({'error': 'Cannot unpublish non-CCR/CRR forms'}, status=400)
         
         form.status = 'inactive'
@@ -803,7 +841,7 @@ def api_form_delete(request, form_id):
 def api_dynamic_forms(request):
     """Get all dynamic forms (ONLY UNIVERSAL CCR/CRR)"""
     forms = list(DynamicForm.objects.filter(
-        form_type__in=['ccr', 'crr']  # Only universal forms
+        form_type__in=UNIVERSAL_FORM_TYPES  # Only universal forms
     ).values('id', 'name', 'description', 'form_type', 'status', 'created_at'))
     return JsonResponse(forms, safe=False)
 
@@ -1017,13 +1055,15 @@ def api_dynamic_submissions(request):
 @login_required
 @require_http_methods(["GET"])
 def api_faculty_dynamic_forms(request):
-    """Get active forms for faculty - UNIVERSAL FORMS"""
-    if request.user.role != User.ROLE_FACULTY:
+    """Get active forms for faculty / lab instructors - UNIVERSAL FORMS"""
+    if not is_faculty_or_lab_instructor(request.user):
         return JsonResponse({'error': 'Access denied'}, status=403)
     
     try:
-        form_type = request.GET.get('form_type')  # 'ccr' or 'crr'
+        form_type = request.GET.get('form_type')  # 'ccr', 'crr', or 'lrr'
         course_id = request.GET.get('course_id')
+        form_id = request.GET.get('form_id')
+        submission_id = request.GET.get('submission_id')
         
         # If course_id is provided but form_type is not, try to determine form_type
         if course_id and not form_type:
@@ -1032,8 +1072,11 @@ def api_faculty_dynamic_forms(request):
                     faculty=request.user,
                     course_id=course_id
                 )
-                # If user is coordinator, default to CCR, otherwise CRR
-                form_type = 'ccr' if course_assignment.is_coordinator else 'crr'
+                if request.user.role == User.ROLE_LAB_INSTRUCTOR:
+                    form_type = 'lrr'
+                else:
+                    # If user is coordinator, default to CCR, otherwise CRR
+                    form_type = 'ccr' if course_assignment.is_coordinator else 'crr'
             except CourseFaculty.DoesNotExist:
                 return JsonResponse({'error': 'Course not assigned to you'}, status=400)
         
@@ -1041,8 +1084,13 @@ def api_faculty_dynamic_forms(request):
             return JsonResponse({'error': 'form_type is required'}, status=400)
         
         # Validate form type
-        if form_type not in ['ccr', 'crr']:
-            return JsonResponse({'error': 'Invalid form type. Must be "ccr" or "crr"'}, status=400)
+        if form_type not in UNIVERSAL_FORM_TYPES:
+            return JsonResponse({'error': 'Invalid form type. Must be "ccr", "crr", or "lrr"'}, status=400)
+
+        if not user_can_access_form_type(request.user, form_type):
+            return JsonResponse({
+                'error': f'Your role cannot access {form_type.upper()} forms',
+            }, status=403)
         
         # Check if user can access this form type
         if form_type == 'ccr':
@@ -1052,12 +1100,33 @@ def api_faculty_dynamic_forms(request):
             ).exists()
             if not is_coordinator_for_any:
                 return JsonResponse({'error': 'Only course coordinators can access CCR forms'}, status=403)
+
+        # Editing an existing draft/revision can load that specific form even if unpublished
+        editing_submission = None
+        if submission_id:
+            try:
+                editing_submission = DynamicFormSubmission.objects.select_related(
+                    'dynamic_form'
+                ).get(
+                    id=submission_id,
+                    faculty=request.user,
+                    status__in=['draft', 'revision_requested'],
+                )
+                form_id = form_id or str(editing_submission.dynamic_form_id)
+                form_type = editing_submission.dynamic_form.form_type
+            except DynamicFormSubmission.DoesNotExist:
+                return JsonResponse({
+                    'error': 'Editable submission not found',
+                }, status=404)
         
-        # Get ALL active forms of the appropriate type
-        active_forms = DynamicForm.objects.filter(
-            status=DynamicForm.STATUS_ACTIVE,
-            form_type=form_type
-        )
+        # Get forms of the appropriate type (active, or the specific form being edited)
+        active_forms = DynamicForm.objects.filter(form_type=form_type)
+        if editing_submission and form_id:
+            active_forms = active_forms.filter(id=form_id)
+        else:
+            active_forms = active_forms.filter(status=DynamicForm.STATUS_ACTIVE)
+            if form_id:
+                active_forms = active_forms.filter(id=form_id)
         
         if not active_forms.exists():
             return JsonResponse({
@@ -1065,7 +1134,7 @@ def api_faculty_dynamic_forms(request):
                 'message': f'No active {form_type.upper()} form available'
             })
         
-        # Get all courses assigned to this faculty
+        # Get all courses assigned to this user
         course_assignments = CourseFaculty.objects.filter(
             faculty=request.user
         ).select_related('course').prefetch_related('sections').order_by('course__code')
@@ -1085,7 +1154,7 @@ def api_faculty_dynamic_forms(request):
             course_payload.update(course_faculty_section_payload(assignment))
             assigned_courses.append(course_payload)
         
-        # Get questions for ALL active forms
+        # Get questions for matching forms
         forms_with_questions = []
         for form in active_forms:
             questions = list(FormQuestion.objects.filter(form=form).order_by('order').values(
@@ -1115,12 +1184,12 @@ def api_faculty_dynamic_forms(request):
 @login_required
 @require_http_methods(["GET"])
 def api_form_availability(request):
-    """Check which universal forms (CCR/CRR) are available for faculty"""
-    if request.user.role != User.ROLE_FACULTY:
+    """Check which universal forms (CCR/CRR/LRR) are available for the current user"""
+    if not is_faculty_or_lab_instructor(request.user):
         return JsonResponse({'error': 'Access denied'}, status=403)
     
     try:
-        # Get ALL active forms for CCR and CRR
+        # Get ALL active forms for each type
         ccr_forms = list(DynamicForm.objects.filter(
             status=DynamicForm.STATUS_ACTIVE,
             form_type='ccr'
@@ -1130,12 +1199,19 @@ def api_form_availability(request):
             status=DynamicForm.STATUS_ACTIVE,
             form_type='crr'
         ).values('id', 'name', 'description', 'created_at').order_by('-created_at'))
+
+        lrr_forms = list(DynamicForm.objects.filter(
+            status=DynamicForm.STATUS_ACTIVE,
+            form_type='lrr'
+        ).values('id', 'name', 'description', 'created_at').order_by('-created_at'))
         
         # Check if user is coordinator for ANY course
         is_coordinator_for_any = CourseFaculty.objects.filter(
             faculty=request.user,
             is_coordinator=True
         ).exists()
+        is_lab_instructor = request.user.role == User.ROLE_LAB_INSTRUCTOR
+        is_faculty = request.user.role == User.ROLE_FACULTY
         
         # Get assigned courses
         course_assignments = CourseFaculty.objects.filter(
@@ -1151,18 +1227,27 @@ def api_form_availability(request):
                 'is_coordinator': assignment.is_coordinator,
                 'section': assignment.section_display(),
                 'forms_available': {
-                    'ccr': ccr_forms if assignment.is_coordinator else [],
-                    'crr': crr_forms
+                    'ccr': ccr_forms if (is_faculty and assignment.is_coordinator) else [],
+                    'crr': crr_forms if is_faculty else [],
+                    'lrr': lrr_forms if is_lab_instructor else [],
                 }
             })
         
         return JsonResponse({
             'active_forms': {
-                'ccr': ccr_forms,
-                'crr': crr_forms
+                'ccr': ccr_forms if is_faculty else [],
+                'crr': crr_forms if is_faculty else [],
+                'lrr': lrr_forms if is_lab_instructor else [],
             },
-            'user_can_submit_ccr': len(ccr_forms) > 0 and is_coordinator_for_any,
-            'user_can_submit_crr': len(crr_forms) > 0,
+            'global_availability': {
+                'ccr': is_faculty and len(ccr_forms) > 0,
+                'crr': is_faculty and len(crr_forms) > 0,
+                'lrr': is_lab_instructor and len(lrr_forms) > 0,
+            },
+            'user_can_submit_ccr': is_faculty and len(ccr_forms) > 0 and is_coordinator_for_any,
+            'user_can_submit_crr': is_faculty and len(crr_forms) > 0,
+            'user_can_submit_lrr': is_lab_instructor and len(lrr_forms) > 0,
+            'user_role': request.user.role,
             'courses': courses_data,
             'status': 'success'
         })
@@ -1171,9 +1256,11 @@ def api_form_availability(request):
         return JsonResponse({
             'error': str(e),
             'status': 'error',
-            'active_forms': {'ccr': [], 'crr': []},
+            'active_forms': {'ccr': [], 'crr': [], 'lrr': []},
+            'global_availability': {'ccr': False, 'crr': False, 'lrr': False},
             'user_can_submit_ccr': False,
             'user_can_submit_crr': False,
+            'user_can_submit_lrr': False,
             'courses': []
         }, status=400)
 
@@ -1182,24 +1269,65 @@ def api_form_availability(request):
 @csrf_exempt
 @require_http_methods(["POST"])
 def api_submit_dynamic_form(request):
-    """Submit UNIVERSAL form (CCR/CRR) for a specific course section"""
-    if request.user.role != User.ROLE_FACULTY:
+    """Submit UNIVERSAL form (CCR/CRR/LRR) as filled answers OR an uploaded file."""
+    if not is_faculty_or_lab_instructor(request.user):
         return JsonResponse({'error': 'Access denied'}, status=403)
     
     try:
-        data = json.loads(request.body)
+        content_type = (request.content_type or '').lower()
+        is_multipart = content_type.startswith('multipart/form-data')
+
+        if is_multipart:
+            data = request.POST
+            uploaded_file = request.FILES.get('uploaded_file')
+            answers_raw = data.get('answers', '{}')
+            try:
+                answers = json.loads(answers_raw) if answers_raw else {}
+            except (TypeError, ValueError, json.JSONDecodeError):
+                answers = {}
+        else:
+            data = json.loads(request.body)
+            uploaded_file = None
+            answers = data.get('answers', {}) or {}
+
         course_id = data.get('course_id')
-        form_id = data.get('form_id')  # Now form_id is required since multiple forms
+        form_id = data.get('form_id')
         section_id = data.get('section_id')
-        answers = data.get('answers', {})
-        status = data.get('status', 'draft')  # 'draft' or 'submitted'
-        
-        print(f"Form submission attempt: user={request.user.username}, course_id={course_id}, form_id={form_id}, section_id={section_id}, status={status}")
-        
+        submission_id = data.get('submission_id')
+        status = data.get('status', 'draft')
+        submission_mode = (data.get('submission_mode') or DynamicFormSubmission.MODE_FORM).strip().lower()
+        if submission_mode not in (
+            DynamicFormSubmission.MODE_FORM,
+            DynamicFormSubmission.MODE_FILE,
+        ):
+            submission_mode = DynamicFormSubmission.MODE_FORM
+
+        if uploaded_file:
+            submission_mode = DynamicFormSubmission.MODE_FILE
+
         if not form_id:
             return JsonResponse({'error': 'form_id is required. Multiple forms may be active.'}, status=400)
+
+        editing_submission = None
+        if submission_id:
+            try:
+                editing_submission = DynamicFormSubmission.objects.select_related(
+                    'dynamic_form', 'assigned_section', 'course'
+                ).get(id=submission_id, faculty=request.user)
+            except DynamicFormSubmission.DoesNotExist:
+                return JsonResponse({'error': 'Submission not found'}, status=404)
+
+            if editing_submission.status not in ('draft', 'revision_requested'):
+                return JsonResponse({
+                    'error': 'Only draft or revision-requested submissions can be edited.',
+                    'status': editing_submission.status,
+                }, status=400)
+
+            course_id = course_id or editing_submission.course_id
+            form_id = form_id or editing_submission.dynamic_form_id
+            if not section_id and editing_submission.assigned_section_id:
+                section_id = editing_submission.assigned_section_id
         
-        # Validate course assignment
         try:
             course_assignment = CourseFaculty.objects.prefetch_related('sections').get(
                 faculty=request.user,
@@ -1208,21 +1336,22 @@ def api_submit_dynamic_form(request):
         except CourseFaculty.DoesNotExist:
             return JsonResponse({'error': 'Course not assigned to you'}, status=400)
         
-        # Get the SPECIFIC UNIVERSAL form
         try:
-            form = DynamicForm.objects.get(id=form_id, form_type__in=['ccr', 'crr'])
+            form = DynamicForm.objects.get(id=form_id, form_type__in=UNIVERSAL_FORM_TYPES)
         except DynamicForm.DoesNotExist:
             return JsonResponse({'error': 'Form not found or not a universal form'}, status=404)
         
-        # Check if form is active
-        if form.status != 'active':
+        if form.status != 'active' and not editing_submission:
             return JsonResponse({'error': 'Form is not active'}, status=400)
+
+        if not user_can_access_form_type(request.user, form.form_type):
+            return JsonResponse({
+                'error': f'Your role cannot submit {form.form_type.upper()} forms',
+            }, status=403)
         
-        # Check if form type matches coordinator status
         if form.form_type == 'ccr' and not course_assignment.is_coordinator:
             return JsonResponse({'error': 'Only course coordinators can submit CCR forms'}, status=403)
         
-        # Get course
         course = Course.objects.get(id=course_id)
 
         assigned_section = None
@@ -1245,19 +1374,17 @@ def api_submit_dynamic_form(request):
                     'error': 'Selected section is not assigned to you for this course.',
                 }, status=400)
         elif section_id:
-            # Faculty has no sections on assignment; ignore unexpected section_id
             section_id = None
         
-        # Check if already submitted for this course + section
-        existing_submission = DynamicFormSubmission.objects.filter(
-            faculty=request.user,
-            course_id=course_id,
-            dynamic_form=form,
-            assigned_section=assigned_section,
-        ).first()
+        existing_submission = editing_submission
+        if not existing_submission:
+            existing_submission = DynamicFormSubmission.objects.filter(
+                faculty=request.user,
+                course_id=course_id,
+                dynamic_form=form,
+                assigned_section=assigned_section,
+            ).first()
         
-        # Allow resubmission if in draft or revision requested status
-        # Only block if trying to submit when already submitted
         if existing_submission and existing_submission.status == 'submitted' and status == 'submitted':
             section_label = assigned_section.code if assigned_section else 'this course'
             return JsonResponse({
@@ -1265,26 +1392,27 @@ def api_submit_dynamic_form(request):
                 'submission_id': existing_submission.id,
                 'status': existing_submission.status
             }, status=400)
+
+        if submission_mode == DynamicFormSubmission.MODE_FILE:
+            if not uploaded_file and not (
+                existing_submission and existing_submission.uploaded_file
+            ):
+                return JsonResponse({
+                    'error': 'Please upload a file to submit.',
+                }, status=400)
         
         section_code = assigned_section.code if assigned_section else ''
 
-        # Create or update submission
         if existing_submission:
             submission = existing_submission
             submission.status = status
             submission.assigned_section = assigned_section
             submission.section = section_code
-            
-            # Update submission date if submitting (not draft)
+            submission.submission_mode = submission_mode
             if status == 'submitted':
                 submission.submission_date = datetime.now()
-            
-            submission.save()
-            
-            # Delete existing answers
-            FormAnswer.objects.filter(submission=submission).delete()
         else:
-            submission = DynamicFormSubmission.objects.create(
+            submission = DynamicFormSubmission(
                 dynamic_form=form,
                 faculty=request.user,
                 course=course,
@@ -1293,42 +1421,58 @@ def api_submit_dynamic_form(request):
                 course_coordinator=request.user.username if course_assignment.is_coordinator else "",
                 is_coordinator=course_assignment.is_coordinator,
                 section=section_code,
+                submission_mode=submission_mode,
                 status=status,
                 submission_date=datetime.now() if status == 'submitted' else None
             )
-        
-        # Create answers
-        for question_id, answer_value in answers.items():
-            try:
-                question = FormQuestion.objects.get(id=question_id, form=form)
-                
-                # Handle different answer types
-                if isinstance(answer_value, (list, dict)):
-                    FormAnswer.objects.create(
-                        submission=submission,
-                        question=question,
-                        answer_text="",
-                        answer_data=answer_value
-                    )
-                else:
-                    FormAnswer.objects.create(
-                        submission=submission,
-                        question=question,
-                        answer_text=str(answer_value) if answer_value is not None else "",
-                        answer_data=None
-                    )
-            except FormQuestion.DoesNotExist:
-                print(f"Warning: Question {question_id} not found in form {form_id}")
-                continue
-        
-        return JsonResponse({
-            'message': f'Form {"submitted" if status == "submitted" else "saved as draft"} successfully!',
+
+        if submission_mode == DynamicFormSubmission.MODE_FILE:
+            if uploaded_file:
+                if submission.uploaded_file:
+                    submission.uploaded_file.delete(save=False)
+                submission.uploaded_file = uploaded_file
+            FormAnswer.objects.filter(submission=submission).delete() if submission.pk else None
+            submission.save()
+        else:
+            # Form answers mode: clear previous file if switching away from file upload
+            if submission.uploaded_file:
+                submission.uploaded_file.delete(save=False)
+                submission.uploaded_file = None
+            submission.save()
+            FormAnswer.objects.filter(submission=submission).delete()
+            for question_id, answer_value in answers.items():
+                try:
+                    question = FormQuestion.objects.get(id=question_id, form=form)
+                    if isinstance(answer_value, (list, dict)):
+                        FormAnswer.objects.create(
+                            submission=submission,
+                            question=question,
+                            answer_text="",
+                            answer_data=answer_value
+                        )
+                    else:
+                        FormAnswer.objects.create(
+                            submission=submission,
+                            question=question,
+                            answer_text=str(answer_value) if answer_value is not None else "",
+                            answer_data=None
+                        )
+                except FormQuestion.DoesNotExist:
+                    continue
+
+        response_payload = {
+            'message': (
+                f'{"File" if submission_mode == DynamicFormSubmission.MODE_FILE else "Form"} '
+                f'{"submitted" if status == "submitted" else "saved as draft"} successfully!'
+            ),
             'submission_id': submission.id,
             'status': submission.status,
             'section_id': assigned_section.id if assigned_section else None,
             'section': section_code,
-            'success': True
-        })
+            'success': True,
+        }
+        response_payload.update(submission_file_payload(submission))
+        return JsonResponse(response_payload)
         
     except Course.DoesNotExist:
         return JsonResponse({'error': 'Course not found'}, status=404)
@@ -1338,14 +1482,44 @@ def api_submit_dynamic_form(request):
         traceback.print_exc()
         return JsonResponse({'error': f'Submission failed: {str(e)}'}, status=400)
 
+
+@login_required
+@require_http_methods(["GET"])
+def api_submission_file_download(request, submission_id):
+    """Download an uploaded review-form file for a submission."""
+    try:
+        submission = DynamicFormSubmission.objects.select_related('faculty').get(id=submission_id)
+    except DynamicFormSubmission.DoesNotExist:
+        return JsonResponse({'error': 'Submission not found'}, status=404)
+
+    if is_faculty_or_lab_instructor(request.user) and submission.faculty_id != request.user.id:
+        return JsonResponse({'error': 'Access denied'}, status=403)
+    if request.user.role not in (
+        User.ROLE_FACULTY,
+        User.ROLE_LAB_INSTRUCTOR,
+        User.ROLE_ADMIN,
+        User.ROLE_CRC_MEMBER,
+    ):
+        return JsonResponse({'error': 'Access denied'}, status=403)
+
+    if not submission.uploaded_file:
+        return JsonResponse({'error': 'No file uploaded for this submission'}, status=404)
+
+    return FileResponse(
+        submission.uploaded_file.open('rb'),
+        as_attachment=True,
+        filename=os.path.basename(submission.uploaded_file.name),
+    )
+
+
 # Faculty Users API
 @login_required
 @user_passes_test(is_admin_or_crc)
 @require_http_methods(["GET"])
 def api_faculty_users(request):
     try:
-        faculty_users = list(User.objects.filter(role=User.ROLE_FACULTY).values(
-            'id', 'username', 'email', 'department', 'designation'
+        faculty_users = list(User.objects.filter(role__in=COURSE_ASSIGNEE_ROLES).values(
+            'id', 'username', 'email', 'department', 'designation', 'role'
         ))
         return JsonResponse({'results': faculty_users})
     except Exception as e:
@@ -1377,7 +1551,7 @@ def api_course_faculty_assignments(request, course_id):
 def api_faculty_course_assignments(request, user_id):
     """Return courses currently assigned to a faculty member (for Assign Courses UI)."""
     try:
-        faculty_member = User.objects.get(id=user_id, role=User.ROLE_FACULTY)
+        faculty_member = User.objects.get(id=user_id, role__in=COURSE_ASSIGNEE_ROLES)
         assignments = CourseFaculty.objects.filter(faculty=faculty_member).select_related(
             'course', 'course__department'
         ).prefetch_related('sections')
@@ -1490,7 +1664,7 @@ def api_crc_faculty_list(request):
         faculty_list = []
         
         # Get all faculty users
-        faculty_users = User.objects.filter(role=User.ROLE_FACULTY).prefetch_related('coursefaculty_set__course')
+        faculty_users = User.objects.filter(role__in=COURSE_ASSIGNEE_ROLES).prefetch_related('coursefaculty_set__course')
         
         for faculty in faculty_users:
             # Get course assignments
@@ -1516,6 +1690,7 @@ def api_crc_faculty_list(request):
                 'id': faculty.id,
                 'username': faculty.username,
                 'email': faculty.email,
+                'role': faculty.role,
                 'department': faculty.department,
                 'designation': faculty.designation,
                 'total_courses': len(assigned_courses),
@@ -1711,7 +1886,7 @@ def api_crc_form_submissions(request):
         status = request.GET.get('status')
         
         submissions = DynamicFormSubmission.objects.filter(
-            dynamic_form__form_type__in=['ccr', 'crr']  # Only universal forms
+            dynamic_form__form_type__in=UNIVERSAL_FORM_TYPES  # Only universal forms
         ).select_related(
             'faculty', 'course', 'dynamic_form', 'course__department'
         )
@@ -1728,12 +1903,29 @@ def api_crc_form_submissions(request):
         if status:
             submissions = submissions.filter(status=status)
         
-        submissions_list = list(submissions.order_by('-submission_date').values(
-            'id', 'faculty__username', 'faculty__email', 'faculty__department',
-            'course__code', 'course__title', 'course__department__name',
-            'dynamic_form__name', 'dynamic_form__form_type',
-            'status', 'is_coordinator', 'submission_date', 'section'
-        ))
+        submissions_list = []
+        for submission in submissions.order_by('-submission_date'):
+            row = {
+                'id': submission.id,
+                'faculty__username': submission.faculty.username,
+                'faculty__email': submission.faculty.email,
+                'faculty__department': submission.faculty.department,
+                'course__code': submission.course.code,
+                'course__title': submission.course.title,
+                'course__department__name': (
+                    submission.course.department.name
+                    if submission.course.department_id
+                    else None
+                ),
+                'dynamic_form__name': submission.dynamic_form.name,
+                'dynamic_form__form_type': submission.dynamic_form.form_type,
+                'status': submission.status,
+                'is_coordinator': submission.is_coordinator,
+                'submission_date': submission.submission_date,
+                'section': submission.section,
+            }
+            row.update(submission_file_payload(submission))
+            submissions_list.append(row)
         
         return JsonResponse(submissions_list, safe=False)
     except Exception as e:
@@ -2019,7 +2211,7 @@ def api_submission_details(request, submission_id):
         submission = DynamicFormSubmission.objects.get(id=submission_id)
         
         # Check permissions
-        if request.user.role == User.ROLE_FACULTY and submission.faculty != request.user:
+        if is_faculty_or_lab_instructor(request.user) and submission.faculty != request.user:
             return JsonResponse({'error': 'Access denied'}, status=403)
         
         # Get all answers for this submission
@@ -2037,8 +2229,10 @@ def api_submission_details(request, submission_id):
         
         return JsonResponse({
             'id': submission.id,
+            'course_id': submission.course_id,
             'course_code': submission.course.code,
             'course_title': submission.course.title,
+            'form_id': submission.dynamic_form_id,
             'form_name': submission.dynamic_form.name,
             'form_type': submission.dynamic_form.form_type,
             'faculty_name': submission.faculty.username,
@@ -2047,8 +2241,10 @@ def api_submission_details(request, submission_id):
             'is_coordinator': submission.is_coordinator,
             'status': submission.status,
             'section': submission.section,
-            'submission_date': submission.submission_date.strftime('%B %d, %Y at %I:%M %p'),
-            'answers': answers_data
+            'assigned_section_id': submission.assigned_section_id,
+            'submission_date': submission.submission_date.strftime('%B %d, %Y at %I:%M %p') if submission.submission_date else None,
+            'answers': answers_data,
+            **submission_file_payload(submission),
         })
         
     except DynamicFormSubmission.DoesNotExist:
@@ -2181,10 +2377,11 @@ def api_submission_pdf(request, submission_id):
     except DynamicFormSubmission.DoesNotExist:
         return JsonResponse({"error": "Submission not found"}, status=404)
 
-    if request.user.role == User.ROLE_FACULTY and submission.faculty_id != request.user.id:
+    if is_faculty_or_lab_instructor(request.user) and submission.faculty_id != request.user.id:
         return JsonResponse({"error": "Access denied"}, status=403)
     if request.user.role not in (
         User.ROLE_FACULTY,
+        User.ROLE_LAB_INSTRUCTOR,
         User.ROLE_ADMIN,
         User.ROLE_CRC_MEMBER,
     ):
@@ -2380,7 +2577,7 @@ def api_crc_dashboard_stats(request):
         # Total form submissions (UNIVERSAL FORMS ONLY)
         total_submissions = DynamicFormSubmission.objects.filter(
             status='submitted',
-            dynamic_form__form_type__in=['ccr', 'crr']
+            dynamic_form__form_type__in=UNIVERSAL_FORM_TYPES
         ).count()
         
         # Recent submissions (last 7 days) - UNIVERSAL FORMS ONLY
@@ -2388,21 +2585,22 @@ def api_crc_dashboard_stats(request):
         recent_submissions = DynamicFormSubmission.objects.filter(
             status='submitted',
             submission_date__gte=week_ago,
-            dynamic_form__form_type__in=['ccr', 'crr']  # Only universal forms
+            dynamic_form__form_type__in=UNIVERSAL_FORM_TYPES  # Only universal forms
         ).count()
         
         # Faculty with most submissions (UNIVERSAL FORMS ONLY)
         faculty_submission_counts = DynamicFormSubmission.objects.filter(
             status='submitted',
-            dynamic_form__form_type__in=['ccr', 'crr']  # Only universal forms
+            dynamic_form__form_type__in=UNIVERSAL_FORM_TYPES  # Only universal forms
         ).values('faculty__username').annotate(
             count=Count('id')
         ).order_by('-count')[:5]
         
-        # Forms status (active/inactive) - ONLY CCR and CRR
+        # Forms status (active/inactive)
         form_status = {
             'ccr_active': DynamicForm.objects.filter(form_type='ccr', status='active').exists(),
             'crr_active': DynamicForm.objects.filter(form_type='crr', status='active').exists(),
+            'lrr_active': DynamicForm.objects.filter(form_type='lrr', status='active').exists(),
         }
         
         # Departments with most courses
@@ -2528,7 +2726,7 @@ def api_admin_reset_faculty_password(request, user_id):
         if not new_password:
             return JsonResponse({'error': 'New password is required'}, status=400)
         
-        user = User.objects.get(id=user_id, role=User.ROLE_FACULTY)
+        user = User.objects.get(id=user_id, role__in=COURSE_ASSIGNEE_ROLES)
         user.set_password(new_password)
         user.save()
         
@@ -2547,14 +2745,14 @@ def api_admin_reset_faculty_password(request, user_id):
 @require_http_methods(["GET"])
 def api_faculty_submissions(request):
     """Get all submissions for the current faculty member (UNIVERSAL FORMS ONLY)"""
-    if request.user.role != User.ROLE_FACULTY:
+    if not is_faculty_or_lab_instructor(request.user):
         return JsonResponse({'error': 'Access denied'}, status=403)
     
     try:
         submissions = DynamicFormSubmission.objects.filter(
             faculty=request.user,
-            dynamic_form__form_type__in=['ccr', 'crr']  # Only universal forms
-        ).select_related('course', 'dynamic_form').order_by('-submission_date')
+            dynamic_form__form_type__in=UNIVERSAL_FORM_TYPES  # Only universal forms
+        ).select_related('course', 'dynamic_form', 'assigned_section').order_by('-submission_date')
         
         submissions_list = []
         for submission in submissions:
@@ -2577,7 +2775,9 @@ def api_faculty_submissions(request):
                 'is_coordinator': submission.is_coordinator,
                 'submission_date': submission.submission_date.isoformat() if submission.submission_date else None,
                 'answer_count': answer_count,
-                'section': submission.section
+                'section': submission.section,
+                'assigned_section_id': submission.assigned_section_id,
+                **submission_file_payload(submission),
             })
         
         return JsonResponse(submissions_list, safe=False)
@@ -2650,7 +2850,7 @@ def api_faculty_course_outlines(request):
 @require_http_methods(["POST"])
 def api_faculty_profile_update(request):
     """Update faculty profile information"""
-    if request.user.role != User.ROLE_FACULTY:
+    if not is_faculty_or_lab_instructor(request.user):
         return JsonResponse({'error': 'Access denied'}, status=403)
     
     try:
@@ -2686,13 +2886,13 @@ def api_faculty_profile_update(request):
 @require_http_methods(["GET"])
 def api_faculty_submissions_list(request):
     """Get all form submissions for the faculty member"""
-    if request.user.role != User.ROLE_FACULTY:
+    if not is_faculty_or_lab_instructor(request.user):
         return JsonResponse({'error': 'Access denied'}, status=403)
     
     try:
         submissions = DynamicFormSubmission.objects.filter(
             faculty=request.user
-        ).select_related('course', 'dynamic_form').order_by('-submission_date')
+        ).select_related('course', 'dynamic_form', 'assigned_section').order_by('-submission_date')
         
         submissions_list = []
         for submission in submissions:
@@ -2712,8 +2912,10 @@ def api_faculty_submissions_list(request):
                 'status': submission.status,
                 'is_coordinator': submission.is_coordinator,
                 'section': submission.section,
+                'assigned_section_id': submission.assigned_section_id,
                 'submission_date': submission.submission_date.isoformat() if submission.submission_date else None,
-                'answer_count': answer_count
+                'answer_count': answer_count,
+                **submission_file_payload(submission),
             })
         
         return JsonResponse(submissions_list, safe=False)
@@ -2882,12 +3084,14 @@ def api_faculty_course_outline_structure(request):
 @login_required
 @require_http_methods(["GET"])
 def api_faculty_form_availability(request):
-    """Check which forms are available for faculty for each course"""
-    if request.user.role != User.ROLE_FACULTY:
+    """Check which forms are available for faculty/lab instructors for each course"""
+    if not is_faculty_or_lab_instructor(request.user):
         return JsonResponse({'error': 'Access denied'}, status=403)
     
     try:
         course_id = request.GET.get('course_id')
+        is_lab_instructor = request.user.role == User.ROLE_LAB_INSTRUCTOR
+        is_faculty = request.user.role == User.ROLE_FACULTY
         
         # Check GLOBAL form availability
         ccr_active = DynamicForm.objects.filter(
@@ -2898,6 +3102,11 @@ def api_faculty_form_availability(request):
         crr_active = DynamicForm.objects.filter(
             status=DynamicForm.STATUS_ACTIVE,
             form_type='crr'
+        ).exists()
+
+        lrr_active = DynamicForm.objects.filter(
+            status=DynamicForm.STATUS_ACTIVE,
+            form_type='lrr'
         ).exists()
         
         if not course_id:
@@ -2915,17 +3124,20 @@ def api_faculty_form_availability(request):
                     'is_coordinator': assignment.is_coordinator,
                     'section': assignment.section_display(),
                     'forms_available': {
-                        'ccr': ccr_active and assignment.is_coordinator,
-                        'crr': crr_active
+                        'ccr': is_faculty and ccr_active and assignment.is_coordinator,
+                        'crr': is_faculty and crr_active,
+                        'lrr': is_lab_instructor and lrr_active,
                     }
                 })
             
             return JsonResponse({
                 'global_availability': {
-                    'ccr': ccr_active,
-                    'crr': crr_active
+                    'ccr': is_faculty and ccr_active,
+                    'crr': is_faculty and crr_active,
+                    'lrr': is_lab_instructor and lrr_active,
                 },
-                'courses': courses_data
+                'courses': courses_data,
+                'user_role': request.user.role,
             }, safe=False)
         else:
             # Check specific course
@@ -2939,9 +3151,11 @@ def api_faculty_form_availability(request):
                     'course_id': course_id,
                     'is_coordinator': assignment.is_coordinator,
                     'forms_available': {
-                        'ccr': ccr_active and assignment.is_coordinator,
-                        'crr': crr_active
-                    }
+                        'ccr': is_faculty and ccr_active and assignment.is_coordinator,
+                        'crr': is_faculty and crr_active,
+                        'lrr': is_lab_instructor and lrr_active,
+                    },
+                    'user_role': request.user.role,
                 })
                 
             except CourseFaculty.DoesNotExist:
@@ -3052,7 +3266,7 @@ def api_analysis_submissions_over_time(request):
 
         submissions = DynamicFormSubmission.objects.filter(
             submission_date__gte=earliest_week_start,
-            dynamic_form__form_type__in=['ccr', 'crr'],
+            dynamic_form__form_type__in=UNIVERSAL_FORM_TYPES,
         ).select_related('dynamic_form').order_by('submission_date')
 
         if selected_course_id:
@@ -3100,7 +3314,7 @@ def api_analysis_form_status(request):
 
         # Get status counts for universal forms
         status_queryset = DynamicFormSubmission.objects.filter(
-            dynamic_form__form_type__in=['ccr', 'crr']
+            dynamic_form__form_type__in=UNIVERSAL_FORM_TYPES
         )
 
         if selected_course_id:
@@ -3157,7 +3371,7 @@ def api_analysis_clo_achievement(request):
 
         # PART 1: Analyze form submissions (CCR/CRR forms)
         submissions = DynamicFormSubmission.objects.filter(
-            dynamic_form__form_type__in=['ccr', 'crr'],
+            dynamic_form__form_type__in=UNIVERSAL_FORM_TYPES,
             status__in=['submitted', 'approved']  # Only analyze submitted/approved forms
         ).prefetch_related('answers__question')
 
@@ -3838,7 +4052,7 @@ def api_analysis_detailed_clo(request, clo_number):
         # Get all answers related to this CLO
         answers = FormAnswer.objects.filter(
             question__question_text__icontains=f'clo{clo_number}',
-            submission__dynamic_form__form_type__in=['ccr', 'crr']
+            submission__dynamic_form__form_type__in=UNIVERSAL_FORM_TYPES
         ).select_related('submission', 'question', 'submission__course', 'submission__faculty')
         
         # Prepare detailed data
@@ -3983,7 +4197,7 @@ def api_analysis_clo_trends(request):
                     question__question_text__icontains=f'clo{clo_num}',
                     submission__submission_date__gte=quarter_start,
                     submission__submission_date__lt=quarter_end,
-                    submission__dynamic_form__form_type__in=['ccr', 'crr']
+                    submission__dynamic_form__form_type__in=UNIVERSAL_FORM_TYPES
                 )
                 
                 scores = []
@@ -4524,7 +4738,7 @@ def api_analysis_course_submissions(request):
 
         submissions = DynamicFormSubmission.objects.filter(
             course_id=selected_course_id,
-            dynamic_form__form_type__in=['ccr', 'crr'],
+            dynamic_form__form_type__in=UNIVERSAL_FORM_TYPES,
         ).select_related(
             'faculty', 'dynamic_form'
         ).prefetch_related('answers__question').order_by('-submission_date')
@@ -4640,7 +4854,7 @@ def api_analysis_clo_by_course(request):
             # Get form submissions for this course
             submissions = DynamicFormSubmission.objects.filter(
                 course=course,
-                dynamic_form__form_type__in=['ccr', 'crr'],
+                dynamic_form__form_type__in=UNIVERSAL_FORM_TYPES,
                 status__in=['submitted', 'approved']
             ).prefetch_related('answers__question')
             
@@ -5786,11 +6000,11 @@ def collect_data_for_ai(course_id, time_period):
     if course_id:
         submissions_queryset = DynamicFormSubmission.objects.filter(
             course_id=course_id,
-            dynamic_form__form_type__in=["ccr", "crr"],
+            dynamic_form__form_type__in=UNIVERSAL_FORM_TYPES,
         ).select_related("faculty", "dynamic_form", "course")
     else:
         submissions_queryset = DynamicFormSubmission.objects.filter(
-            dynamic_form__form_type__in=["ccr", "crr"]
+            dynamic_form__form_type__in=UNIVERSAL_FORM_TYPES
         ).select_related("faculty", "dynamic_form", "course")
 
     if time_period == "week":

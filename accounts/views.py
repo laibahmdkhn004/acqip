@@ -59,6 +59,7 @@ class CustomLoginView(LoginView):
             # Map display role to internal role code
             role_map = {
                 'Faculty': User.ROLE_FACULTY,
+                'Lab Instructor': User.ROLE_LAB_INSTRUCTOR,
                 'CRC': User.ROLE_CRC_MEMBER,
                 'Admin': User.ROLE_ADMIN,
             }
@@ -131,14 +132,14 @@ def logout_view(request):
 
 @login_required
 def dynamic_form(request):
-    if request.user.role != User.ROLE_FACULTY:
-        messages.error(request, "Only faculty members can submit forms.")
+    if request.user.role not in [User.ROLE_FACULTY, User.ROLE_LAB_INSTRUCTOR]:
+        messages.error(request, "Only faculty members and lab instructors can submit forms.")
         return redirect('dashboard')
     
     # Get form_id from URL if specified
     form_id = request.GET.get('form_id')
     
-    # Check UNIVERSAL form availability (CCR/CRR only)
+    # Check UNIVERSAL form availability (CCR/CRR/LRR)
     ccr_forms = DynamicForm.objects.filter(
         status=DynamicForm.STATUS_ACTIVE,
         form_type='ccr'
@@ -147,6 +148,11 @@ def dynamic_form(request):
     crr_forms = DynamicForm.objects.filter(
         status=DynamicForm.STATUS_ACTIVE,
         form_type='crr'
+    ).order_by('-created_at')
+
+    lrr_forms = DynamicForm.objects.filter(
+        status=DynamicForm.STATUS_ACTIVE,
+        form_type='lrr'
     ).order_by('-created_at')
     
     # Check if user is coordinator for ANY course
@@ -158,7 +164,7 @@ def dynamic_form(request):
     # Get assigned courses
     assigned_courses = CourseFaculty.objects.filter(
         faculty=request.user
-    ).select_related('course', 'course__department')
+    ).select_related('course', 'course__department').prefetch_related('sections')
     
     courses_data = []
     for assignment in assigned_courses:
@@ -168,11 +174,16 @@ def dynamic_form(request):
             'code': assignment.course.code,
             'department': assignment.course.department.name if assignment.course.department else '',
             'is_coordinator': assignment.is_coordinator,
-            'section': assignment.section_display()
+            'section': assignment.section_display(),
+            'sections': [
+                {'id': s.id, 'code': s.code, 'name': s.name}
+                for s in assignment.sections.all()
+            ],
         })
     
     # Check form type from URL
-    form_type = request.GET.get('form_type', 'crr')
+    default_form_type = 'lrr' if request.user.role == User.ROLE_LAB_INSTRUCTOR else 'crr'
+    form_type = request.GET.get('form_type', default_form_type)
     course_id = request.GET.get('course_id')
     
     # If course_id is provided in URL, pre-select it
@@ -197,9 +208,13 @@ def dynamic_form(request):
         'form_id': form_id,
         'ccr_forms': list(ccr_forms.values('id', 'name', 'description')),
         'crr_forms': list(crr_forms.values('id', 'name', 'description')),
-        'ccr_active': ccr_forms.exists(),
-        'crr_active': crr_forms.exists(),
+        'lrr_forms': list(lrr_forms.values('id', 'name', 'description')),
+        'ccr_active': ccr_forms.exists() and request.user.role == User.ROLE_FACULTY,
+        'crr_active': crr_forms.exists() and request.user.role == User.ROLE_FACULTY,
+        'lrr_active': lrr_forms.exists() and request.user.role == User.ROLE_LAB_INSTRUCTOR,
         'is_coordinator_for_any': is_coordinator_for_any,
+        'is_lab_instructor': request.user.role == User.ROLE_LAB_INSTRUCTOR,
+        'user_role': request.user.role,
         'user_department': request.user.department
     })
 
@@ -209,127 +224,40 @@ def dashboard(request):
     role = getattr(request.user, "role", None)
     
     if role == "admin":
-        template = "accounts/dashboard_admin.html"
         context = {
             'total_faculty': User.objects.filter(role=User.ROLE_FACULTY).count(),
             'total_courses': Course.objects.count(),
             'total_departments': Department.objects.count(),
             'total_submissions': DynamicFormSubmission.objects.filter(status='submitted').count(),
         }
+        return render(request, "accounts/dashboard_admin.html", context)
         
     elif role == "crc_member":
         return crc_dashboard(request)
+
+    elif role in (User.ROLE_FACULTY, User.ROLE_LAB_INSTRUCTOR):
+        return faculty_dashboard(request)
         
-    else:  # faculty
-        # Check if ANY active CCR or CRR forms exist globally
-        ccr_active = DynamicForm.objects.filter(status=DynamicForm.STATUS_ACTIVE, form_type='ccr').exists()
-        crr_active = DynamicForm.objects.filter(status=DynamicForm.STATUS_ACTIVE, form_type='crr').exists()
-        
-        # Get assigned courses
-        course_assignments = CourseFaculty.objects.filter(
-            faculty=request.user
-        ).select_related('course', 'course__department')
-        
-        assigned_courses = []
-        for assignment in course_assignments:
-            assigned_courses.append({
-                'id': assignment.course.id,
-                'title': assignment.course.title,
-                'code': assignment.course.code,
-                'description': assignment.course.description,
-                'credits': assignment.course.credits,
-                'department': assignment.course.department.name if assignment.course.department else '',
-                'department_code': assignment.course.department.code if assignment.course.department else '',
-                'is_coordinator': assignment.is_coordinator,
-                'section': assignment.section_display()
-            })
-        
-        # Get recent form submissions (only for universal CCR/CRR forms)
-        recent_submissions = DynamicFormSubmission.objects.filter(
-            faculty=request.user,
-            dynamic_form__form_type__in=['ccr', 'crr']  # Only universal forms
-        ).select_related('course', 'dynamic_form').order_by('-submission_date')[:5]
-        
-        # Format recent submissions
-        formatted_submissions = []
-        for sub in recent_submissions:
-            formatted_submissions.append({
-                'id': sub.id,
-                'course': {
-                    'id': sub.course.id,
-                    'title': sub.course.title,
-                    'code': sub.course.code
-                },
-                'dynamic_form': {
-                    'id': sub.dynamic_form.id,
-                    'name': sub.dynamic_form.name,
-                    'form_type': sub.dynamic_form.form_type
-                },
-                'status': sub.status,
-                'submission_date': sub.submission_date.strftime('%Y-%m-%d') if sub.submission_date else None,
-                'answer_count': FormAnswer.objects.filter(submission=sub).count()
-            })
-        
-        # Recent course outlines for courses this faculty is assigned to
-        assigned_course_ids = CourseFaculty.objects.filter(
-            faculty=request.user
-        ).values_list('course_id', flat=True)
-        course_outlines = CourseOutline.objects.filter(
-            course_id__in=assigned_course_ids
-        ).select_related('course').order_by('-created_at')[:5]
-        
-        formatted_outlines = []
-        for outline in course_outlines:
-            formatted_outlines.append({
-                'id': outline.id,
-                'course': {
-                    'id': outline.course.id,
-                    'title': outline.course.title,
-                    'code': outline.course.code
-                },
-                'version': outline.version,
-                'title': outline.title,
-                'status': outline.status,
-                'created_at': outline.created_at.strftime('%Y-%m-%d') if outline.created_at else None,
-                'is_current': outline.is_current
-            })
-        
-        # Check if user is coordinator for ANY course (for CCR access)
-        is_coordinator_for_any = CourseFaculty.objects.filter(
-            faculty=request.user,
-            is_coordinator=True
-        ).exists()
-        
-        context = {
-            'assigned_courses': assigned_courses,
-            'recent_submissions': formatted_submissions,
-            'total_submissions': DynamicFormSubmission.objects.filter(faculty=request.user).count(),
-            'course_outlines': formatted_outlines,
-            'ccr_active': ccr_active,
-            'crr_active': crr_active,
-            'is_coordinator_for_any': is_coordinator_for_any,
-            'user_department': request.user.department,
-            'user_designation': request.user.designation,
-        }
-        template = "accounts/dashboard_faculty.html"
-    
-    return render(request, template, context)
+    else:
+        messages.error(request, "Access denied.")
+        return redirect('landing')
+
 
 @login_required
 def ccr_submissions(request):
-    if request.user.role not in [User.ROLE_FACULTY, User.ROLE_ADMIN, User.ROLE_CRC_MEMBER]:
+    if request.user.role not in [User.ROLE_FACULTY, User.ROLE_LAB_INSTRUCTOR, User.ROLE_ADMIN, User.ROLE_CRC_MEMBER]:
         messages.error(request, "Access denied.")
         return redirect('dashboard')
     
-    # For faculty, only show their own submissions
-    if request.user.role == User.ROLE_FACULTY:
+    # For faculty/lab instructors, only show their own submissions
+    if request.user.role in (User.ROLE_FACULTY, User.ROLE_LAB_INSTRUCTOR):
         submissions = DynamicFormSubmission.objects.filter(
             faculty=request.user,
-            dynamic_form__form_type__in=['ccr', 'crr']  # Only universal forms
+            dynamic_form__form_type__in=['ccr', 'crr', 'lrr']  # Only universal forms
         ).select_related('course', 'dynamic_form').order_by('-submission_date')
     else:  # admin or crc_member can see all
         submissions = DynamicFormSubmission.objects.filter(
-            dynamic_form__form_type__in=['ccr', 'crr']  # Only universal forms
+            dynamic_form__form_type__in=['ccr', 'crr', 'lrr']  # Only universal forms
         ).select_related(
             'faculty', 'course', 'dynamic_form'
         ).order_by('-submission_date')
@@ -353,14 +281,21 @@ def ccr_submissions(request):
         status=DynamicForm.STATUS_ACTIVE,
         form_type='crr'
     ).exists()
+
+    lrr_active = DynamicForm.objects.filter(
+        status=DynamicForm.STATUS_ACTIVE,
+        form_type='lrr'
+    ).exists()
     
     return render(request, 'accounts/ccr_submissions.html', {
         'submissions': submissions_with_counts,
         'total_count': submissions.count(),
         'ccr_count': submissions.filter(dynamic_form__form_type='ccr').count(),
         'crr_count': submissions.filter(dynamic_form__form_type='crr').count(),
+        'lrr_count': submissions.filter(dynamic_form__form_type='lrr').count(),
         'ccr_active': ccr_active,
         'crr_active': crr_active,
+        'lrr_active': lrr_active,
         'user_role': request.user.role
     })
 
@@ -385,13 +320,13 @@ def crc_dashboard(request):
     # Get active forms (only universal CCR/CRR)
     active_forms = list(DynamicForm.objects.filter(
         status='active',
-        form_type__in=['ccr', 'crr']
+        form_type__in=['ccr', 'crr', 'lrr']
     ).values('name', 'form_type'))
     
     # Get recent submissions (last 10)
     recent_submissions = DynamicFormSubmission.objects.filter(
         status='submitted',
-        dynamic_form__form_type__in=['ccr', 'crr']  # Only universal forms
+        dynamic_form__form_type__in=['ccr', 'crr', 'lrr']  # Only universal forms
     ).select_related('faculty', 'course', 'dynamic_form').order_by('-submission_date')[:10]
     
     # Format recent submissions
@@ -447,7 +382,7 @@ def crc_dashboard(request):
         })
     
     # Get faculty list for filtering
-    faculty_list = User.objects.filter(role=User.ROLE_FACULTY).values('id', 'username', 'email')[:10]
+    faculty_list = User.objects.filter(role__in=[User.ROLE_FACULTY, User.ROLE_LAB_INSTRUCTOR]).values('id', 'username', 'email', 'role')[:20]
     
     # Get course list for filtering
     course_list = Course.objects.all().values('id', 'code', 'title')[:10]
@@ -469,20 +404,27 @@ def crc_dashboard(request):
 
 @login_required
 def faculty_dashboard(request):
-    if request.user.role != User.ROLE_FACULTY:
+    if request.user.role not in (User.ROLE_FACULTY, User.ROLE_LAB_INSTRUCTOR):
         messages.error(request, "Access denied.")
         return redirect('dashboard')
     
-    # Check UNIVERSAL form availability (CCR/CRR only)
+    is_lab_instructor = request.user.role == User.ROLE_LAB_INSTRUCTOR
+
+    # Check UNIVERSAL form availability (CCR/CRR/LRR)
     ccr_active = DynamicForm.objects.filter(
         status=DynamicForm.STATUS_ACTIVE,
         form_type='ccr'
-    ).exists()
+    ).exists() and not is_lab_instructor
     
     crr_active = DynamicForm.objects.filter(
         status=DynamicForm.STATUS_ACTIVE,
         form_type='crr'
-    ).exists()
+    ).exists() and not is_lab_instructor
+
+    lrr_active = DynamicForm.objects.filter(
+        status=DynamicForm.STATUS_ACTIVE,
+        form_type='lrr'
+    ).exists() and is_lab_instructor
     
     # Check if user is coordinator for ANY course (for CCR access)
     is_coordinator_for_any = CourseFaculty.objects.filter(
@@ -511,7 +453,7 @@ def faculty_dashboard(request):
     # Get recent form submissions (only for universal forms)
     recent_submissions = DynamicFormSubmission.objects.filter(
         faculty=request.user,
-        dynamic_form__form_type__in=['ccr', 'crr']
+        dynamic_form__form_type__in=['ccr', 'crr', 'lrr']
     ).select_related('course', 'dynamic_form').order_by('-submission_date')[:5]
     
     # Format recent submissions
@@ -541,7 +483,10 @@ def faculty_dashboard(request):
         'total_submissions': DynamicFormSubmission.objects.filter(faculty=request.user).count(),
         'ccr_active': ccr_active,
         'crr_active': crr_active,
+        'lrr_active': lrr_active,
         'is_coordinator_for_any': is_coordinator_for_any,
+        'is_lab_instructor': is_lab_instructor,
+        'user_role': request.user.role,
         'user_department': request.user.department,
         'user_designation': request.user.designation,
     }

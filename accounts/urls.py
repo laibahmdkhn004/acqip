@@ -103,6 +103,7 @@ urlpatterns = [
     # Submission Details
     path("api/submission-details/<int:submission_id>/", api_views.api_submission_details, name="api_submission_details"),
     path("api/submissions/<int:submission_id>/pdf/", api_views.api_submission_pdf, name="api_submission_pdf"),
+    path("api/submissions/<int:submission_id>/file/", api_views.api_submission_file_download, name="api_submission_file_download"),
     path("api/outlines/<int:outline_id>/pdf/", api_views.api_outline_pdf, name="api_outline_pdf"),
     
     # Faculty-specific APIs
